@@ -15,6 +15,13 @@
       "when": 1785310214579,
       "tag": "0001_add_notification_engine",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1785312621958,
+      "tag": "0002_big_vermin",
+      "breakpoints": true
     }
   ]
 }
