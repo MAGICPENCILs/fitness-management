@@ -5,3 +5,4 @@ export * from "./cards";
 export * from "./access-logs";
 export * from "./payments";
 export * from "./promotions";
+export * from "./coupon-codes";

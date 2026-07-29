@@ -11,6 +11,13 @@ const promotionSchema = z.object({
   value:       z.number().positive(),
   startDate:   z.string(),
   endDate:     z.string(),
+}).superRefine((value, context) => {
+  if (value.type === "DISCOUNT_PERCENT" && value.value > 100) {
+    context.addIssue({ code: "custom", path: ["value"], message: "เปอร์เซ็นต์ส่วนลดต้องไม่เกิน 100" });
+  }
+  if (new Date(value.endDate) < new Date(value.startDate)) {
+    context.addIssue({ code: "custom", path: ["endDate"], message: "วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น" });
+  }
 });
 
 // GET /api/promotions

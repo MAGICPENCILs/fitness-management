@@ -59,6 +59,8 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
         const isActive =
           item.href === "/"
             ? pathname === "/"
+            : item.href === "/settings"
+              ? pathname === "/settings"
             : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
         return (

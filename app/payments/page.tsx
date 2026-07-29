@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { members, packages, promotions } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 import { PaymentForm } from "@/components/payments/payment-form";
 
 export default async function PaymentsPage() {
@@ -19,10 +19,15 @@ export default async function PaymentsPage() {
     .from(packages)
     .where(eq(packages.isActive, true));
 
+  const today = new Date();
   const promotionList = await db
     .select()
     .from(promotions)
-    .where(eq(promotions.isActive, true));
+    .where(and(
+      eq(promotions.isActive, true),
+      lte(promotions.startDate, today),
+      gte(promotions.endDate, today),
+    ));
 
   return (
     <div className="w-full max-w-2xl space-y-6 p-4 sm:p-6 lg:p-8">
