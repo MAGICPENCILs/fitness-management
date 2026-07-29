@@ -8,3 +8,4 @@ export * from "./promotions";
 export * from "./coupon-codes";
 export * from "./notifications";
 export * from "./accounting";
+export * from "./lockers";
