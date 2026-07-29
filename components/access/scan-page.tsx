@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ScanLine, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { ScanLine, Loader2, CheckCircle2, TriangleAlert, XCircle } from "lucide-react";
 
 type ScanResult = {
   result: "APPROVED" | "REJECTED";
@@ -134,8 +134,9 @@ export function ScanPage() {
 
           {/* Warning */}
           {scanResult.warning && (
-            <div className="rounded-lg bg-yellow-100 border border-yellow-300 px-4 py-2 text-yellow-800 text-sm font-medium">
-              ⚠️ {scanResult.warning} — กรุณาต่ออายุ
+            <div className="flex items-center gap-2 rounded-lg border border-yellow-300 bg-yellow-100 px-4 py-2 text-sm font-medium text-yellow-800" role="status">
+              <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
+              <span>{scanResult.warning} — กรุณาต่ออายุ</span>
             </div>
           )}
 

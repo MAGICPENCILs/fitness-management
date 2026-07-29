@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  Bell,
   CreditCard,
   DoorOpen,
   Dumbbell,
@@ -32,6 +33,7 @@ const menuItems = [
   { href: "/access", label: "เข้าใช้บริการ", icon: DoorOpen },
   { href: "/reports", label: "รายงาน", icon: BarChart3 },
   { href: "/settings/promotions", label: "โปรโมชัน", icon: Tag },
+  { href: "/settings/notifications", label: "การแจ้งเตือน", icon: Bell },
   { href: "/settings", label: "ตั้งค่าระบบ", icon: Settings },
 ];
 

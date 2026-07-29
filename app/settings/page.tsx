@@ -10,6 +10,13 @@ const settings = [
     status: "พร้อมใช้งาน",
   },
   {
+    title: "การแจ้งเตือน",
+    description: "กำหนดวันเตือนก่อนหมดอายุ สมาชิกขาดการใช้งาน และช่องทางส่งข้อความ",
+    href: "/settings/notifications",
+    icon: Bell,
+    status: "พร้อมใช้งาน",
+  },
+  {
     title: "จุดสแกนและประตู",
     description: "ตรวจสอบการสแกนบัตรและสถานะการเข้าใช้บริการ",
     href: "/access",
@@ -19,7 +26,6 @@ const settings = [
 ];
 
 const upcoming = [
-  { title: "การแจ้งเตือน", description: "SMS, LINE OA และอีเมล", icon: Bell },
   { title: "สาขา", description: "ข้อมูลสาขาและเวลาเปิดให้บริการ", icon: Building2 },
   { title: "สิทธิ์พนักงาน", description: "บทบาท การอนุมัติ และ Audit log", icon: ShieldCheck },
   { title: "สำรองข้อมูล", description: "รอบสำรองข้อมูลและการกู้คืน", icon: Database },

@@ -3,6 +3,7 @@ import { cardPool, memberPackages, members, accessLogs } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { recordScanWarning } from "@/lib/notification-engine";
 
 const scanSchema = z.object({
   serial: z.string().min(1),
@@ -98,6 +99,16 @@ export async function POST(request: Request) {
       memberId: m.id, serial,
       result: "APPROVED", reason: null,
     });
+
+    // บันทึกคำเตือนลง Notification Engine แต่ไม่ขัดขวางการเปิดประตูหากการบันทึกล้มเหลว
+    if (daysLeft <= 7) {
+      await recordScanWarning({
+        memberId: m.id,
+        memberPackageId: activePkg.id,
+        daysLeft,
+        memberName: `${m.firstName} ${m.lastName}`,
+      }).catch((notificationError) => console.error("Failed to record scan warning", notificationError));
+    }
 
     // 7. ส่งผลกลับพร้อมข้อมูลสมาชิก
     return NextResponse.json({

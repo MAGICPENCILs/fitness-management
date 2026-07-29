@@ -8,6 +8,13 @@
       "when": 1785308322894,
       "tag": "0000_add_coupon_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1785310214579,
+      "tag": "0001_add_notification_engine",
+      "breakpoints": true
     }
   ]
 }
