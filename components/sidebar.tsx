@@ -16,6 +16,7 @@ import {
   Settings,
   Tag,
   Users,
+  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +38,7 @@ const menuItems = [
   { href: "/reports", label: "รายงาน", icon: BarChart3 },
   { href: "/accounting", label: "บัญชี", icon: BookOpenText },
   { href: "/lockers", label: "ล็อกเกอร์", icon: LockKeyhole },
+  { href: "/equipment", label: "อุปกรณ์", icon: Wrench },
   { href: "/settings/promotions", label: "โปรโมชัน", icon: Tag },
   { href: "/settings/notifications", label: "การแจ้งเตือน", icon: Bell },
   { href: "/settings", label: "ตั้งค่าระบบ", icon: Settings },
