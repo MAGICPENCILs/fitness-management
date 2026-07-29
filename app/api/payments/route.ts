@@ -29,6 +29,7 @@ const paymentSchema = z
     message: "เลือกใช้โปรโมชันหรือคูปองได้อย่างใดอย่างหนึ่ง",
   });
 
+/** โหลดประวัติการชำระเงินทั้งหมดสำหรับส่วนจัดการ */
 export async function GET() {
   try {
     return NextResponse.json(await db.select().from(payments));
@@ -38,6 +39,7 @@ export async function GET() {
   }
 }
 
+/** บันทึกการชำระเงิน ต่ออายุสมาชิก และใช้สิทธิ์คูปองภายใน transaction เดียว */
 export async function POST(request: Request) {
   try {
     const validated = paymentSchema.parse(await request.json());
@@ -89,6 +91,7 @@ export async function POST(request: Request) {
     expireDate.setDate(expireDate.getDate() + selectedPackage.durationDays + benefit.bonusDays);
     const receiptNumber = `REC${Date.now()}`;
 
+    // ล็อกสิทธิ์ด้วยการเพิ่มตัวนับแบบมีเงื่อนไข เพื่อไม่ให้ใช้คูปองเกินจำนวนเมื่อมีคำขอพร้อมกัน
     const result = await db.transaction(async (tx) => {
       if (couponQuote) {
         const counterResult = await tx

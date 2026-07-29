@@ -5,12 +5,14 @@ import { db } from "@/db";
 import { couponCodes, couponRedemptions, packages, promotions } from "@/db/schema";
 import { calculatePromotionBenefit, isPromotionAvailable } from "@/lib/promotion-benefit";
 
+/** ข้อผิดพลาดทางธุรกิจของคูปอง พร้อมสถานะ HTTP ที่ API นำไปใช้ได้ */
 export class CouponError extends Error {
   constructor(message: string, public status = 400) {
     super(message);
   }
 }
 
+/** ตรวจเงื่อนไขคูปองทั้งหมดและคืนยอดคำนวณจากราคาแพ็กเกจในฐานข้อมูล */
 export async function getCouponQuote({
   code,
   memberId,

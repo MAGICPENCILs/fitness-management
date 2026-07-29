@@ -52,12 +52,14 @@ const initialForm = {
   minPurchase: "0",
 };
 
+/** แปลงประเภทสิทธิประโยชน์เป็นข้อความภาษาไทยที่อ่านง่าย */
 function formatBenefit(type: string, value: string) {
   if (type === "DISCOUNT_AMOUNT") return `ลด ${Number(value).toLocaleString("th-TH")} บาท`;
   if (type === "DISCOUNT_PERCENT") return `ลด ${Number(value).toLocaleString("th-TH")}%`;
   return `เพิ่ม ${Number(value).toLocaleString("th-TH")} วัน`;
 }
 
+/** แสดงรายการคูปอง พร้อมฟอร์มสร้างและปุ่มเปิดหรือปิดการใช้งาน */
 export function CouponsManager({
   coupons,
   promotions,
@@ -72,10 +74,12 @@ export function CouponsManager({
   const [error, setError] = useState("");
   const [form, setForm] = useState(initialForm);
 
+  // อัปเดตค่าฟอร์มเฉพาะช่องที่ผู้ใช้แก้ไข
   const handleChange = (field: keyof typeof form, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
+  // ส่งข้อมูลคูปองใหม่และรีเฟรช Server Component เมื่อบันทึกสำเร็จ
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
@@ -104,6 +108,7 @@ export function CouponsManager({
     }
   };
 
+  // สลับสถานะคูปองโดยคงข้อมูลและประวัติการใช้งานเดิมไว้
   const handleToggle = async (coupon: CouponRow) => {
     setError("");
     setUpdatingId(coupon.id);

@@ -6,6 +6,7 @@ import { couponCodes } from "@/db/schema";
 
 const updateCouponSchema = z.object({ isActive: z.boolean() });
 
+/** เปิดหรือปิดการใช้งานคูปองตามรหัสภายในระบบ */
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;

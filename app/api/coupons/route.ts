@@ -12,6 +12,7 @@ const couponSchema = z.object({
   minPurchase: z.number().nonnegative().default(0),
 });
 
+/** โหลดรายการคูปองพร้อมข้อมูลโปรโมชันสำหรับหน้าจัดการคูปอง */
 export async function GET() {
   try {
     const result = await db
@@ -39,6 +40,7 @@ export async function GET() {
   }
 }
 
+/** ตรวจสอบข้อมูลและสร้างคูปองใหม่ โดยบังคับให้รหัสไม่ซ้ำกัน */
 export async function POST(request: Request) {
   try {
     const validated = couponSchema.parse(await request.json());

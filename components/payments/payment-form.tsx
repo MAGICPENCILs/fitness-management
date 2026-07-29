@@ -71,6 +71,7 @@ const initialForm = {
   startDate: new Date().toISOString().split("T")[0],
 };
 
+/** จัดการขั้นตอนเลือกสมาชิก แพ็กเกจ โปรโมชันหรือคูปอง และบันทึกการชำระเงิน */
 export function PaymentForm({
   members,
   packages,
@@ -107,11 +108,13 @@ export function PaymentForm({
       })()
     : null;
 
+  // อัปเดตข้อมูลการชำระเงินและล้างสถานะสำเร็จจากรายการก่อนหน้า
   const handleChange = (field: keyof typeof form, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
     setSuccess(null);
   };
 
+  // เลือกสมาชิกอัตโนมัติเมื่อสแกนหรือกรอกรหัสสมาชิกตรงกันพอดี
   const handleSearch = (value: string) => {
     setSearch(value);
     const normalized = value.trim().toLowerCase();
@@ -119,6 +122,7 @@ export function PaymentForm({
     if (found) handleChange("memberId", String(found.id));
   };
 
+  // ล้างโปรโมชันและคูปองเดิม เพราะสิทธิประโยชน์ต้องคำนวณใหม่ตามแพ็กเกจ
   const handlePackageChange = (value: string) => {
     handleChange("packageId", value);
     setPromotionId("");
@@ -127,6 +131,7 @@ export function PaymentForm({
     setCouponError("");
   };
 
+  // การเลือกโปรโมชันหน้าเคาน์เตอร์จะยกเลิกคูปอง เนื่องจากใช้ร่วมกันไม่ได้
   const handlePromotionChange = (value: string) => {
     setPromotionId(value);
     setCouponCode("");
@@ -134,12 +139,14 @@ export function PaymentForm({
     setCouponError("");
   };
 
+  // ทำรหัสเป็นตัวพิมพ์ใหญ่และยกเลิกผลตรวจเดิมเมื่อรหัสเปลี่ยน
   const handleCouponChange = (value: string) => {
     setCouponCode(value.toUpperCase());
     if (couponQuote) setCouponQuote(null);
     setCouponError("");
   };
 
+  // ตรวจสิทธิ์กับเซิร์ฟเวอร์ก่อนแสดงยอดสุทธิ แต่เซิร์ฟเวอร์จะตรวจซ้ำตอนชำระเงินจริง
   const validateCoupon = async () => {
     setCouponError("");
     if (!form.memberId || !form.packageId || !couponCode.trim()) {
@@ -169,6 +176,7 @@ export function PaymentForm({
     }
   };
 
+  // ส่งเฉพาะตัวเลือกของผู้ใช้ โดยให้เซิร์ฟเวอร์เป็นผู้กำหนดราคาและส่วนลดที่เชื่อถือได้
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");

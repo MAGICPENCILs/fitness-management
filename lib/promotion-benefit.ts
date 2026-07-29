@@ -12,12 +12,14 @@ type PromotionLike = {
   isActive?: boolean | null;
 };
 
+/** แปลงวันที่โปรโมชันเป็นเวลาท้องถิ่น และรองรับการนับวันสิ้นสุดแบบเต็มวัน */
 function toDate(value: string | Date, endOfDay = false) {
   const date = value instanceof Date ? new Date(value) : new Date(`${value}T00:00:00`);
   if (endOfDay) date.setHours(23, 59, 59, 999);
   return date;
 }
 
+/** ตรวจว่าโปรโมชันเปิดใช้งานและอยู่ในช่วงวันที่ที่กำหนด */
 export function isPromotionAvailable(promotion: PromotionLike, now = new Date()) {
   return (
     promotion.isActive !== false &&
@@ -26,6 +28,7 @@ export function isPromotionAvailable(promotion: PromotionLike, now = new Date())
   );
 }
 
+/** คำนวณส่วนลด วันโบนัส และยอดสุทธิ โดยไม่ให้ยอดติดลบ */
 export function calculatePromotionBenefit(
   originalAmount: number,
   promotion?: Pick<PromotionLike, "type" | "value"> | null,

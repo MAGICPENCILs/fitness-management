@@ -8,6 +8,7 @@ const validateCouponSchema = z.object({
   packageId: z.number().int().positive(),
 });
 
+/** ตรวจสิทธิ์คูปองกับสมาชิกและแพ็กเกจก่อนนำไปชำระเงินจริง */
 export async function POST(request: Request) {
   try {
     const validated = validateCouponSchema.parse(await request.json());
