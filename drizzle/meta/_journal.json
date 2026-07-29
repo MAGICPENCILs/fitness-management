@@ -43,6 +43,13 @@
       "when": 1785323540063,
       "tag": "0005_lonely_songbird",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1785324794592,
+      "tag": "0006_known_stellaris",
+      "breakpoints": true
     }
   ]
 }

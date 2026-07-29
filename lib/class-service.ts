@@ -4,6 +4,8 @@ import {
   classBookings,
   fitnessClasses,
   members,
+  ptPackages,
+  ptSessions,
   trainers,
 } from "@/db/schema";
 
@@ -171,7 +173,21 @@ export async function createFitnessClass(input: {
         ),
       )
       .limit(1);
-    if (overlap)
+    const [ptOverlap] = await tx
+      .select({ id: ptSessions.id })
+      .from(ptSessions)
+      .innerJoin(ptPackages, eq(ptSessions.packageId, ptPackages.id))
+      .where(
+        and(
+          eq(ptPackages.trainerId, input.trainerId),
+          eq(ptSessions.scheduledDate, input.classDate),
+          ne(ptSessions.status, "CANCELLED"),
+          lt(ptSessions.startTime, input.endTime),
+          gt(ptSessions.endTime, input.startTime),
+        ),
+      )
+      .limit(1);
+    if (overlap || ptOverlap)
       throw new ClassOperationError(
         "เทรนเนอร์มีตารางสอนทับซ้อนในช่วงเวลานี้",
         409,

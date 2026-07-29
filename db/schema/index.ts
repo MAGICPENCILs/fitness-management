@@ -11,3 +11,4 @@ export * from "./accounting";
 export * from "./lockers";
 export * from "./equipment";
 export * from "./classes";
+export * from "./personal-training";
