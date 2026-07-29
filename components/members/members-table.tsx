@@ -25,7 +25,7 @@ export function MembersTable({ data }: { data: Member[] }) {
   const router = useRouter();
 
   return (
-    <div className="border rounded-lg">
+    <div>
       <Table>
         <TableHeader>
           <TableRow>
@@ -72,8 +72,9 @@ export function MembersTable({ data }: { data: Member[] }) {
                     variant="ghost"
                     size="sm"
                     onClick={() => router.push(`/members/${member.id}`)}
+                    aria-label={`ดูข้อมูลสมาชิก ${member.firstName} ${member.lastName}`}
                   >
-                    <Eye className="w-4 h-4" />
+                    <Eye className="w-4 h-4" aria-hidden="true" />
                   </Button>
                 </TableCell>
               </TableRow>

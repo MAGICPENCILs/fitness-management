@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ScanLine, Loader2, CheckCircle2, TriangleAlert, XCircle } from "lucide-react";
 
 type ScanResult = {
@@ -20,11 +19,13 @@ type ScanResult = {
   };
 };
 
+/** รับรหัสบัตรและแสดงผลอนุญาตเข้าใช้บริการด้วยสถานะที่อ่านได้ทั้งสองโหมดสี */
 export function ScanPage() {
   const [serial, setSerial] = useState("");
   const [loading, setLoading] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
 
+  /** ส่งรหัสบัตรที่ตัดช่องว่างแล้วไปตรวจสิทธิ์ โดยคงผลตอบกลับของเซิร์ฟเวอร์เป็นแหล่งข้อมูลหลัก */
   const handleScan = async () => {
     if (!serial.trim()) return;
     setLoading(true);
@@ -41,26 +42,29 @@ export function ScanPage() {
     }
   };
 
+  /** รองรับการกด Enter เพื่อให้เครื่องสแกนและผู้ใช้คีย์บอร์ดส่งรหัสได้ทันที */
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") handleScan();
   };
 
+  /** ล้างผลเดิมก่อนรับสมาชิกคนถัดไป เพื่อลดความเสี่ยงในการอ่านข้อมูลผิดคน */
   const handleReset = () => {
     setScanResult(null);
     setSerial("");
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-lg mx-auto">
+    <div className="mx-auto max-w-lg space-y-6 p-4 sm:p-6 lg:p-8">
       <div>
-        <h1 className="text-2xl font-bold">สแกนเข้าใช้บริการ</h1>
+        <p className="mb-1 text-sm font-medium text-info">Access control</p>
+        <h1 className="text-balance text-2xl font-bold sm:text-3xl">สแกนเข้าใช้บริการ</h1>
         <p className="text-muted-foreground text-sm">
           สแกน QR Code หรือพิมพ์รหัสบัตร
         </p>
       </div>
 
       {/* Input สแกน */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 rounded-xl border border-info/20 bg-card p-4 shadow-sm">
         <Input
           placeholder="รหัสบัตร เช่น C001"
           value={serial}
@@ -81,18 +85,18 @@ export function ScanPage() {
       {scanResult && (
         <div className={`rounded-2xl border-2 p-6 space-y-4 transition-all ${
           scanResult.result === "APPROVED"
-            ? "border-green-400 bg-green-50"
-            : "border-red-400 bg-red-50"
+            ? "border-success/40 bg-success-surface"
+            : "border-destructive/40 bg-destructive/10"
         }`}>
           {/* Icon + ผล */}
           <div className="flex items-center gap-3">
             {scanResult.result === "APPROVED"
-              ? <CheckCircle2 className="w-10 h-10 text-green-500" />
-              : <XCircle className="w-10 h-10 text-red-500" />
+              ? <CheckCircle2 className="w-10 h-10 text-success" />
+              : <XCircle className="w-10 h-10 text-destructive" />
             }
             <div>
               <div className={`text-xl font-bold ${
-                scanResult.result === "APPROVED" ? "text-green-700" : "text-red-700"
+                scanResult.result === "APPROVED" ? "text-success" : "text-destructive"
               }`}>
                 {scanResult.result === "APPROVED" ? "อนุญาตเข้าใช้บริการ" : "ไม่อนุญาต"}
               </div>
@@ -104,15 +108,15 @@ export function ScanPage() {
 
           {/* ข้อมูลสมาชิก */}
           {scanResult.member && (
-            <div className="flex items-center gap-4 pt-2 border-t border-green-200">
+            <div className="flex items-center gap-4 border-t border-success/25 pt-2">
               {scanResult.member.photoUrl ? (
                 <img
                   src={scanResult.member.photoUrl}
                   alt="photo"
-                  className="w-16 h-16 rounded-full object-cover border-2 border-green-300"
+                  className="w-16 h-16 rounded-full border-2 border-success/40 object-cover"
                 />
               ) : (
-                <div className="w-16 h-16 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold text-xl">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-success/15 text-xl font-bold text-success">
                   {scanResult.member.firstName[0]}
                 </div>
               )}
@@ -134,7 +138,7 @@ export function ScanPage() {
 
           {/* Warning */}
           {scanResult.warning && (
-            <div className="flex items-center gap-2 rounded-lg border border-yellow-300 bg-yellow-100 px-4 py-2 text-sm font-medium text-yellow-800" role="status">
+            <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning-surface px-4 py-2 text-sm font-medium text-warning-foreground" role="status">
               <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
               <span>{scanResult.warning} — กรุณาต่ออายุ</span>
             </div>

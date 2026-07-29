@@ -254,8 +254,7 @@ export function AddMemberDialog() {
 
                     {/* แสดง expire date */}
                     {selectedPkg && form.startDate && (
-                        <div className="rounded-lg p-3 text-sm"
-                            style={{ background: "#ede9fe", color: "#4f46e5" }}>
+                          <div className="rounded-lg bg-accent p-3 text-sm text-accent-foreground">
                             วันหมดอายุ: {(() => {
                                 const d = new Date(form.startDate);
                                 d.setDate(d.getDate() + selectedPkg.durationDays);

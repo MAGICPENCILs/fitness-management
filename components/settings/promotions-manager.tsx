@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Loader2, Tag } from "lucide-react";
 import { Promotion } from "@/db/schema";
+import { cn } from "@/lib/utils";
 
 const typeLabel: Record<string, string> = {
   DISCOUNT_AMOUNT:  "ลดเป็นจำนวนเงิน",
@@ -207,16 +208,12 @@ export function PromotionsManager({ data }: { data: Promotion[] }) {
 
               {/* ขวา — Badge + ปุ่ม */}
               <div className="flex items-center gap-2">
-                <Badge variant="outline"
-                  style={promo.isActive ? {
-                    background: "#dcfce7",
-                    color: "#16a34a",
-                    border: "1px solid #86efac",
-                  } : {
-                    background: "#fee2e2",
-                    color: "#dc2626",
-                    border: "1px solid #fca5a5",
-                  }}>
+                <Badge
+                  variant="outline"
+                  className={promo.isActive
+                    ? "border-success/30 bg-success-surface text-success"
+                    : "border-destructive/30 bg-destructive/10 text-destructive"}
+                >
                   {promo.isActive ? "เปิดใช้งาน" : "ปิดแล้ว"}
                 </Badge>
 
@@ -224,13 +221,12 @@ export function PromotionsManager({ data }: { data: Promotion[] }) {
                   variant="outline"
                   size="sm"
                   onClick={() => handleToggle(promo.id, promo.isActive ?? true)}
-                  style={promo.isActive ? {
-                    color: "#dc2626",
-                    borderColor: "#fca5a5",
-                  } : {
-                    color: "#16a34a",
-                    borderColor: "#86efac",
-                  }}>
+                  className={cn(
+                    promo.isActive
+                      ? "border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      : "border-success/30 text-success hover:bg-success-surface hover:text-success",
+                  )}
+                >
                   {promo.isActive ? "ปิด" : "เปิด"}
                 </Button>
               </div>

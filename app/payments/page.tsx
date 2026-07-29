@@ -32,6 +32,7 @@ export default async function PaymentsPage() {
   return (
     <div className="w-full max-w-2xl space-y-6 p-4 sm:p-6 lg:p-8">
       <div>
+        <p className="mb-1 text-sm font-medium text-primary">จุดรับชำระและต่ออายุ</p>
         <h1 className="text-balance text-2xl font-bold sm:text-3xl">ชำระเงิน</h1>
         <p className="text-muted-foreground text-sm">
           บันทึกการชำระเงินและต่ออายุแพ็กเกจ

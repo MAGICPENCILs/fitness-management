@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatCard } from "@/components/ui/stat-card";
 import {
   Select,
   SelectContent,
@@ -278,39 +279,27 @@ export function LockerManager({
             label: "ล็อกเกอร์ทั้งหมด",
             value: lockers.length,
             icon: LockKeyhole,
+            tone: "primary" as const,
           },
           {
             label: "ว่างพร้อมใช้",
             value: availableLockers.length,
             icon: Check,
+            tone: "success" as const,
           },
           {
             label: "กำลังใช้งาน",
             value: occupiedLockers.length,
             icon: UserRound,
+            tone: "info" as const,
           },
           {
             label: "เช่ารายเดือน",
             value: monthlyRentals.length,
             icon: CalendarDays,
+            tone: "warning" as const,
           },
-        ].map((item) => {
-          const Icon = item.icon;
-          return (
-            <article
-              key={item.label}
-              className="rounded-xl border bg-card p-5 shadow-sm"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">{item.label}</p>
-                <Icon className="size-5 text-primary" aria-hidden="true" />
-              </div>
-              <p className="mt-2 text-2xl font-bold tabular-nums">
-                {item.value.toLocaleString("th-TH")}
-              </p>
-            </article>
-          );
-        })}
+        ].map((item) => <StatCard key={item.label} {...item} value={item.value.toLocaleString("th-TH")} />)}
       </section>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -608,7 +597,7 @@ export function LockerManager({
 
       <div aria-live="polite" aria-atomic="true">
         {feedback?.type === "success" ? (
-          <p className="text-sm text-emerald-700" role="status">
+          <p className="text-sm text-success" role="status">
             {feedback.message}
           </p>
         ) : null}

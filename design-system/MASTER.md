@@ -9,11 +9,20 @@
 
 ## Visual language
 
-- Use a light slate background with white surfaces and one indigo accent per view.
-- Use green, amber, and red only for semantic status, always paired with text or an icon.
+- Support composed Light and Dark themes through semantic OKLCH tokens; never invert colors mechanically.
+- Use indigo for primary actions, cyan for information, emerald for success, amber for attention, and red for destructive states.
+- Give summary cards a restrained colored top edge and tinted icon surface; keep data and actions more prominent than decoration.
+- Use semantic colors only with text, an icon, or position so meaning never depends on color alone.
 - Do not use gradients, glows, decorative blur, or emoji as interface icons.
 - Use Lucide outline icons consistently.
 - Use the existing radius and shadow tokens; cards use `rounded-xl`, `border`, and `shadow-sm`.
+
+## Theme tokens
+
+- Canvas and elevated surfaces use `background`, `card`, and `popover`; each theme defines elevation independently.
+- Primary, success, warning, information, and destructive roles use their paired foreground or surface tokens.
+- Charts use `chart-1` through `chart-4`, with labels and grid lines mapped to theme-aware text and border tokens.
+- All dialogs, dropdowns, focus rings, and scrollbars must remain legible in both modes.
 
 ## Typography and numbers
 

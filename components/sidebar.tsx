@@ -27,6 +27,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const menuItems = [
   { href: "/", label: "ภาพรวม", icon: LayoutDashboard },
@@ -77,7 +78,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
             aria-current={isActive ? "page" : undefined}
             className={cn(
               "flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
-              isActive && "bg-accent text-accent-foreground",
+              isActive && "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm",
             )}
           >
             <Icon className="size-5 shrink-0" aria-hidden="true" />
@@ -95,9 +96,11 @@ export function Sidebar() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 flex min-h-16 items-center justify-between border-b bg-card px-4 md:hidden">
+      <header className="sticky top-0 z-40 flex min-h-16 items-center justify-between border-b bg-card/95 px-4 backdrop-blur-md md:hidden">
         <Brand />
-        <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
           <DialogTrigger asChild>
             <Button variant="outline" size="icon" className="size-11" aria-label="เปิดเมนูหลัก">
               <Menu className="size-5" aria-hidden="true" />
@@ -112,10 +115,11 @@ export function Sidebar() {
               <Navigation onNavigate={() => setMobileOpen(false)} />
             </div>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </header>
 
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r bg-card md:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r bg-sidebar text-sidebar-foreground md:flex">
         <div className="border-b p-5">
           <Brand />
         </div>
@@ -123,7 +127,10 @@ export function Sidebar() {
           <p className="px-3 pb-2 pt-1 text-xs font-semibold text-muted-foreground">เมนูหลัก</p>
           <Navigation />
         </div>
-        <div className="border-t p-4 text-center text-xs text-muted-foreground">Fitness Pro v1.0.0</div>
+        <div className="flex items-center justify-between gap-3 border-t p-4">
+          <span className="text-xs text-muted-foreground">Fitness Pro v1.0.0</span>
+          <ThemeToggle />
+        </div>
       </aside>
     </>
   );

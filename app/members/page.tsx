@@ -10,12 +10,15 @@ export default async function MembersPage() {
     <div className="mx-auto w-full max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
+          <p className="mb-1 text-sm font-medium text-primary">ฐานข้อมูลลูกค้า</p>
           <h1 className="text-balance text-2xl font-bold sm:text-3xl">สมาชิก</h1>
           <p className="text-muted-foreground text-sm">ทั้งหมด {data.length} คน</p>
         </div>
         <AddMemberDialog />
       </div>
-      <MembersTable data={data} />
+      <div className="overflow-hidden rounded-xl border border-primary/15 bg-card shadow-sm">
+        <MembersTable data={data} />
+      </div>
     </div>
   );
 }

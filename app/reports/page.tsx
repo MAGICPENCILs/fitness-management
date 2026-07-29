@@ -3,6 +3,7 @@ import { Banknote, CreditCard, DoorOpen, ReceiptText } from "lucide-react";
 import { db } from "@/db";
 import { accessLogs, members, payments } from "@/db/schema";
 import { Badge } from "@/components/ui/badge";
+import { StatCard } from "@/components/ui/stat-card";
 import {
   Table,
   TableBody,
@@ -60,10 +61,10 @@ export default async function ReportsPage() {
   const approvedAccess = recentAccess.filter((log) => log.result === "APPROVED").length;
 
   const stats = [
-    { label: "รายรับสะสม", value: money.format(totalRevenue), icon: Banknote },
-    { label: "รายการชำระสำเร็จ", value: `${paidPayments.length.toLocaleString("th-TH")} รายการ`, icon: CreditCard },
-    { label: "ยอดเฉลี่ยต่อใบเสร็จ", value: money.format(averageReceipt), icon: ReceiptText },
-    { label: "สแกนผ่านล่าสุด", value: `${approvedAccess.toLocaleString("th-TH")} ครั้ง`, icon: DoorOpen },
+    { label: "รายรับสะสม", value: money.format(totalRevenue), icon: Banknote, tone: "success" as const },
+    { label: "รายการชำระสำเร็จ", value: `${paidPayments.length.toLocaleString("th-TH")} รายการ`, icon: CreditCard, tone: "primary" as const },
+    { label: "ยอดเฉลี่ยต่อใบเสร็จ", value: money.format(averageReceipt), icon: ReceiptText, tone: "warning" as const },
+    { label: "สแกนผ่านล่าสุด", value: `${approvedAccess.toLocaleString("th-TH")} ครั้ง`, icon: DoorOpen, tone: "info" as const },
   ];
 
   return (
@@ -79,22 +80,7 @@ export default async function ReportsPage() {
       <section aria-labelledby="report-summary-heading">
         <h2 id="report-summary-heading" className="sr-only">สรุปรายงาน</h2>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {stats.map((stat) => {
-            const Icon = stat.icon;
-            return (
-              <article key={stat.label} className="rounded-xl border bg-card p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">{stat.label}</p>
-                    <p className="mt-2 text-xl font-bold tabular-nums">{stat.value}</p>
-                  </div>
-                  <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-                    <Icon className="size-5" aria-hidden="true" />
-                  </span>
-                </div>
-              </article>
-            );
-          })}
+          {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
         </div>
       </section>
 

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { StatCard } from "@/components/ui/stat-card";
 import { accountingMethodLabels, expenseCategoryLabels, ExpenseCategory } from "@/lib/accounting-constants";
 
 type Transaction = {
@@ -100,10 +101,10 @@ export function AccountingManager({ initialSnapshot, today }: { initialSnapshot:
   };
 
   const stats = [
-    { label: "รายรับ", value: snapshot.summary.totalIncome, icon: ArrowDownLeft, tone: "text-emerald-700" },
-    { label: "รายจ่าย", value: snapshot.summary.totalExpense, icon: ArrowUpRight, tone: "text-destructive" },
-    { label: "กำไรสุทธิ", value: snapshot.summary.netProfit, icon: Scale, tone: snapshot.summary.netProfit >= 0 ? "text-emerald-700" : "text-destructive" },
-    { label: "เงินสดสุทธิ", value: snapshot.summary.cashIncome - snapshot.summary.cashExpense, icon: Banknote, tone: "text-primary" },
+    { label: "รายรับ", value: snapshot.summary.totalIncome, icon: ArrowDownLeft, tone: "success" as const },
+    { label: "รายจ่าย", value: snapshot.summary.totalExpense, icon: ArrowUpRight, tone: "destructive" as const },
+    { label: "กำไรสุทธิ", value: snapshot.summary.netProfit, icon: Scale, tone: snapshot.summary.netProfit >= 0 ? "success" as const : "destructive" as const },
+    { label: "เงินสดสุทธิ", value: snapshot.summary.cashIncome - snapshot.summary.cashExpense, icon: Banknote, tone: "info" as const },
   ];
 
   return (
@@ -120,7 +121,7 @@ export function AccountingManager({ initialSnapshot, today }: { initialSnapshot:
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="สรุปบัญชีตามช่วงวันที่">
-        {stats.map((stat) => { const Icon = stat.icon; return <article key={stat.label} className="rounded-xl border bg-card p-5 shadow-sm"><div className="flex items-center justify-between gap-3"><p className="text-sm text-muted-foreground">{stat.label}</p><Icon className={`size-5 ${stat.tone}`} aria-hidden="true" /></div><p className={`mt-2 text-2xl font-bold tabular-nums ${stat.tone}`}>{money.format(stat.value)}</p></article>; })}
+        {stats.map((stat) => <StatCard key={stat.label} label={stat.label} value={money.format(stat.value)} icon={stat.icon} tone={stat.tone} />)}
       </section>
 
       <div className="grid items-start gap-6 xl:grid-cols-2">
@@ -150,12 +151,12 @@ export function AccountingManager({ initialSnapshot, today }: { initialSnapshot:
       </div>
 
       <div aria-live="polite" aria-atomic="true">
-        {loading ? <p className="text-sm text-muted-foreground" role="status">กำลังประมวลผลข้อมูลบัญชี…</p> : feedback ? <p className={feedback.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-700"} role={feedback.type === "error" ? "alert" : "status"}>{feedback.message}</p> : null}
+        {loading ? <p className="text-sm text-muted-foreground" role="status">กำลังประมวลผลข้อมูลบัญชี…</p> : feedback ? <p className={feedback.type === "error" ? "text-sm text-destructive" : "text-sm text-success"} role={feedback.type === "error" ? "alert" : "status"}>{feedback.message}</p> : null}
       </div>
 
       <section aria-labelledby="transactions-heading">
         <div className="mb-3"><h2 id="transactions-heading" className="text-balance text-lg font-semibold">สมุดรายการ</h2><p className="text-pretty text-sm text-muted-foreground">รายรับถูกบันทึกอัตโนมัติจากการชำระเงิน ส่วนรายจ่ายมาจากฟอร์มด้านบน</p></div>
-        {snapshot.transactions.length ? <div className="overflow-x-auto rounded-xl border bg-card shadow-sm"><Table><TableHeader><TableRow><TableHead>วันที่</TableHead><TableHead>ประเภท</TableHead><TableHead>รายละเอียด</TableHead><TableHead>ช่องทาง</TableHead><TableHead>อ้างอิง</TableHead><TableHead className="text-right">จำนวนเงิน</TableHead></TableRow></TableHeader><TableBody>{snapshot.transactions.map((item) => <TableRow key={item.id}><TableCell className="whitespace-nowrap tabular-nums">{formatDate(item.date)}</TableCell><TableCell><Badge variant={item.type === "INCOME" ? "default" : "secondary"}>{item.type === "INCOME" ? "รายรับ" : "รายจ่าย"}</Badge></TableCell><TableCell><p className="max-w-80 truncate font-medium">{item.description}</p><p className="text-xs text-muted-foreground">{item.category === "MEMBERSHIP" ? "ค่าสมาชิก" : expenseCategoryLabels[item.category]}</p></TableCell><TableCell className="whitespace-nowrap">{accountingMethodLabels[item.method]}</TableCell><TableCell className="max-w-40 truncate tabular-nums">{item.referenceNumber || "-"}</TableCell><TableCell className={`text-right font-semibold tabular-nums ${item.type === "INCOME" ? "text-emerald-700" : "text-destructive"}`}>{item.type === "INCOME" ? "+" : "-"}{money.format(item.amount)}</TableCell></TableRow>)}</TableBody></Table></div> : <div className="rounded-xl border border-dashed bg-card p-8 text-center"><Banknote className="mx-auto size-8 text-muted-foreground" aria-hidden="true" /><p className="mt-3 font-medium">ยังไม่มีรายการในช่วงนี้</p><p className="mt-1 text-pretty text-sm text-muted-foreground">เลือกช่วงเวลาอื่น หรือบันทึกรายจ่ายรายการแรกจากฟอร์มด้านบน</p></div>}
+        {snapshot.transactions.length ? <div className="overflow-x-auto rounded-xl border bg-card shadow-sm"><Table><TableHeader><TableRow><TableHead>วันที่</TableHead><TableHead>ประเภท</TableHead><TableHead>รายละเอียด</TableHead><TableHead>ช่องทาง</TableHead><TableHead>อ้างอิง</TableHead><TableHead className="text-right">จำนวนเงิน</TableHead></TableRow></TableHeader><TableBody>{snapshot.transactions.map((item) => <TableRow key={item.id}><TableCell className="whitespace-nowrap tabular-nums">{formatDate(item.date)}</TableCell><TableCell><Badge variant={item.type === "INCOME" ? "default" : "secondary"}>{item.type === "INCOME" ? "รายรับ" : "รายจ่าย"}</Badge></TableCell><TableCell><p className="max-w-80 truncate font-medium">{item.description}</p><p className="text-xs text-muted-foreground">{item.category === "MEMBERSHIP" ? "ค่าสมาชิก" : expenseCategoryLabels[item.category]}</p></TableCell><TableCell className="whitespace-nowrap">{accountingMethodLabels[item.method]}</TableCell><TableCell className="max-w-40 truncate tabular-nums">{item.referenceNumber || "-"}</TableCell><TableCell className={`text-right font-semibold tabular-nums ${item.type === "INCOME" ? "text-success" : "text-destructive"}`}>{item.type === "INCOME" ? "+" : "-"}{money.format(item.amount)}</TableCell></TableRow>)}</TableBody></Table></div> : <div className="rounded-xl border border-dashed bg-card p-8 text-center"><Banknote className="mx-auto size-8 text-muted-foreground" aria-hidden="true" /><p className="mt-3 font-medium">ยังไม่มีรายการในช่วงนี้</p><p className="mt-1 text-pretty text-sm text-muted-foreground">เลือกช่วงเวลาอื่น หรือบันทึกรายจ่ายรายการแรกจากฟอร์มด้านบน</p></div>}
       </section>
     </div>
   );

@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import { Banknote, RefreshCw, TrendingUp, UserCheck, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StatCard } from "@/components/ui/stat-card";
 
 import type { DashboardData } from "@/lib/dashboard-data";
 
@@ -58,10 +59,10 @@ export function DashboardPage({ initialData }: { initialData: DashboardData }) {
 
   const monthlyRevenue = data.monthly.at(-1)?.revenue ?? 0;
   const stats = [
-        { label: "สมาชิกทั้งหมด", value: data.totalMembers.toLocaleString("th-TH"), icon: Users },
-        { label: "สมาชิกที่ใช้งาน", value: data.activeMembers.toLocaleString("th-TH"), icon: UserCheck },
-        { label: "รายรับวันนี้", value: money.format(data.todayRevenue), icon: Banknote },
-        { label: "รายรับเดือนนี้", value: money.format(monthlyRevenue), icon: TrendingUp },
+        { label: "สมาชิกทั้งหมด", value: data.totalMembers.toLocaleString("th-TH"), icon: Users, tone: "primary" as const },
+        { label: "สมาชิกที่ใช้งาน", value: data.activeMembers.toLocaleString("th-TH"), icon: UserCheck, tone: "success" as const },
+        { label: "รายรับวันนี้", value: money.format(data.todayRevenue), icon: Banknote, tone: "info" as const },
+        { label: "รายรับเดือนนี้", value: money.format(monthlyRevenue), icon: TrendingUp, tone: "warning" as const },
       ];
 
   return (
@@ -97,22 +98,7 @@ export function DashboardPage({ initialData }: { initialData: DashboardData }) {
           <section aria-labelledby="stats-heading">
             <h2 id="stats-heading" className="sr-only">ตัวเลขสำคัญ</h2>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {stats.map((stat) => {
-                const Icon = stat.icon;
-                return (
-                  <article key={stat.label} className="rounded-xl border bg-card p-5 shadow-sm">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-sm text-muted-foreground">{stat.label}</p>
-                        <p className="mt-2 text-2xl font-bold tabular-nums text-foreground">{stat.value}</p>
-                      </div>
-                      <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-                        <Icon className="size-5" aria-hidden="true" />
-                      </span>
-                    </div>
-                  </article>
-                );
-              })}
+              {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
             </div>
           </section>
 
@@ -125,11 +111,11 @@ export function DashboardPage({ initialData }: { initialData: DashboardData }) {
               <div className="mt-5 h-72" role="img" aria-label="กราฟแท่งแสดงรายรับรายวันย้อนหลัง 7 วัน">
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <BarChart data={data.daily} barSize={28}>
-                    <CartesianGrid vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                    <YAxis axisLine={false} tickLine={false} width={48} tick={{ fontSize: 12 }} tickFormatter={(value) => `${value / 1000}k`} />
-                    <Tooltip formatter={(value) => [money.format(Number(value)), "รายรับ"]} />
-                    <Bar dataKey="revenue" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                    <CartesianGrid vertical={false} stroke="var(--border)" />
+                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} />
+                    <YAxis axisLine={false} tickLine={false} width={48} tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} tickFormatter={(value) => `${value / 1000}k`} />
+                    <Tooltip contentStyle={{ background: "var(--popover)", borderColor: "var(--border)", borderRadius: 10, color: "var(--popover-foreground)" }} cursor={{ fill: "var(--accent)" }} formatter={(value) => [money.format(Number(value)), "รายรับ"]} />
+                    <Bar dataKey="revenue" fill="var(--chart-1)" radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -141,11 +127,11 @@ export function DashboardPage({ initialData }: { initialData: DashboardData }) {
               <div className="mt-5 h-72" role="img" aria-label="กราฟเส้นแสดงรายรับรายเดือนย้อนหลัง 12 เดือน">
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <LineChart data={data.monthly}>
-                    <CartesianGrid vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                    <YAxis axisLine={false} tickLine={false} width={48} tick={{ fontSize: 12 }} tickFormatter={(value) => `${value / 1000}k`} />
-                    <Tooltip formatter={(value) => [money.format(Number(value)), "รายรับ"]} />
-                    <Line type="monotone" dataKey="revenue" stroke="#6366f1" strokeWidth={3} dot={false} activeDot={{ r: 5 }} />
+                    <CartesianGrid vertical={false} stroke="var(--border)" />
+                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} />
+                    <YAxis axisLine={false} tickLine={false} width={48} tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} tickFormatter={(value) => `${value / 1000}k`} />
+                    <Tooltip contentStyle={{ background: "var(--popover)", borderColor: "var(--border)", borderRadius: 10, color: "var(--popover-foreground)" }} formatter={(value) => [money.format(Number(value)), "รายรับ"]} />
+                    <Line type="monotone" dataKey="revenue" stroke="var(--chart-2)" strokeWidth={3} dot={false} activeDot={{ r: 5, fill: "var(--chart-2)" }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

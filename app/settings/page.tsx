@@ -8,6 +8,7 @@ const settings = [
     href: "/settings/promotions",
     icon: Tag,
     status: "พร้อมใช้งาน",
+    tone: "bg-warning-surface text-warning-foreground",
   },
   {
     title: "การแจ้งเตือน",
@@ -15,6 +16,7 @@ const settings = [
     href: "/settings/notifications",
     icon: Bell,
     status: "พร้อมใช้งาน",
+    tone: "bg-info-surface text-info",
   },
   {
     title: "จุดสแกนและประตู",
@@ -22,6 +24,7 @@ const settings = [
     href: "/access",
     icon: DoorOpen,
     status: "พร้อมใช้งาน",
+    tone: "bg-success-surface text-success",
   },
 ];
 
@@ -53,7 +56,7 @@ export default function SettingsPage() {
                 href={setting.href}
                 className="group flex min-h-32 items-start gap-4 rounded-xl border bg-card p-5 shadow-sm transition-colors duration-150 hover:border-primary/40 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
               >
-                <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+                <span className={`flex size-11 shrink-0 items-center justify-center rounded-lg ${setting.tone}`}>
                   <Icon className="size-5" aria-hidden="true" />
                 </span>
                 <span className="min-w-0 flex-1">

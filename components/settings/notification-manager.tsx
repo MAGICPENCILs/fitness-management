@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatCard } from "@/components/ui/stat-card";
 
 type NotificationSettingsForm = {
   reminderDays: string;
@@ -121,22 +122,11 @@ export function NotificationManager({
     <div className="space-y-8">
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="สรุปการแจ้งเตือนล่าสุด">
         {[
-          { label: "ประวัติล่าสุด", value: stats.total, icon: BellRing },
-          { label: "แสดงในระบบแล้ว", value: stats.sent, icon: MessageSquareText },
-          { label: "รอผู้ให้บริการ", value: stats.queued, icon: Clock3 },
-          { label: "ต้องตรวจสอบ", value: stats.attention, icon: RefreshCw },
-        ].map((item) => {
-          const Icon = item.icon;
-          return (
-            <div key={item.label} className="rounded-xl border bg-card p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">{item.label}</p>
-                <Icon className="size-5 text-primary" aria-hidden="true" />
-              </div>
-              <p className="mt-2 text-2xl font-bold tabular-nums">{item.value}</p>
-            </div>
-          );
-        })}
+          { label: "ประวัติล่าสุด", value: stats.total, icon: BellRing, tone: "primary" as const },
+          { label: "แสดงในระบบแล้ว", value: stats.sent, icon: MessageSquareText, tone: "success" as const },
+          { label: "รอผู้ให้บริการ", value: stats.queued, icon: Clock3, tone: "warning" as const },
+          { label: "ต้องตรวจสอบ", value: stats.attention, icon: RefreshCw, tone: "destructive" as const },
+        ].map((item) => <StatCard key={item.label} {...item} className="p-4" />)}
       </section>
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.75fr)]">

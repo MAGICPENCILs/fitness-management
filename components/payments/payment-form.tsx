@@ -223,7 +223,7 @@ export function PaymentForm({
   };
 
   return (
-    <form className="space-y-6 rounded-xl border bg-card p-4 shadow-sm sm:p-6" onSubmit={handleSubmit}>
+    <form className="relative space-y-6 overflow-hidden rounded-xl border border-primary/20 bg-card p-4 pt-6 shadow-sm before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-primary sm:p-6" onSubmit={handleSubmit}>
       <div className="space-y-1.5">
         <Label htmlFor="member-search">สแกนบัตรหรือค้นหาสมาชิก</Label>
         <Input
