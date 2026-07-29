@@ -50,6 +50,13 @@
       "when": 1785324794592,
       "tag": "0006_known_stellaris",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1785326746067,
+      "tag": "0007_legal_captain_flint",
+      "breakpoints": true
     }
   ]
 }
