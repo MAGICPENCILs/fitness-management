@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { EquipmentManager } from "@/components/equipment/equipment-manager";
 import { getEquipmentDashboard } from "@/lib/equipment-service";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ function getBangkokToday() {
 /** โหลดทะเบียนและประวัติจากฝั่งเซิร์ฟเวอร์ก่อนส่งข้อมูลที่ serializable ให้หน้าจอจัดการ */
 export default async function EquipmentPage() {
   const today = getBangkokToday();
-  const dashboard = await getEquipmentDashboard(today);
+  const dashboard = await getEquipmentDashboard(today, await getCurrentBranchId());
 
   return (
     <div className="w-full max-w-7xl space-y-8 p-4 sm:p-6 lg:p-8">

@@ -3,6 +3,7 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
+import { getBranchContext } from "@/lib/branch-service";
 
 const geist = Geist({ subsets: ["latin"] });
 
@@ -11,11 +12,13 @@ export const metadata: Metadata = {
   description: "ระบบบริหารจัดการฟิตเนส",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const branchContext = await getBranchContext();
+
   return (
     <html lang="th" suppressHydrationWarning>
       <body className={geist.className}>
@@ -32,7 +35,10 @@ export default function RootLayout({
             ข้ามไปยังเนื้อหาหลัก
           </a>
           <div className="min-h-dvh bg-background">
-            <Sidebar />
+            <Sidebar
+              branches={branchContext.branches}
+              currentBranchId={branchContext.current.id}
+            />
             <main id="main-content" tabIndex={-1} className="min-w-0 md:pl-64">
               {children}
             </main>

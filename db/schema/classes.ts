@@ -10,11 +10,13 @@ import {
   varchar,
 } from "drizzle-orm/mysql-core";
 import { members } from "./members";
+import { branches } from "./branches";
 
 export const trainers = mysqlTable(
   "trainers",
   {
     id: int("id").autoincrement().primaryKey(),
+    branchId: int("branch_id").notNull().default(1).references(() => branches.id),
     code: varchar("code", { length: 20 }).notNull().unique(),
     firstName: varchar("first_name", { length: 100 }).notNull(),
     lastName: varchar("last_name", { length: 100 }).notNull(),
@@ -34,6 +36,7 @@ export const fitnessClasses = mysqlTable(
   "classes",
   {
     id: int("id").autoincrement().primaryKey(),
+    branchId: int("branch_id").notNull().default(1).references(() => branches.id),
     trainerId: int("trainer_id")
       .notNull()
       .references(() => trainers.id),

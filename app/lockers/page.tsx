@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { LockerManager } from "@/components/lockers/locker-manager";
 import { getLockerDashboard } from "@/lib/locker-service";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ function getBangkokRentalDates() {
 /** โหลดข้อมูลล็อกเกอร์และสมาชิกใน Server Component แล้วส่งเฉพาะข้อมูลที่ serializable ให้ส่วนโต้ตอบ */
 export default async function LockersPage() {
   const dates = getBangkokRentalDates();
-  const dashboard = await getLockerDashboard();
+  const dashboard = await getLockerDashboard(await getCurrentBranchId());
   return (
     <div className="w-full max-w-7xl space-y-8 p-4 sm:p-6 lg:p-8">
       <header>

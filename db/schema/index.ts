@@ -13,3 +13,4 @@ export * from "./equipment";
 export * from "./classes";
 export * from "./personal-training";
 export * from "./crm";
+export * from "./branches";

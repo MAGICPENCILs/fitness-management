@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { cashReconciliations, expenses, payments } from "@/db/schema";
 import { getBangkokDayRange } from "@/lib/accounting";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 const reconciliationSchema = z.object({
   reconciliationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -16,10 +17,11 @@ const reconciliationSchema = z.object({
 export async function POST(request: Request) {
   try {
     const validated = reconciliationSchema.parse(await request.json());
+    const branchId = await getCurrentBranchId();
     const range = getBangkokDayRange(validated.reconciliationDate);
     const [incomeRows, expenseRows] = await Promise.all([
-      db.select({ amount: payments.amount }).from(payments).where(and(eq(payments.status, "PAID"), eq(payments.method, "CASH"), gte(payments.createdAt, range.start), lte(payments.createdAt, range.end))),
-      db.select({ amount: expenses.amount }).from(expenses).where(and(eq(expenses.paymentMethod, "CASH"), eq(expenses.expenseDate, validated.reconciliationDate))),
+      db.select({ amount: payments.amount }).from(payments).where(and(eq(payments.branchId, branchId), eq(payments.status, "PAID"), eq(payments.method, "CASH"), gte(payments.createdAt, range.start), lte(payments.createdAt, range.end))),
+      db.select({ amount: expenses.amount }).from(expenses).where(and(eq(expenses.branchId, branchId), eq(expenses.paymentMethod, "CASH"), eq(expenses.expenseDate, validated.reconciliationDate))),
     ]);
     const cashIncome = incomeRows.reduce((sum, item) => sum + Number(item.amount), 0);
     const cashExpenses = expenseRows.reduce((sum, item) => sum + Number(item.amount), 0);
@@ -30,6 +32,7 @@ export async function POST(request: Request) {
     await db
       .insert(cashReconciliations)
       .values({
+        branchId,
         reconciliationDate: validated.reconciliationDate,
         openingCash: String(validated.openingCash),
         cashIncome: String(cashIncome),

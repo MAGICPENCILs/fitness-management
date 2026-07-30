@@ -4,6 +4,7 @@ import {
   ClassOperationError,
   createTrainer,
 } from "@/lib/class-service";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 const trainerSchema = z.object({
   code: z
@@ -24,7 +25,7 @@ const trainerSchema = z.object({
 export async function POST(request: Request) {
   try {
     const validated = trainerSchema.parse(await request.json());
-    const id = await createTrainer(validated);
+    const id = await createTrainer({ ...validated, branchId: await getCurrentBranchId() });
     return NextResponse.json(
       { message: "เพิ่มเทรนเนอร์แล้ว", id },
       { status: 201 },

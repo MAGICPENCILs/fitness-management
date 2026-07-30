@@ -1,6 +1,6 @@
 import "server-only";
 
-import { gte } from "drizzle-orm";
+import { and, eq, gte } from "drizzle-orm";
 import { db } from "@/db";
 import { members, payments } from "@/db/schema";
 
@@ -20,16 +20,16 @@ function isSameDay(left: Date, right: Date) {
   );
 }
 
-export async function getDashboardData(): Promise<DashboardData> {
+export async function getDashboardData(branchId: number): Promise<DashboardData> {
   const today = new Date();
   const firstMonth = new Date(today.getFullYear(), today.getMonth() - 11, 1);
 
   const [memberRows, paymentRows] = await Promise.all([
-    db.select({ status: members.status }).from(members),
+    db.select({ status: members.status }).from(members).where(eq(members.homeBranchId, branchId)),
     db
       .select({ amount: payments.amount, status: payments.status, createdAt: payments.createdAt })
       .from(payments)
-      .where(gte(payments.createdAt, firstMonth)),
+      .where(and(eq(payments.branchId, branchId), gte(payments.createdAt, firstMonth))),
   ]);
 
   const paidPayments = paymentRows.filter(

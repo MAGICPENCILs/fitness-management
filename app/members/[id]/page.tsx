@@ -1,8 +1,9 @@
 import { db } from "@/db";
 import { members, memberPackages, packages, cardPool } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { MemberDetail } from "@/components/members/member-detail";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 export default async function MemberDetailPage({
   params,
@@ -10,6 +11,7 @@ export default async function MemberDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const branchId = await getCurrentBranchId();
 
   const member = await db
     .select()
@@ -40,7 +42,7 @@ export default async function MemberDetailPage({
   const availableCards = await db
     .select()
     .from(cardPool)
-    .where(eq(cardPool.status, "AVAILABLE"));
+    .where(and(eq(cardPool.branchId, branchId), eq(cardPool.status, "AVAILABLE")));
 
   return (
     <MemberDetail

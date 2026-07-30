@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { accessLogs, members, payments } from "@/db/schema";
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/ui/stat-card";
+import { getCurrentBranchId } from "@/lib/branch-service";
 import {
   Table,
   TableBody,
@@ -35,8 +36,9 @@ const statusLabel: Record<string, string> = {
 };
 
 export default async function ReportsPage() {
+  const branchId = await getCurrentBranchId();
   const [paymentRows, latestPayments, recentAccess] = await Promise.all([
-    db.select().from(payments),
+    db.select().from(payments).where(eq(payments.branchId, branchId)),
     db
       .select({
         id: payments.id,
@@ -50,9 +52,10 @@ export default async function ReportsPage() {
       })
       .from(payments)
       .leftJoin(members, eq(payments.memberId, members.id))
+      .where(eq(payments.branchId, branchId))
       .orderBy(desc(payments.createdAt))
       .limit(10),
-    db.select().from(accessLogs).orderBy(desc(accessLogs.scannedAt)).limit(100),
+    db.select().from(accessLogs).where(eq(accessLogs.branchId, branchId)).orderBy(desc(accessLogs.scannedAt)).limit(100),
   ]);
 
   const paidPayments = paymentRows.filter((payment) => payment.status === "PAID");

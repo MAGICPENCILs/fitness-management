@@ -1,5 +1,6 @@
 import { AccountingManager } from "@/components/accounting/accounting-manager";
 import { getAccountingSnapshot } from "@/lib/accounting";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ function getCurrentBangkokPeriod() {
 /** โหลดข้อมูลบัญชีจากฐานข้อมูลโดยตรงใน Server Component เพื่อลดการเรียก API ซ้ำตอนเปิดหน้า */
 export default async function AccountingPage() {
   const period = getCurrentBangkokPeriod();
-  const snapshot = await getAccountingSnapshot(period.from, period.to);
+  const snapshot = await getAccountingSnapshot(period.from, period.to, await getCurrentBranchId());
   return (
     <div className="w-full max-w-7xl space-y-8 p-4 sm:p-6 lg:p-8">
       <header>

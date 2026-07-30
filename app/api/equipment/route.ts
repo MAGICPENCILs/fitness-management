@@ -4,6 +4,7 @@ import {
   createEquipment,
   EquipmentOperationError,
 } from "@/lib/equipment-service";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 const optionalDate = z
   .union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)])
@@ -57,6 +58,7 @@ export async function POST(request: Request) {
     const validated = createEquipmentSchema.parse(await request.json());
     const id = await createEquipment({
       ...validated,
+      branchId: await getCurrentBranchId(),
       maintenanceIntervalHours: validated.maintenanceIntervalHours || undefined,
     });
     return NextResponse.json(

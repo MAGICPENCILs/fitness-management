@@ -1,8 +1,10 @@
 import { mysqlTable, varchar, int, mysqlEnum, timestamp } from "drizzle-orm/mysql-core";
 import { members } from "./members";
+import { branches } from "./branches";
 
 export const cardPool = mysqlTable("card_pool", {
   id:           int("id").autoincrement().primaryKey(),
+  branchId:     int("branch_id").notNull().default(1).references(() => branches.id),
   serial:       varchar("serial", { length: 20 }).notNull().unique(),
   status:       mysqlEnum("status", ["AVAILABLE", "IN_USE", "LOST"])
                   .notNull()

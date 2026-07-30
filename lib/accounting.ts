@@ -11,7 +11,7 @@ export function getBangkokDayRange(date: string) {
 }
 
 /** รวมรายรับจากการชำระสำเร็จและรายจ่ายที่บันทึก เพื่อใช้เป็นแหล่งข้อมูลเดียวของหน้าบัญชีและไฟล์ส่งออก */
-export async function getAccountingSnapshot(from: string, to: string) {
+export async function getAccountingSnapshot(from: string, to: string, branchId: number) {
   const fromRange = getBangkokDayRange(from);
   const toRange = getBangkokDayRange(to);
   const [incomeRows, expenseRows] = await Promise.all([
@@ -25,9 +25,9 @@ export async function getAccountingSnapshot(from: string, to: string) {
         description: payments.note,
       })
       .from(payments)
-      .where(and(eq(payments.status, "PAID"), gte(payments.createdAt, fromRange.start), lte(payments.createdAt, toRange.end)))
+      .where(and(eq(payments.branchId, branchId), eq(payments.status, "PAID"), gte(payments.createdAt, fromRange.start), lte(payments.createdAt, toRange.end)))
       .orderBy(asc(payments.createdAt)),
-    db.select().from(expenses).where(and(gte(expenses.expenseDate, from), lte(expenses.expenseDate, to))).orderBy(asc(expenses.expenseDate)),
+    db.select().from(expenses).where(and(eq(expenses.branchId, branchId), gte(expenses.expenseDate, from), lte(expenses.expenseDate, to))).orderBy(asc(expenses.expenseDate)),
   ]);
 
   const totalIncome = incomeRows.reduce((sum, item) => sum + Number(item.amount), 0);

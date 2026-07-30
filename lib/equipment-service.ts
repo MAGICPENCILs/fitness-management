@@ -64,11 +64,12 @@ function getMaintenanceState(
 }
 
 /** โหลดทะเบียนพร้อมระดับแจ้งเตือนและประวัติล่าสุด เพื่อให้หน้าอุปกรณ์เปิดได้ด้วยข้อมูลจาก Server Component รอบเดียว */
-export async function getEquipmentDashboard(today: string) {
+export async function getEquipmentDashboard(today: string, branchId: number) {
   const [equipmentRows, historyRows] = await Promise.all([
     db
       .select()
       .from(equipment)
+      .where(eq(equipment.branchId, branchId))
       .orderBy(equipment.category, equipment.name),
     db
       .select({
@@ -88,6 +89,7 @@ export async function getEquipmentDashboard(today: string) {
       })
       .from(maintenanceRecords)
       .innerJoin(equipment, eq(maintenanceRecords.equipmentId, equipment.id))
+      .where(eq(equipment.branchId, branchId))
       .orderBy(desc(maintenanceRecords.createdAt))
       .limit(50),
   ]);
@@ -109,6 +111,7 @@ export async function getEquipmentDashboard(today: string) {
 
 /** เพิ่มอุปกรณ์พร้อมคำนวณชั่วโมงบำรุงรักษาครั้งแรกจากค่ามิเตอร์ปัจจุบัน */
 export async function createEquipment(input: {
+  branchId: number;
   code: string;
   name: string;
   category: EquipmentCategory;

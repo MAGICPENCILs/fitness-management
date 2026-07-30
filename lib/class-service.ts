@@ -20,7 +20,7 @@ export class ClassOperationError extends Error {
 }
 
 /** โหลดข้อมูลตารางคลาส รายชื่อผู้เกี่ยวข้อง และประวัติการจองสำหรับแดชบอร์ดในครั้งเดียว */
-export async function getClassDashboard() {
+export async function getClassDashboard(branchId: number) {
   const [classRows, trainerRows, memberRows, bookingRows, historyRows] =
     await Promise.all([
       db
@@ -42,6 +42,7 @@ export async function getClassDashboard() {
         })
         .from(fitnessClasses)
         .innerJoin(trainers, eq(fitnessClasses.trainerId, trainers.id))
+        .where(eq(fitnessClasses.branchId, branchId))
         .orderBy(fitnessClasses.classDate, fitnessClasses.startTime),
       db
         .select({
@@ -53,7 +54,7 @@ export async function getClassDashboard() {
           phone: trainers.phone,
         })
         .from(trainers)
-        .where(eq(trainers.status, "ACTIVE"))
+        .where(and(eq(trainers.branchId, branchId), eq(trainers.status, "ACTIVE")))
         .orderBy(trainers.code),
       db
         .select({
@@ -68,7 +69,8 @@ export async function getClassDashboard() {
       db
         .select({ classId: classBookings.classId })
         .from(classBookings)
-        .where(inArray(classBookings.status, ["CONFIRMED", "ATTENDED"])),
+        .innerJoin(fitnessClasses, eq(classBookings.classId, fitnessClasses.id))
+        .where(and(eq(fitnessClasses.branchId, branchId), inArray(classBookings.status, ["CONFIRMED", "ATTENDED"]))),
       db
         .select({
           id: classBookings.id,
@@ -86,6 +88,7 @@ export async function getClassDashboard() {
         .from(classBookings)
         .innerJoin(fitnessClasses, eq(classBookings.classId, fitnessClasses.id))
         .innerJoin(members, eq(classBookings.memberId, members.id))
+        .where(eq(fitnessClasses.branchId, branchId))
         .orderBy(desc(classBookings.bookedAt))
         .limit(50),
     ]);
@@ -115,6 +118,7 @@ export async function getClassDashboard() {
 
 /** เพิ่มข้อมูลเทรนเนอร์ใหม่โดยป้องกันรหัสซ้ำก่อนบันทึก */
 export async function createTrainer(input: {
+  branchId: number;
   code: string;
   firstName: string;
   lastName: string;
@@ -140,6 +144,7 @@ export async function createTrainer(input: {
 
 /** สร้างรอบคลาสหลังตรวจสถานะเทรนเนอร์ ช่วงเวลา และตารางที่ทับซ้อนกัน */
 export async function createFitnessClass(input: {
+  branchId: number;
   trainerId: number;
   name: string;
   category: "YOGA" | "ZUMBA" | "SPINNING" | "STRENGTH" | "OTHER";
@@ -154,7 +159,7 @@ export async function createFitnessClass(input: {
     const [trainer] = await tx
       .select({ id: trainers.id, status: trainers.status })
       .from(trainers)
-      .where(eq(trainers.id, input.trainerId))
+      .where(and(eq(trainers.id, input.trainerId), eq(trainers.branchId, input.branchId)))
       .limit(1)
       .for("update");
     if (!trainer || trainer.status !== "ACTIVE")

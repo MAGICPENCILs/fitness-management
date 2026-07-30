@@ -1,8 +1,9 @@
 import { db } from "@/db";
 import { cardPool } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 const assignSchema = z.object({
   serial:   z.string(),
@@ -14,12 +15,13 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const validated = assignSchema.parse(body);
+    const branchId = await getCurrentBranchId();
 
     // เช็คว่าบัตรว่างอยู่ไหม
     const card = await db
       .select()
       .from(cardPool)
-      .where(eq(cardPool.serial, validated.serial))
+      .where(and(eq(cardPool.serial, validated.serial), eq(cardPool.branchId, branchId)))
       .limit(1);
 
     if (card.length === 0) {
@@ -38,7 +40,7 @@ export async function POST(request: Request) {
         memberId:   validated.memberId,
         assignedAt: new Date(),
       })
-      .where(eq(cardPool.serial, validated.serial));
+      .where(and(eq(cardPool.serial, validated.serial), eq(cardPool.branchId, branchId)));
 
     return NextResponse.json({ message: "Card assigned" });
   } catch (error) {

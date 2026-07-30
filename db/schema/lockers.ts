@@ -10,9 +10,11 @@ import {
   decimal,
 } from "drizzle-orm/mysql-core";
 import { members } from "./members";
+import { branches } from "./branches";
 
 export const lockers = mysqlTable("lockers", {
   id: int("id").autoincrement().primaryKey(),
+  branchId: int("branch_id").notNull().default(1).references(() => branches.id),
   code: varchar("code", { length: 20 }).notNull().unique(),
   zone: varchar("zone", { length: 50 }).notNull(),
   status: mysqlEnum("status", ["AVAILABLE", "OCCUPIED"])

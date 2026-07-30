@@ -9,11 +9,13 @@ import {
   timestamp,
   varchar,
 } from "drizzle-orm/mysql-core";
+import { branches } from "./branches";
 
 export const equipment = mysqlTable(
   "equipment",
   {
     id: int("id").autoincrement().primaryKey(),
+    branchId: int("branch_id").notNull().default(1).references(() => branches.id),
     code: varchar("code", { length: 30 }).notNull().unique(),
     name: varchar("name", { length: 120 }).notNull(),
     category: mysqlEnum("category", [

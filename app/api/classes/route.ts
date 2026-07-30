@@ -4,6 +4,7 @@ import {
   ClassOperationError,
   createFitnessClass,
 } from "@/lib/class-service";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -42,7 +43,7 @@ const classSchema = z
 export async function POST(request: Request) {
   try {
     const validated = classSchema.parse(await request.json());
-    const id = await createFitnessClass(validated);
+    const id = await createFitnessClass({ ...validated, branchId: await getCurrentBranchId() });
     return NextResponse.json(
       { message: "สร้างรอบคลาสแล้ว", id },
       { status: 201 },

@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { recordScanWarning } from "@/lib/notification-engine";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 const scanSchema = z.object({
   serial: z.string().min(1),
@@ -13,6 +14,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { serial } = scanSchema.parse(body);
+    const branchId = await getCurrentBranchId();
 
     // 1. หาบัตรจาก serial
     const card = await db
@@ -23,6 +25,7 @@ export async function POST(request: Request) {
 
     if (card.length === 0 || card[0].status !== "IN_USE" || !card[0].memberId) {
       await db.insert(accessLogs).values({
+        branchId,
         serial,
         result: "REJECTED",
         reason: "ไม่พบบัตรหรือบัตรไม่ได้ใช้งาน",
@@ -49,6 +52,7 @@ export async function POST(request: Request) {
     // 3. เช็คสถานะสมาชิก
     if (m.status === "SUSPENDED") {
       await db.insert(accessLogs).values({
+        branchId,
         memberId: m.id, serial,
         result: "REJECTED", reason: "สมาชิกถูกระงับ",
       });
@@ -57,6 +61,7 @@ export async function POST(request: Request) {
 
     if (m.status === "CANCELLED") {
       await db.insert(accessLogs).values({
+        branchId,
         memberId: m.id, serial,
         result: "REJECTED", reason: "สมาชิกถูกยกเลิก",
       });
@@ -72,6 +77,7 @@ export async function POST(request: Request) {
 
     if (pkg.length === 0) {
       await db.insert(accessLogs).values({
+        branchId,
         memberId: m.id, serial,
         result: "REJECTED", reason: "ไม่มีแพ็กเกจ",
       });
@@ -88,6 +94,7 @@ export async function POST(request: Request) {
     // 5. เช็ควันหมดอายุ
     if (daysLeft < 0) {
       await db.insert(accessLogs).values({
+        branchId,
         memberId: m.id, serial,
         result: "REJECTED", reason: "แพ็กเกจหมดอายุ",
       });
@@ -96,6 +103,7 @@ export async function POST(request: Request) {
 
     // 6. อนุมัติ — บันทึก log
     await db.insert(accessLogs).values({
+      branchId,
       memberId: m.id, serial,
       result: "APPROVED", reason: null,
     });

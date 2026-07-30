@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { accountingMethodLabels, expenseCategoryLabels } from "@/lib/accounting-constants";
 import { getAccountingSnapshot } from "@/lib/accounting";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
     const from = dateSchema.parse(searchParams.get("from"));
     const to = dateSchema.parse(searchParams.get("to"));
     if (from > to) return Response.json({ error: "วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด" }, { status: 400 });
-    const snapshot = await getAccountingSnapshot(from, to);
+    const snapshot = await getAccountingSnapshot(from, to, await getCurrentBranchId());
     const rows = [
       ["วันที่", "ประเภท", "หมวดหมู่", "รายละเอียด", "ช่องทาง", "เลขอ้างอิง", "รายรับ", "รายจ่าย"],
       ...snapshot.transactions.map((item) => [

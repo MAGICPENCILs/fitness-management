@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { lockers, NewLocker } from "@/db/schema";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 const createLockerSchema = z.object({
   code: z
@@ -21,6 +22,7 @@ const createLockerSchema = z.object({
 export async function POST(request: Request) {
   try {
     const validated = createLockerSchema.parse(await request.json());
+    const branchId = await getCurrentBranchId();
     const [existing] = await db
       .select({ id: lockers.id })
       .from(lockers)
@@ -33,6 +35,7 @@ export async function POST(request: Request) {
       );
 
     const newLocker: NewLocker = {
+      branchId,
       code: validated.code,
       zone: validated.zone,
       monthlyRate:

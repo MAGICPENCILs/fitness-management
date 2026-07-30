@@ -1,7 +1,9 @@
 import { mysqlTable, varchar, text, date, datetime, mysqlEnum, int, timestamp } from "drizzle-orm/mysql-core";
+import { branches } from "./branches";
 
 export const members = mysqlTable("members", {
   id:          int("id").autoincrement().primaryKey(),
+  homeBranchId: int("home_branch_id").notNull().default(1).references(() => branches.id),
   memberCode:  varchar("member_code", { length: 20 }).notNull().unique(),
   firstName:   varchar("first_name", { length: 100 }).notNull(),
   lastName:    varchar("last_name", { length: 100 }).notNull(),

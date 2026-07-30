@@ -7,6 +7,7 @@ import {
   BarChart3,
   Bell,
   BookOpenText,
+  Building2,
   CalendarDays,
   ClipboardPlus,
   CreditCard,
@@ -32,6 +33,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { BranchSwitcher } from "@/components/branch-switcher";
 
 const menuItems = [
   { href: "/", label: "ภาพรวม", icon: LayoutDashboard },
@@ -47,6 +49,7 @@ const menuItems = [
   { href: "/crm", label: "CRM และคะแนน", icon: HeartHandshake },
   { href: "/settings/promotions", label: "โปรโมชัน", icon: Tag },
   { href: "/settings/notifications", label: "การแจ้งเตือน", icon: Bell },
+  { href: "/settings/branches", label: "จัดการสาขา", icon: Building2 },
   { href: "/settings", label: "ตั้งค่าระบบ", icon: Settings },
 ];
 
@@ -99,7 +102,13 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({
+  branches,
+  currentBranchId,
+}: {
+  branches: Array<{ id: number; code: string; name: string }>;
+  currentBranchId: number;
+}) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
@@ -120,6 +129,9 @@ export function Sidebar() {
               <DialogDescription>เลือกส่วนงานที่ต้องการจัดการ</DialogDescription>
             </DialogHeader>
             <div className="mt-2 border-t pt-4">
+              <div className="mb-4">
+                <BranchSwitcher branches={branches} currentBranchId={currentBranchId} />
+              </div>
               <Navigation onNavigate={() => setMobileOpen(false)} />
             </div>
           </DialogContent>
@@ -132,6 +144,9 @@ export function Sidebar() {
           <Brand />
         </div>
         <div className="flex-1 overflow-y-auto p-3">
+          <div className="mb-4 rounded-xl border bg-card p-3 shadow-sm">
+            <BranchSwitcher branches={branches} currentBranchId={currentBranchId} />
+          </div>
           <p className="px-3 pb-2 pt-1 text-xs font-semibold text-muted-foreground">เมนูหลัก</p>
           <Navigation />
         </div>

@@ -1,8 +1,10 @@
-import { date, decimal, int, mysqlEnum, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { date, decimal, int, mysqlEnum, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 import { mysqlTable } from "drizzle-orm/mysql-core";
+import { branches } from "./branches";
 
 export const expenses = mysqlTable("expenses", {
   id: int("id").autoincrement().primaryKey(),
+  branchId: int("branch_id").notNull().default(1).references(() => branches.id),
   expenseDate: date("expense_date", { mode: "string" }).notNull(),
   category: mysqlEnum("category", ["WATER", "ELECTRICITY", "SALARY", "REPAIR", "SUPPLIES", "OTHER"]).notNull(),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
@@ -15,7 +17,8 @@ export const expenses = mysqlTable("expenses", {
 
 export const cashReconciliations = mysqlTable("cash_reconciliations", {
   id: int("id").autoincrement().primaryKey(),
-  reconciliationDate: date("reconciliation_date", { mode: "string" }).notNull().unique(),
+  branchId: int("branch_id").notNull().default(1).references(() => branches.id),
+  reconciliationDate: date("reconciliation_date", { mode: "string" }).notNull(),
   openingCash: decimal("opening_cash", { precision: 12, scale: 2 }).notNull(),
   cashIncome: decimal("cash_income", { precision: 12, scale: 2 }).notNull(),
   cashExpenses: decimal("cash_expenses", { precision: 12, scale: 2 }).notNull(),
@@ -26,7 +29,12 @@ export const cashReconciliations = mysqlTable("cash_reconciliations", {
   note: text("note"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
-});
+}, (table) => [
+  uniqueIndex("cash_reconciliations_branch_date_unique").on(
+    table.branchId,
+    table.reconciliationDate,
+  ),
+]);
 
 export type Expense = typeof expenses.$inferSelect;
 export type NewExpense = typeof expenses.$inferInsert;

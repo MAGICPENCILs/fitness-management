@@ -1,9 +1,11 @@
 import { mysqlTable, int, decimal, varchar, text, mysqlEnum, timestamp } from "drizzle-orm/mysql-core";
 import { members } from "./members";
 import { promotions } from "./promotions";
+import { branches } from "./branches";
 
 export const payments = mysqlTable("payments", {
   id:            int("id").autoincrement().primaryKey(),
+  branchId:      int("branch_id").notNull().default(1).references(() => branches.id),
   memberId:      int("member_id").notNull().references(() => members.id),
   promotionId:   int("promotion_id").references(() => promotions.id),
   originalAmount: decimal("original_amount", { precision: 10, scale: 2 }),

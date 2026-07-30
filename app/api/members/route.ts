@@ -1,8 +1,8 @@
 import { db } from "@/db";
 import { members, NewMember } from "@/db/schema";
-import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 // Validation Schema
 const createMemberSchema = z.object({
@@ -23,7 +23,7 @@ export async function GET() {
   try {
     const result = await db.select().from(members);
     return NextResponse.json(result);
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: "Failed to fetch members" },
       { status: 500 }
@@ -38,9 +38,11 @@ export async function POST(request: Request) {
 
     // Validate ข้อมูลที่รับมาด้วย Zod
     const validated = createMemberSchema.parse(body);
+    const homeBranchId = await getCurrentBranchId();
 
     const newMember: NewMember = {
     ...validated,
+    homeBranchId,
     status: "ACTIVE",
     birthDate: validated.birthDate ? new Date(validated.birthDate) : undefined,
     };

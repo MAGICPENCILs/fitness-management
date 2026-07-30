@@ -14,6 +14,7 @@ import {
 } from "@/db/schema";
 import { CouponError, getCouponQuote } from "@/lib/coupon-service";
 import { calculatePromotionBenefit, isPromotionAvailable } from "@/lib/promotion-benefit";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 const paymentSchema = z
   .object({
@@ -32,7 +33,8 @@ const paymentSchema = z
 /** โหลดประวัติการชำระเงินทั้งหมดสำหรับส่วนจัดการ */
 export async function GET() {
   try {
-    return NextResponse.json(await db.select().from(payments));
+    const branchId = await getCurrentBranchId();
+    return NextResponse.json(await db.select().from(payments).where(eq(payments.branchId, branchId)));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "ไม่สามารถโหลดรายการชำระเงินได้" }, { status: 500 });
@@ -43,6 +45,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const validated = paymentSchema.parse(await request.json());
+    const branchId = await getCurrentBranchId();
     const [[member], [selectedPackage]] = await Promise.all([
       db
         .select({ id: members.id, status: members.status })
@@ -108,6 +111,7 @@ export async function POST(request: Request) {
       }
 
       const newPayment: NewPayment = {
+        branchId,
         memberId: validated.memberId,
         promotionId,
         originalAmount: String(originalAmount),

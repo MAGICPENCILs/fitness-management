@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { expenses, NewExpense } from "@/db/schema";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 const expenseSchema = z.object({
   expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -17,8 +18,10 @@ const expenseSchema = z.object({
 export async function POST(request: Request) {
   try {
     const validated = expenseSchema.parse(await request.json());
+    const branchId = await getCurrentBranchId();
     const newExpense: NewExpense = {
       ...validated,
+      branchId,
       amount: String(validated.amount),
       referenceNumber: validated.referenceNumber || null,
       note: validated.note || null,

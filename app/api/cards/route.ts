@@ -3,6 +3,7 @@ import { cardPool, NewCardPool } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 const createCardSchema = z.object({
   serial: z.string().min(1),
@@ -11,7 +12,8 @@ const createCardSchema = z.object({
 // GET /api/cards — ดึงบัตรทั้งหมด
 export async function GET() {
   try {
-    const result = await db.select().from(cardPool);
+    const branchId = await getCurrentBranchId();
+    const result = await db.select().from(cardPool).where(eq(cardPool.branchId, branchId));
     return NextResponse.json(result);
   } catch {
     return NextResponse.json({ error: "Failed" }, { status: 500 });
@@ -23,8 +25,10 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const validated = createCardSchema.parse(body);
+    const branchId = await getCurrentBranchId();
 
     const newCard: NewCardPool = {
+      branchId,
       serial: validated.serial,
       status: "AVAILABLE",
     };

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ClassManager } from "@/components/classes/class-manager";
 import { getClassDashboard } from "@/lib/class-service";
+import { getCurrentBranchId } from "@/lib/branch-service";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ function getBangkokToday() {
 
 /** โหลดข้อมูลจากฝั่งเซิร์ฟเวอร์ก่อนส่งเฉพาะค่าที่ serializable ให้หน้าจัดการคลาส */
 export default async function ClassesPage() {
-  const dashboard = await getClassDashboard();
+  const dashboard = await getClassDashboard(await getCurrentBranchId());
 
   return (
     <div className="flex w-full max-w-7xl flex-col gap-8 p-4 sm:p-6 lg:p-8">

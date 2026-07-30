@@ -13,7 +13,7 @@ export class LockerOperationError extends Error {
 }
 
 /** โหลดสถานะปัจจุบันและประวัติล่าสุดใน query ชุดเดียวสำหรับหน้าเคาน์เตอร์ */
-export async function getLockerDashboard() {
+export async function getLockerDashboard(branchId: number) {
   const [lockerRows, memberRows, historyRows] = await Promise.all([
     db
       .select({
@@ -42,6 +42,7 @@ export async function getLockerDashboard() {
         ),
       )
       .leftJoin(members, eq(lockerRentals.memberId, members.id))
+      .where(eq(lockers.branchId, branchId))
       .orderBy(lockers.zone, lockers.code),
     db
       .select({
@@ -71,6 +72,7 @@ export async function getLockerDashboard() {
       .from(lockerRentals)
       .innerJoin(lockers, eq(lockerRentals.lockerId, lockers.id))
       .innerJoin(members, eq(lockerRentals.memberId, members.id))
+      .where(eq(lockers.branchId, branchId))
       .orderBy(desc(lockerRentals.createdAt))
       .limit(30),
   ]);
