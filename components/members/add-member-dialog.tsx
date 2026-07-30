@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-    Dialog, DialogContent, DialogHeader,
+    Dialog, DialogContent, DialogDescription, DialogHeader,
     DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
@@ -159,6 +159,7 @@ export function AddMemberDialog() {
             <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
                 <DialogHeader>
                     <DialogTitle>เพิ่มสมาชิกใหม่</DialogTitle>
+                    <DialogDescription>กรอกข้อมูลสมาชิกและบันทึกความยินยอมเริ่มต้นตามวัตถุประสงค์การใช้งาน</DialogDescription>
                 </DialogHeader>
 
                 <div className="space-y-4 py-2">
