@@ -99,6 +99,16 @@ Migration สร้าง `OWNER001 / ผู้ดูแลระบบ` บท�
 
 ไม่มี Route Handler สำหรับแก้ไขหรือลบ audit log
 
+### 4.5 `privacy_file_cleanups`
+
+- `id`, `memberId`, `privacyRequestId` nullable
+- `source`: `PHOTO_CONSENT_WITHDRAWAL`, `ANONYMIZATION`
+- `quarantineToken` เป็น random token ที่ไม่มี member code หรือชื่อไฟล์เดิม
+- `status`: `PENDING`, `COMPLETED`, `FAILED`
+- `errorCode`, `createdAt`, `completedAt`
+
+ก่อนล้าง `photoUrl` ระบบต้อง validate path และย้ายไฟล์ไป `public/uploads/privacy-cleanup/{quarantineToken}` ก่อน จากนั้นจึงบันทึก event/คำขอและ cleanup job ใน transaction หาก transaction ล้มเหลวต้องย้ายไฟล์กลับ path เดิม
+
 ## 5. Consent Flow
 
 ### 5.1 สมัครสมาชิก
@@ -112,7 +122,7 @@ Migration สร้าง `OWNER001 / ผู้ดูแลระบบ` บท�
 
 - เพิ่ม event ใหม่ทุกครั้ง ไม่แก้ event เก่า
 - ถอน MARKETING แล้ว CRM ต้องไม่นำสมาชิกไปอยู่ในกลุ่มเป้าหมายการตลาดหรือการติดต่อแบบแคมเปญ
-- ถอน PHOTO แล้วตั้ง `photoUrl = null` และสร้างงานลบไฟล์
+- ถอน PHOTO แล้วตั้ง `photoUrl = null` และสร้าง `privacy_file_cleanups` job เพื่อให้ลบซ้ำได้โดยไม่เก็บชื่อไฟล์เดิม
 - ถอน SERVICE_PRIVACY แล้วต้องตั้งสมาชิกเป็น `SUSPENDED` ทันทีเพื่อหยุดการเข้าใช้บริการและเปิด dialog ให้พนักงานเลือกสร้างคำขอ anonymization แยกต่างหาก การกลับมาใช้บริการต้องให้ SERVICE_PRIVACY consent ใหม่ก่อนเปลี่ยนสถานะกลับเป็น `ACTIVE`
 
 ## 6. Anonymization Flow
@@ -121,9 +131,10 @@ Migration สร้าง `OWNER001 / ผู้ดูแลระบบ` บท�
 2. Owner หรือ Manager คนอื่นที่มี `privacy.request.approve` อนุมัติหรือปฏิเสธ
 3. ก่อนอนุมัติตรวจสมาชิก สาขา สถานะคำขอ คำขอซ้ำ และ separation of duties
 4. เมื่ออนุมัติให้ทำ database anonymization ใน transaction เดียว
-5. เขียน consent withdrawal events และ audit success ภายใน transaction เดียวกัน
-6. หลัง commit ลบไฟล์รูป ถ้าล้มเหลวให้ `fileCleanupStatus = FAILED` และเปิด action ลองใหม่
-7. คำขอเป็น `COMPLETED` ต่อเมื่อ database anonymization สำเร็จและไฟล์เป็น `COMPLETED` หรือ `NOT_REQUIRED`
+5. ถ้ามีรูป ให้ย้ายไฟล์ไป quarantine ที่ใช้ random `quarantineToken` ซึ่งไม่มีรหัสสมาชิก ก่อนล้างค่าในฐานข้อมูล หากย้ายไม่สำเร็จให้หยุดและเก็บสมาชิกเดิมไว้
+6. เขียน consent withdrawal events และ audit success ภายใน transaction เดียวกับการล้างข้อมูล
+7. หลัง commit ลบไฟล์ใน quarantine ถ้าล้มเหลวให้ `fileCleanupStatus = FAILED` และเปิด action ลองใหม่จาก cleanup row และ `quarantineToken`
+8. คำขอเป็น `COMPLETED` ต่อเมื่อ database anonymization สำเร็จและไฟล์เป็น `COMPLETED` หรือ `NOT_REQUIRED`
 
 ### 6.1 ข้อมูลที่ต้องล้าง
 
@@ -140,8 +151,8 @@ Migration สร้าง `OWNER001 / ผู้ดูแลระบบ` บท�
 - แทน `access_logs.serial` ด้วย token เฉพาะ log ที่ไม่เชื่อมกลับไปยัง serial เดิม
 - ปิด marketing consent ใน CRM และแทน free-text interaction ด้วยข้อความมาตรฐาน
 - แทน notification title/message และ loyalty free-text reason ด้วยข้อความมาตรฐาน
-- ล้าง `pt_sessions.weightKg`, `bmi`, `waistCm`, `bodyFatPercent`, `workoutSummary`, `trainerNote`
-- ล้าง free-text note ในข้อมูลสมาชิก แพ็กเกจ การชำระเงิน การจอง และคำขอที่อาจมี PII โดยคงฟิลด์การเงิน วันเวลา สถานะ และ foreign key ไปยังสมาชิกนิรนาม
+- ล้าง `pt_sessions.weightKg`, `bmi`, `waistCm`, `workoutSummary`, `trainerNote`
+- ล้าง free-text ในข้อมูลสมาชิก, `payments.note`, `pt_packages.note`, `locker_rentals.note` และข้อความ CRM/notification/loyalty ที่อาจมี PII โดยคงฟิลด์การเงิน วันเวลา สถานะ และ foreign key ไปยังสมาชิกนิรนาม
 
 ### 6.2 ข้อมูลที่ต้องคงไว้
 
