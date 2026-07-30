@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentBranchId } from "@/lib/branch-service";
 import {
+  anonymizeApprovedRequest,
   PrivacyOperationError,
   reviewPrivacyRequest,
 } from "@/lib/privacy-service";
@@ -31,6 +32,8 @@ export async function POST(
     const requestId = z.coerce.number().int().positive().parse((await params).id);
     const input = reviewSchema.parse(await request.json());
     await reviewPrivacyRequest(requestId, input, actor);
+    if (input.status === "APPROVED")
+      await anonymizeApprovedRequest(requestId, actor);
     return NextResponse.json({ message: "บันทึกผลพิจารณาคำขอแล้ว" });
   } catch (error) {
     if (error instanceof z.ZodError)
