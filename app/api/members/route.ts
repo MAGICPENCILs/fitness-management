@@ -1,10 +1,11 @@
 import { db } from "@/db";
-import { members, NewMember } from "@/db/schema";
+import { consentEvents, members, NewMember } from "@/db/schema";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentBranchId } from "@/lib/branch-service";
 import { runAuditedMutation } from "@/lib/audit-service";
 import { AuthorizationError, requirePermission } from "@/lib/staff-service";
+import { canCreateMember } from "@/lib/consent-policy";
 
 // Validation Schema
 const createMemberSchema = z.object({
@@ -18,6 +19,16 @@ const createMemberSchema = z.object({
   gender:      z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
   address:     z.string().optional(),
   note:        z.string().optional(),
+  photoUrl:    z.string().trim().max(255).optional(),
+  consents: z.object({
+    servicePrivacy: z.literal(true, "ต้องยอมรับนโยบายเพื่อให้บริการ"),
+    marketing: z.boolean().default(false),
+    photo: z.boolean().default(false),
+    policyVersion: z.string().trim().min(1).max(30),
+  }),
+}).refine((value) => value.consents.photo || !value.photoUrl, {
+  message: "ต้องได้รับ PHOTO consent ก่อนบันทึกรูปสมาชิก",
+  path: ["photoUrl"],
 });
 
 // GET /api/members
@@ -45,17 +56,65 @@ export async function POST(request: Request) {
 
     // Validate ข้อมูลที่รับมาด้วย Zod
     const validated = createMemberSchema.parse(body);
+    if (!canCreateMember({
+      SERVICE_PRIVACY: validated.consents.servicePrivacy,
+      MARKETING: validated.consents.marketing,
+      PHOTO: validated.consents.photo,
+    }))
+      return NextResponse.json(
+        { error: "ต้องยอมรับนโยบายเพื่อให้บริการก่อนสมัครสมาชิก" },
+        { status: 400 },
+      );
     const newMember: NewMember = {
-    ...validated,
-    homeBranchId,
-    status: "ACTIVE",
-    birthDate: validated.birthDate ? new Date(validated.birthDate) : undefined,
+      memberCode: validated.memberCode,
+      firstName: validated.firstName,
+      lastName: validated.lastName,
+      idCard: validated.idCard,
+      phone: validated.phone,
+      email: validated.email,
+      birthDate: validated.birthDate ? new Date(validated.birthDate) : undefined,
+      gender: validated.gender,
+      address: validated.address,
+      note: validated.note,
+      photoUrl: validated.photoUrl,
+      homeBranchId,
+      status: "ACTIVE",
     };
     const id = await runAuditedMutation<number>(
       { actorStaffId: actor.staffId, branchId: homeBranchId, action: "MEMBER_CREATED", entityType: "MEMBER", success: (entityId) => ({ entityId }) },
       async (tx) => {
         const result = await tx.insert(members).values(newMember);
-        return result[0].insertId;
+        const memberId = result[0].insertId;
+        await tx.insert(consentEvents).values([
+          {
+            memberId,
+            branchId: homeBranchId,
+            recordedByStaffId: actor.staffId,
+            consentType: "SERVICE_PRIVACY",
+            action: "GRANTED",
+            policyVersion: validated.consents.policyVersion,
+            source: "FRONT_DESK",
+          },
+          {
+            memberId,
+            branchId: homeBranchId,
+            recordedByStaffId: actor.staffId,
+            consentType: "MARKETING",
+            action: validated.consents.marketing ? "GRANTED" : "WITHDRAWN",
+            policyVersion: validated.consents.policyVersion,
+            source: "FRONT_DESK",
+          },
+          {
+            memberId,
+            branchId: homeBranchId,
+            recordedByStaffId: actor.staffId,
+            consentType: "PHOTO",
+            action: validated.consents.photo ? "GRANTED" : "WITHDRAWN",
+            policyVersion: validated.consents.policyVersion,
+            source: "FRONT_DESK",
+          },
+        ]);
+        return memberId;
       },
     );
 

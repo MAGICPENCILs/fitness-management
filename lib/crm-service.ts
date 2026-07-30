@@ -2,6 +2,7 @@ import { and, desc, eq, max, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   accessLogs,
+  consentEvents,
   crmInteractions,
   loyaltyPoints,
   loyaltyRewards,
@@ -9,6 +10,7 @@ import {
   members,
 } from "@/db/schema";
 import { withTransaction, type DbTransaction } from "@/lib/audit-service";
+import { getLatestConsent } from "@/lib/consent-policy";
 
 export class CrmOperationError extends Error {
   /** สร้างข้อผิดพลาดทางธุรกิจพร้อม HTTP status ที่ route handler นำไปใช้ได้ตรงกัน */
@@ -23,7 +25,7 @@ export class CrmOperationError extends Error {
 
 /** รวมข้อมูลสมาชิก การติดตาม คะแนน และรางวัลสำหรับหน้า CRM โดยถือว่าไม่เข้าใช้เกิน 30 วันคือ inactive */
 export async function getCrmDashboard() {
-  const [memberRows, interactionRows, rewardRows, balanceRows, lastVisitRows] =
+  const [memberRows, interactionRows, rewardRows, balanceRows, lastVisitRows, consentRows] =
     await Promise.all([
       db
         .select({
@@ -84,6 +86,15 @@ export async function getCrmDashboard() {
         .from(accessLogs)
         .where(eq(accessLogs.result, "APPROVED"))
         .groupBy(accessLogs.memberId),
+      db
+        .select({
+          id: consentEvents.id,
+          memberId: consentEvents.memberId,
+          consentType: consentEvents.consentType,
+          action: consentEvents.action,
+          createdAt: consentEvents.createdAt,
+        })
+        .from(consentEvents),
     ]);
 
   const balances = new Map(
@@ -94,6 +105,20 @@ export async function getCrmDashboard() {
   );
   const inactiveCutoff = new Date();
   inactiveCutoff.setDate(inactiveCutoff.getDate() - 30);
+  const marketingAllowed = new Set<number>();
+  const consentByMember = new Map<number, typeof consentRows>();
+  for (const event of consentRows) {
+    const events = consentByMember.get(event.memberId) ?? [];
+    events.push(event);
+    consentByMember.set(event.memberId, events);
+  }
+  for (const [memberId, events] of consentByMember) {
+    const validEvents = events.filter(
+      (event): event is typeof event & { createdAt: Date } =>
+        event.createdAt !== null,
+    );
+    if (getLatestConsent(validEvents).MARKETING) marketingAllowed.add(memberId);
+  }
 
   const dashboardMembers = memberRows.map((member) => {
     const lastVisit = lastVisits.get(member.id) ?? null;
@@ -113,21 +138,24 @@ export async function getCrmDashboard() {
       ...item,
       createdAt: item.createdAt?.toISOString() ?? null,
     }));
+  const campaignMembers = dashboardMembers.filter((member) =>
+    marketingAllowed.has(member.id),
+  );
 
   return {
-    members: dashboardMembers,
+    members: campaignMembers,
     interactions: openInteractions,
     rewards: rewardRows,
     summary: {
-      profiledMembers: dashboardMembers.filter(
+      profiledMembers: campaignMembers.filter(
         (item) => item.interests || item.fitnessGoals,
       ).length,
       openFollowUps: openInteractions.length,
-      outstandingPoints: dashboardMembers.reduce(
+      outstandingPoints: campaignMembers.reduce(
         (total, item) => total + item.points,
         0,
       ),
-      inactiveMembers: dashboardMembers.filter((item) => item.isInactive).length,
+      inactiveMembers: campaignMembers.filter((item) => item.isInactive).length,
     },
   };
 }

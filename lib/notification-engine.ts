@@ -4,6 +4,7 @@ import { and, desc, eq, inArray, isNotNull, max } from "drizzle-orm";
 import { db } from "@/db";
 import {
   accessLogs,
+  consentEvents,
   memberPackages,
   members,
   NewNotification,
@@ -11,6 +12,7 @@ import {
   notificationSettings,
 } from "@/db/schema";
 import type { DbTransaction } from "@/lib/audit-service";
+import { getLatestConsent } from "@/lib/consent-policy";
 
 export const defaultNotificationSettings = {
   id: 1,
@@ -149,7 +151,7 @@ export async function generateNotifications(now = new Date(), executor?: DbTrans
   const channels = getEnabledChannels(settings);
   if (!channels.length) return { created: 0, candidates: 0, message: "ยังไม่ได้เปิดช่องทางแจ้งเตือน" };
 
-  const [packages, activeMembers, lastVisits] = await Promise.all([
+  const [packages, activeMembers, lastVisits, consentRows] = await Promise.all([
     database
       .select({
         id: memberPackages.id,
@@ -179,11 +181,34 @@ export async function generateNotifications(now = new Date(), executor?: DbTrans
       .from(accessLogs)
       .where(and(eq(accessLogs.result, "APPROVED"), isNotNull(accessLogs.memberId)))
       .groupBy(accessLogs.memberId),
+    database
+      .select({
+        id: consentEvents.id,
+        memberId: consentEvents.memberId,
+        consentType: consentEvents.consentType,
+        action: consentEvents.action,
+        createdAt: consentEvents.createdAt,
+      })
+      .from(consentEvents),
   ]);
 
   const reminderDays = new Set(parseReminderDays(settings.reminderDays));
   const todayDate = startOfLocalDay(now);
   const entries: NewNotification[] = [];
+  const consentByMember = new Map<number, typeof consentRows>();
+  for (const event of consentRows) {
+    const events = consentByMember.get(event.memberId) ?? [];
+    events.push(event);
+    consentByMember.set(event.memberId, events);
+  }
+  const marketingAllowed = new Set<number>();
+  for (const [memberId, events] of consentByMember) {
+    const validEvents = events.filter(
+      (event): event is typeof event & { createdAt: Date } =>
+        event.createdAt !== null,
+    );
+    if (getLatestConsent(validEvents).MARKETING) marketingAllowed.add(memberId);
+  }
 
   for (const membership of packages) {
     const daysLeft = differenceInDays(membership.expireDate, now);
@@ -210,6 +235,7 @@ export async function generateNotifications(now = new Date(), executor?: DbTrans
     if (!lastActivity || differenceInDays(now, lastActivity) < settings.inactivityDays) continue;
     const activityKey = toDateKey(lastActivity);
     for (const channel of channels) {
+      if (channel !== "IN_APP" && !marketingAllowed.has(member.id)) continue;
       const delivery = getDeliveryState(channel, member);
       entries.push({
         memberId: member.id,
