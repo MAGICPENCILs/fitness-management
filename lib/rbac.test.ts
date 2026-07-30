@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canManageStaff,
   getPermissionSnapshot,
   hasPermission,
   type StaffRole,
@@ -44,5 +45,23 @@ describe("RBAC", () => {
       "payments.manage": true,
       "accounting.manage": false,
     });
+  });
+
+  it("ไม่ให้ Manager สร้างหรือแก้ Owner", () => {
+    expect(
+      canManageStaff(actor("MANAGER", 2), {
+        role: "OWNER",
+        homeBranchId: 2,
+      }),
+    ).toBe(false);
+  });
+
+  it("ให้ Manager จัดการ non-owner ในสาขาตน", () => {
+    expect(
+      canManageStaff(actor("MANAGER", 2), {
+        role: "COUNTER",
+        homeBranchId: 2,
+      }),
+    ).toBe(true);
   });
 });

@@ -84,3 +84,16 @@ export function getPermissionSnapshot(actor: ActorContext) {
     ]),
   ) as Record<Permission, boolean>;
 }
+
+/** ตรวจขอบเขตการจัดการบัญชีพนักงานโดยกัน Manager แก้ Owner หรือข้ามสาขา */
+export function canManageStaff(
+  actor: ActorContext,
+  target: { role: StaffRole; homeBranchId: number },
+) {
+  if (actor.role === "OWNER") return true;
+  return (
+    actor.role === "MANAGER" &&
+    target.role !== "OWNER" &&
+    actor.homeBranchId === target.homeBranchId
+  );
+}
