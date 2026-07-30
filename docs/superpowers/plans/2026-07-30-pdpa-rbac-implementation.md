@@ -97,7 +97,7 @@
 Run:
 
 ```powershell
-pnpm add -D vitest
+npm install --save-dev vitest
 ```
 
 Add scripts:
@@ -215,7 +215,7 @@ Expected: 5 tests PASS with no warnings.
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add package.json pnpm-lock.yaml vitest.config.ts lib/rbac.ts lib/rbac.test.ts
+git add package.json package-lock.json vitest.config.ts lib/rbac.ts lib/rbac.test.ts
 git commit -m "test: add RBAC permission foundation"
 ```
 
@@ -915,7 +915,7 @@ Expected: all component/domain tests PASS, 0 type/lint errors.
 - [ ] **Step 9: Commit**
 
 ```powershell
-git add app/settings app/members components package.json pnpm-lock.yaml
+git add app/settings app/members components package.json package-lock.json
 git commit -m "feat: add PDPA and staff management UI"
 ```
 
