@@ -16,6 +16,7 @@ import {
   resolveStaffSelection,
   StaffContextError,
 } from "@/lib/staff-context-core";
+import { runAuditedMutation, writeAudit } from "@/lib/audit-service";
 
 const STAFF_COOKIE = "fitness_staff_id";
 
@@ -114,6 +115,7 @@ export async function getStaffContext() {
 export async function requirePermission(
   permission: Permission,
   resourceBranchId?: number,
+  denial?: { action: string; entityType: string; entityId?: number },
 ) {
   let context: Awaited<ReturnType<typeof getStaffContext>>;
   try {
@@ -129,15 +131,29 @@ export async function requirePermission(
     role: context.staff.role,
     homeBranchId: context.staff.homeBranchId,
   };
-  if (!hasPermission(actor, permission, resourceBranchId))
+  if (!hasPermission(actor, permission, resourceBranchId)) {
+    await writeAudit(db, {
+      actorStaffId: actor.staffId,
+      branchId: actor.homeBranchId,
+      action: denial?.action ?? "PERMISSION_DENIED",
+      entityType: denial?.entityType ?? "PERMISSION",
+      entityId: denial?.entityId,
+      result: "DENIED",
+      metadata: {
+        module: permission.replace(/[^A-Za-z0-9_.-]+/g, "_").toUpperCase(),
+        ...(resourceBranchId === undefined ? {} : { branchId: resourceBranchId }),
+      },
+    });
     throw new AuthorizationError("บัญชีนี้ไม่มีสิทธิ์ดำเนินการ", 403);
+  }
   return actor;
 }
 
 /** ตรวจว่าบัญชีเป้าหมายเปิดใช้งานก่อนบันทึกเป็นบริบทพนักงานปัจจุบัน */
 export async function setCurrentStaffCookie(staffId: number) {
+  const previousContext = await getStaffContext();
   const [selected] = await db
-    .select({ id: staff.id })
+    .select({ id: staff.id, homeBranchId: staff.homeBranchId })
     .from(staff)
     .where(and(eq(staff.id, staffId), eq(staff.status, "ACTIVE")))
     .limit(1);
@@ -149,6 +165,15 @@ export async function setCurrentStaffCookie(staffId: number) {
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 365,
+  });
+  await writeAudit(db, {
+    actorStaffId: previousContext.staff.id,
+    branchId: previousContext.staff.homeBranchId,
+    action: "STAFF_CONTEXT_CHANGED",
+    entityType: "STAFF",
+    entityId: staffId,
+    result: "SUCCESS",
+    metadata: { branchId: selected.homeBranchId },
   });
 }
 
@@ -187,13 +212,24 @@ export async function createStaff(input: StaffInput) {
   if (!canManageStaff(actor, input))
     throw new AuthorizationError("ไม่มีสิทธิ์สร้างบทบาทหรือสาขานี้", 403);
   try {
-    const result = await db.insert(staff).values({
-      ...input,
-      staffCode: input.staffCode.toUpperCase(),
-      phone: input.phone || null,
-      email: input.email || null,
-    });
-    return result[0].insertId;
+    return await runAuditedMutation<number>(
+      {
+        actorStaffId: actor.staffId,
+        branchId: input.homeBranchId,
+        action: "STAFF_CREATED",
+        entityType: "STAFF",
+        success: (id) => ({ entityId: id }),
+      },
+      async (tx) => {
+        const result = await tx.insert(staff).values({
+          ...input,
+          staffCode: input.staffCode.toUpperCase(),
+          phone: input.phone || null,
+          email: input.email || null,
+        });
+        return result[0].insertId;
+      },
+    );
   } catch (error) {
     if (error instanceof Error && error.message.includes("Duplicate"))
       throw new StaffOperationError("รหัสพนักงานนี้ถูกใช้งานแล้ว", 409);
@@ -214,15 +250,38 @@ export async function updateStaff(staffId: number, input: StaffInput) {
   if (!canManageStaff(actor, existing) || !canManageStaff(actor, input))
     throw new AuthorizationError("ไม่มีสิทธิ์แก้ไขบัญชี บทบาท หรือสาขานี้", 403);
   try {
-    await db
-      .update(staff)
-      .set({
-        ...input,
-        staffCode: input.staffCode.toUpperCase(),
-        phone: input.phone || null,
-        email: input.email || null,
-      })
-      .where(eq(staff.id, staffId));
+    await runAuditedMutation(
+      {
+        actorStaffId: actor.staffId,
+        branchId: input.homeBranchId,
+        action: "STAFF_UPDATED",
+        entityType: "STAFF",
+        entityId: staffId,
+        metadata: {
+          fields: [
+            "staffCode",
+            "firstName",
+            "lastName",
+            "homeBranchId",
+            "role",
+            "phone",
+            "email",
+            "status",
+          ],
+        },
+      },
+      async (tx) => {
+        await tx
+          .update(staff)
+          .set({
+            ...input,
+            staffCode: input.staffCode.toUpperCase(),
+            phone: input.phone || null,
+            email: input.email || null,
+          })
+          .where(eq(staff.id, staffId));
+      },
+    );
   } catch (error) {
     if (error instanceof Error && error.message.includes("Duplicate"))
       throw new StaffOperationError("รหัสพนักงานนี้ถูกใช้งานแล้ว", 409);

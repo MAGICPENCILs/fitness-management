@@ -3,6 +3,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { couponCodes, NewCouponCode, promotions } from "@/db/schema";
+import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const couponSchema = z.object({
   code: z.string().trim().min(3).max(32).regex(/^[A-Za-z0-9_-]+$/),
@@ -43,6 +46,11 @@ export async function GET() {
 /** ตรวจสอบข้อมูลและสร้างคูปองใหม่ โดยบังคับให้รหัสไม่ซ้ำกัน */
 export async function POST(request: Request) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("payments.manage", branchId, {
+      action: "COUPON_CREATED",
+      entityType: "COUPON",
+    });
     const validated = couponSchema.parse(await request.json());
     const [promotion] = await db
       .select({ id: promotions.id })
@@ -59,8 +67,14 @@ export async function POST(request: Request) {
       minPurchase: String(validated.minPurchase),
       isActive: true,
     };
-    const result = await db.insert(couponCodes).values(newCoupon);
-    return NextResponse.json({ id: result[0].insertId, message: "สร้างคูปองแล้ว" }, { status: 201 });
+    const id = await runAuditedMutation<number>(
+      { actorStaffId: actor.staffId, branchId, action: "COUPON_CREATED", entityType: "COUPON", success: (entityId) => ({ entityId }) },
+      async (tx) => {
+        const result = await tx.insert(couponCodes).values(newCoupon);
+        return result[0].insertId;
+      },
+    );
+    return NextResponse.json({ id, message: "สร้างคูปองแล้ว" }, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "ข้อมูลคูปองไม่ถูกต้อง", details: error.issues }, { status: 400 });
@@ -68,6 +82,8 @@ export async function POST(request: Request) {
     if (typeof error === "object" && error && "errno" in error && error.errno === 1062) {
       return NextResponse.json({ error: "รหัสคูปองนี้มีอยู่แล้ว" }, { status: 409 });
     }
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json({ error: "ไม่สามารถสร้างคูปองได้" }, { status: 500 });
   }

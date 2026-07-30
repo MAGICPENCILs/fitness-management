@@ -4,6 +4,7 @@ import {
   AuthorizationError,
   createStaff,
   getStaffDashboard,
+  requirePermission,
   StaffOperationError,
 } from "@/lib/staff-service";
 import { staffSchema } from "@/lib/staff-validation";
@@ -33,6 +34,10 @@ export async function GET() {
 /** ตรวจข้อมูลและสร้างบัญชีพนักงานภายใต้ server guard */
 export async function POST(request: Request) {
   try {
+    await requirePermission("staff.manage", undefined, {
+      action: "STAFF_CREATED",
+      entityType: "STAFF",
+    });
     const input = staffSchema.parse(await request.json());
     const id = await createStaff(input);
     return NextResponse.json({ message: "เพิ่มบัญชีพนักงานแล้ว", id }, { status: 201 });

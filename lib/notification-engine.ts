@@ -10,6 +10,7 @@ import {
   notifications,
   notificationSettings,
 } from "@/db/schema";
+import type { DbTransaction } from "@/lib/audit-service";
 
 export const defaultNotificationSettings = {
   id: 1,
@@ -61,8 +62,8 @@ export function parseReminderDays(value: string) {
 }
 
 /** โหลดค่าตั้งต้นการแจ้งเตือน โดยคืนค่าเริ่มต้นหากยังไม่เคยบันทึกลงฐานข้อมูล */
-export async function getNotificationSettings() {
-  const [settings] = await db.select().from(notificationSettings).where(eq(notificationSettings.id, 1)).limit(1);
+export async function getNotificationSettings(executor?: DbTransaction) {
+  const [settings] = await (executor ?? db).select().from(notificationSettings).where(eq(notificationSettings.id, 1)).limit(1);
   return settings ?? defaultNotificationSettings;
 }
 
@@ -123,9 +124,10 @@ function getEnabledChannels(settings: Awaited<ReturnType<typeof getNotificationS
 }
 
 /** บันทึกรายการใหม่เท่านั้น โดยใช้ dedupe key ป้องกันสมาชิกได้รับข้อความเดิมซ้ำ */
-async function insertNewNotifications(entries: NewNotification[]) {
+async function insertNewNotifications(entries: NewNotification[], executor?: DbTransaction) {
   if (!entries.length) return 0;
-  const existing = await db
+  const database = executor ?? db;
+  const existing = await database
     .select({ dedupeKey: notifications.dedupeKey })
     .from(notifications)
     .where(inArray(notifications.dedupeKey, entries.map((entry) => entry.dedupeKey)));
@@ -134,20 +136,21 @@ async function insertNewNotifications(entries: NewNotification[]) {
   if (!newEntries.length) return 0;
 
   // INSERT IGNORE ปิดช่องว่างของ race condition หากมีตัวประมวลผลสองรอบเริ่มพร้อมกัน
-  const result = await db.insert(notifications).ignore().values(newEntries);
+  const result = await database.insert(notifications).ignore().values(newEntries);
   return result[0].affectedRows;
 }
 
 /** สร้างแจ้งเตือนวันหมดอายุและสมาชิกขาดการใช้งานตามค่าตั้งระบบ */
-export async function generateNotifications(now = new Date()) {
-  const settings = await getNotificationSettings();
+export async function generateNotifications(now = new Date(), executor?: DbTransaction) {
+  const database = executor ?? db;
+  const settings = await getNotificationSettings(executor);
   if (!settings.isActive) return { created: 0, candidates: 0, message: "ระบบแจ้งเตือนถูกปิดใช้งาน" };
 
   const channels = getEnabledChannels(settings);
   if (!channels.length) return { created: 0, candidates: 0, message: "ยังไม่ได้เปิดช่องทางแจ้งเตือน" };
 
   const [packages, activeMembers, lastVisits] = await Promise.all([
-    db
+    database
       .select({
         id: memberPackages.id,
         memberId: members.id,
@@ -160,7 +163,7 @@ export async function generateNotifications(now = new Date()) {
       .from(memberPackages)
       .innerJoin(members, eq(memberPackages.memberId, members.id))
       .where(and(eq(memberPackages.status, "ACTIVE"), eq(members.status, "ACTIVE"))),
-    db
+    database
       .select({
         id: members.id,
         firstName: members.firstName,
@@ -171,7 +174,7 @@ export async function generateNotifications(now = new Date()) {
       })
       .from(members)
       .where(eq(members.status, "ACTIVE")),
-    db
+    database
       .select({ memberId: accessLogs.memberId, lastVisit: max(accessLogs.scannedAt) })
       .from(accessLogs)
       .where(and(eq(accessLogs.result, "APPROVED"), isNotNull(accessLogs.memberId)))
@@ -221,7 +224,7 @@ export async function generateNotifications(now = new Date()) {
     }
   }
 
-  const created = await insertNewNotifications(entries);
+  const created = await insertNewNotifications(entries, executor);
   return { created, candidates: entries.length, message: created ? "สร้างรายการแจ้งเตือนแล้ว" : "ไม่มีรายการใหม่ในวันนี้" };
 }
 
@@ -232,12 +235,14 @@ export async function recordScanWarning({
   daysLeft,
   memberName,
   now = new Date(),
+  executor,
 }: {
   memberId: number;
   memberPackageId: number;
   daysLeft: number;
   memberName: string;
   now?: Date;
+  executor?: DbTransaction;
 }) {
   const dateKey = toDateKey(now);
   return insertNewNotifications([{
@@ -251,5 +256,5 @@ export async function recordScanWarning({
     scheduledFor: startOfLocalDay(now),
     dedupeKey: `SCAN:${memberPackageId}:${dateKey}`,
     sentAt: now,
-  }]);
+  }], executor);
 }

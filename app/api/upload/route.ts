@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { db } from "@/db";
+import { getCurrentBranchId } from "@/lib/branch-service";
+import { writeAudit } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 export async function POST(request: Request) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("members.manage", branchId, { action: "MEMBER_PHOTO_UPLOADED", entityType: "MEMBER_PHOTO" });
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const memberCode = formData.get("memberCode") as string;
@@ -26,11 +32,21 @@ export async function POST(request: Request) {
     const filepath = path.join(uploadDir, filename);
 
     await writeFile(filepath, buffer);
+    await writeAudit(db, {
+      actorStaffId: actor.staffId,
+      branchId,
+      action: "MEMBER_PHOTO_UPLOADED",
+      entityType: "MEMBER_PHOTO",
+      result: "SUCCESS",
+      metadata: { fields: ["photo"] },
+    });
 
     return NextResponse.json({
       url: `/uploads/members/${filename}`,
     });
   } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });
   }

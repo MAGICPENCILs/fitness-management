@@ -3,6 +3,8 @@ import { members, NewMember } from "@/db/schema";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 // Validation Schema
 const createMemberSchema = z.object({
@@ -34,22 +36,31 @@ export async function GET() {
 // POST /api/members
 export async function POST(request: Request) {
   try {
+    const homeBranchId = await getCurrentBranchId();
+    const actor = await requirePermission("members.manage", homeBranchId, {
+      action: "MEMBER_CREATED",
+      entityType: "MEMBER",
+    });
     const body = await request.json();
 
     // Validate ข้อมูลที่รับมาด้วย Zod
     const validated = createMemberSchema.parse(body);
-    const homeBranchId = await getCurrentBranchId();
-
     const newMember: NewMember = {
     ...validated,
     homeBranchId,
     status: "ACTIVE",
     birthDate: validated.birthDate ? new Date(validated.birthDate) : undefined,
     };
-        const result = await db.insert(members).values(newMember);
+    const id = await runAuditedMutation<number>(
+      { actorStaffId: actor.staffId, branchId: homeBranchId, action: "MEMBER_CREATED", entityType: "MEMBER", success: (entityId) => ({ entityId }) },
+      async (tx) => {
+        const result = await tx.insert(members).values(newMember);
+        return result[0].insertId;
+      },
+    );
 
     return NextResponse.json(
-      { message: "Member created", id: result[0].insertId },
+      { message: "Member created", id },
       { status: 201 }
     );
   } catch (error) {
@@ -59,6 +70,8 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json(
       { error: "Failed to create member" },
       { status: 500 }

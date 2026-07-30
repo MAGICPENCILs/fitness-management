@@ -1,10 +1,11 @@
-import { db } from "@/db";
 import { cardPool, memberPackages, members, accessLogs } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { recordScanWarning } from "@/lib/notification-engine";
 import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const scanSchema = z.object({
   serial: z.string().min(1),
@@ -12,19 +13,26 @@ const scanSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("access.manage", branchId, {
+      action: "ACCESS_SCAN_PROCESSED",
+      entityType: "ACCESS_SCAN",
+    });
     const body = await request.json();
     const { serial } = scanSchema.parse(body);
-    const branchId = await getCurrentBranchId();
+    return await runAuditedMutation<NextResponse>(
+      { actorStaffId: actor.staffId, branchId, action: "ACCESS_SCAN_PROCESSED", entityType: "ACCESS_SCAN", metadata: { method: "CARD" } },
+      async (tx) => {
 
     // 1. หาบัตรจาก serial
-    const card = await db
+    const card = await tx
       .select()
       .from(cardPool)
       .where(eq(cardPool.serial, serial))
       .limit(1);
 
     if (card.length === 0 || card[0].status !== "IN_USE" || !card[0].memberId) {
-      await db.insert(accessLogs).values({
+      await tx.insert(accessLogs).values({
         branchId,
         serial,
         result: "REJECTED",
@@ -37,7 +45,7 @@ export async function POST(request: Request) {
     }
 
     // 2. หาข้อมูลสมาชิก
-    const member = await db
+    const member = await tx
       .select()
       .from(members)
       .where(eq(members.id, card[0].memberId))
@@ -51,7 +59,7 @@ export async function POST(request: Request) {
 
     // 3. เช็คสถานะสมาชิก
     if (m.status === "SUSPENDED") {
-      await db.insert(accessLogs).values({
+      await tx.insert(accessLogs).values({
         branchId,
         memberId: m.id, serial,
         result: "REJECTED", reason: "สมาชิกถูกระงับ",
@@ -60,7 +68,7 @@ export async function POST(request: Request) {
     }
 
     if (m.status === "CANCELLED") {
-      await db.insert(accessLogs).values({
+      await tx.insert(accessLogs).values({
         branchId,
         memberId: m.id, serial,
         result: "REJECTED", reason: "สมาชิกถูกยกเลิก",
@@ -69,14 +77,14 @@ export async function POST(request: Request) {
     }
 
     // 4. หา package ที่ active อยู่
-    const pkg = await db
+    const pkg = await tx
       .select()
       .from(memberPackages)
       .where(eq(memberPackages.memberId, m.id))
       .limit(1);
 
     if (pkg.length === 0) {
-      await db.insert(accessLogs).values({
+      await tx.insert(accessLogs).values({
         branchId,
         memberId: m.id, serial,
         result: "REJECTED", reason: "ไม่มีแพ็กเกจ",
@@ -93,7 +101,7 @@ export async function POST(request: Request) {
 
     // 5. เช็ควันหมดอายุ
     if (daysLeft < 0) {
-      await db.insert(accessLogs).values({
+      await tx.insert(accessLogs).values({
         branchId,
         memberId: m.id, serial,
         result: "REJECTED", reason: "แพ็กเกจหมดอายุ",
@@ -102,7 +110,7 @@ export async function POST(request: Request) {
     }
 
     // 6. อนุมัติ — บันทึก log
-    await db.insert(accessLogs).values({
+    await tx.insert(accessLogs).values({
       branchId,
       memberId: m.id, serial,
       result: "APPROVED", reason: null,
@@ -115,6 +123,7 @@ export async function POST(request: Request) {
         memberPackageId: activePkg.id,
         daysLeft,
         memberName: `${m.firstName} ${m.lastName}`,
+        executor: tx,
       }).catch((notificationError) => console.error("Failed to record scan warning", notificationError));
     }
 
@@ -132,11 +141,15 @@ export async function POST(request: Request) {
       },
       warning: daysLeft <= 7 ? `เหลืออีก ${daysLeft} วัน` : null,
     });
+      },
+    );
 
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: "Failed" }, { status: 500 });
   }
 }

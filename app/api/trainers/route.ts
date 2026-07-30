@@ -5,6 +5,8 @@ import {
   createTrainer,
 } from "@/lib/class-service";
 import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const trainerSchema = z.object({
   code: z
@@ -24,8 +26,22 @@ const trainerSchema = z.object({
 /** ตรวจข้อมูลและเพิ่มเทรนเนอร์สำหรับนำไปจัดตารางสอน */
 export async function POST(request: Request) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("classes.manage", branchId, {
+      action: "TRAINER_CREATED",
+      entityType: "TRAINER",
+    });
     const validated = trainerSchema.parse(await request.json());
-    const id = await createTrainer({ ...validated, branchId: await getCurrentBranchId() });
+    const id = await runAuditedMutation<number>(
+      {
+        actorStaffId: actor.staffId,
+        branchId,
+        action: "TRAINER_CREATED",
+        entityType: "TRAINER",
+        success: (entityId) => ({ entityId }),
+      },
+      (tx) => createTrainer({ ...validated, branchId }, tx),
+    );
     return NextResponse.json(
       { message: "เพิ่มเทรนเนอร์แล้ว", id },
       { status: 201 },
@@ -41,6 +57,8 @@ export async function POST(request: Request) {
         { error: error.message },
         { status: error.status },
       );
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json(
       { error: "ไม่สามารถเพิ่มเทรนเนอร์ได้" },

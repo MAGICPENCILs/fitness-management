@@ -4,6 +4,9 @@ import {
   EquipmentOperationError,
   updateEquipmentOperation,
 } from "@/lib/equipment-service";
+import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const updateEquipmentSchema = z.object({
   currentUsageHours: z.coerce.number().int().min(0).max(10_000_000),
@@ -16,10 +19,25 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("settings.manage", branchId, {
+      action: "EQUIPMENT_UPDATED",
+      entityType: "EQUIPMENT",
+    });
     const { id } = await params;
     const equipmentId = z.coerce.number().int().positive().parse(id);
     const validated = updateEquipmentSchema.parse(await request.json());
-    await updateEquipmentOperation(equipmentId, validated);
+    await runAuditedMutation(
+      {
+        actorStaffId: actor.staffId,
+        branchId,
+        action: "EQUIPMENT_UPDATED",
+        entityType: "EQUIPMENT",
+        entityId: equipmentId,
+        metadata: { fields: ["currentUsageHours", "status"] },
+      },
+      (tx) => updateEquipmentOperation(equipmentId, branchId, validated, tx),
+    );
     return NextResponse.json({ message: "อัปเดตสถานะอุปกรณ์แล้ว" });
   } catch (error) {
     if (error instanceof z.ZodError)
@@ -32,6 +50,8 @@ export async function PATCH(
         { error: error.message },
         { status: error.status },
       );
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json(
       { error: "ไม่สามารถอัปเดตอุปกรณ์ได้" },

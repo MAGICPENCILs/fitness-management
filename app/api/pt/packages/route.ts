@@ -4,6 +4,9 @@ import {
   createPtPackage,
   PersonalTrainingOperationError,
 } from "@/lib/personal-training-service";
+import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const packageSchema = z
   .object({
@@ -37,8 +40,16 @@ function getBangkokToday() {
 /** ตรวจข้อมูลและออก PT Package ให้สมาชิกกับเทรนเนอร์ที่เลือก */
 export async function POST(request: Request) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("pt.manage", branchId, {
+      action: "PT_PACKAGE_CREATED",
+      entityType: "PT_PACKAGE",
+    });
     const validated = packageSchema.parse(await request.json());
-    const id = await createPtPackage(validated);
+    const id = await runAuditedMutation<number>(
+      { actorStaffId: actor.staffId, branchId, action: "PT_PACKAGE_CREATED", entityType: "PT_PACKAGE", metadata: { memberId: validated.memberId }, success: (entityId) => ({ entityId }) },
+      (tx) => createPtPackage({ ...validated, branchId }, tx),
+    );
     return NextResponse.json(
       { message: "ออก PT Package แล้ว", id },
       { status: 201 },
@@ -50,6 +61,8 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     if (error instanceof PersonalTrainingOperationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof AuthorizationError)
       return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json(

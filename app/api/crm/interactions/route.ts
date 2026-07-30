@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createCrmInteraction, CrmOperationError } from "@/lib/crm-service";
+import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const interactionSchema = z.object({
   memberId: z.coerce.number().int().positive(),
@@ -14,8 +17,13 @@ const interactionSchema = z.object({
 /** ตรวจข้อมูลและเพิ่มประวัติการติดต่อสมาชิก */
 export async function POST(request: Request) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("members.manage", branchId, { action: "CRM_INTERACTION_CREATED", entityType: "CRM_INTERACTION" });
     const validated = interactionSchema.parse(await request.json());
-    const id = await createCrmInteraction(validated);
+    const id = await runAuditedMutation<number>(
+      { actorStaffId: actor.staffId, branchId, action: "CRM_INTERACTION_CREATED", entityType: "CRM_INTERACTION", metadata: { memberId: validated.memberId }, success: (entityId) => ({ entityId }) },
+      (tx) => createCrmInteraction({ ...validated, branchId }, tx),
+    );
     return NextResponse.json({ message: "บันทึกการติดตามแล้ว", id }, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError)
@@ -24,6 +32,8 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     if (error instanceof CrmOperationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof AuthorizationError)
       return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json({ error: "ไม่สามารถบันทึกการติดตามได้" }, { status: 500 });

@@ -7,6 +7,7 @@ import {
   ptSessions,
   trainers,
 } from "@/db/schema";
+import { withTransaction, type DbTransaction } from "@/lib/audit-service";
 
 export class PersonalTrainingOperationError extends Error {
   constructor(
@@ -134,6 +135,7 @@ export async function getPersonalTrainingDashboard() {
 
 /** ออกสิทธิ์ PT หลังตรวจว่าสมาชิกและเทรนเนอร์อยู่ในสถานะพร้อมใช้งาน */
 export async function createPtPackage(input: {
+  branchId: number;
   memberId: number;
   trainerId: number;
   name: string;
@@ -141,17 +143,18 @@ export async function createPtPackage(input: {
   startDate: string;
   endDate: string;
   note?: string;
-}) {
+}, executor?: DbTransaction) {
+  const database = executor ?? db;
   const [[member], [trainer]] = await Promise.all([
-    db
+    database
       .select({ status: members.status })
       .from(members)
       .where(eq(members.id, input.memberId))
       .limit(1),
-    db
+    database
       .select({ status: trainers.status })
       .from(trainers)
-      .where(eq(trainers.id, input.trainerId))
+      .where(and(eq(trainers.id, input.trainerId), eq(trainers.branchId, input.branchId)))
       .limit(1),
   ]);
   if (!member || member.status !== "ACTIVE")
@@ -159,8 +162,13 @@ export async function createPtPackage(input: {
   if (!trainer || trainer.status !== "ACTIVE")
     throw new PersonalTrainingOperationError("ไม่พบเทรนเนอร์ที่พร้อมรับแพ็กเกจ");
 
-  const result = await db.insert(ptPackages).values({
-    ...input,
+  const result = await database.insert(ptPackages).values({
+    memberId: input.memberId,
+    trainerId: input.trainerId,
+    name: input.name,
+    totalSessions: input.totalSessions,
+    startDate: input.startDate,
+    endDate: input.endDate,
     note: input.note || null,
   });
   return result[0].insertId;
@@ -169,13 +177,15 @@ export async function createPtPackage(input: {
 /** นัด PT ภายใต้ transaction โดยกันสิทธิ์เกินจำนวนและตรวจเวลาชนทั้งคลาสกลุ่มกับ PT */
 export async function schedulePtSession(
   packageId: number,
+  branchId: number,
   input: {
     scheduledDate: string;
     startTime: string;
     endTime: string;
   },
+  executor?: DbTransaction,
 ) {
-  return db.transaction(async (tx) => {
+  return withTransaction(executor, async (tx) => {
     const [ptPackage] = await tx
       .select({
         id: ptPackages.id,
@@ -186,7 +196,8 @@ export async function schedulePtSession(
         status: ptPackages.status,
       })
       .from(ptPackages)
-      .where(eq(ptPackages.id, packageId))
+      .innerJoin(trainers, eq(ptPackages.trainerId, trainers.id))
+      .where(and(eq(ptPackages.id, packageId), eq(trainers.branchId, branchId)))
       .limit(1)
       .for("update");
     if (!ptPackage || ptPackage.status !== "ACTIVE")
@@ -265,6 +276,7 @@ export async function schedulePtSession(
 /** ปิด session พร้อมบันทึกผลร่างกายและเปลี่ยนแพ็กเกจเป็นเสร็จสิ้นเมื่อใช้ครบ */
 export async function completePtSession(
   sessionId: number,
+  branchId: number,
   input: {
     weightKg?: number;
     bmi?: number;
@@ -272,8 +284,9 @@ export async function completePtSession(
     workoutSummary?: string;
     trainerNote?: string;
   },
+  executor?: DbTransaction,
 ) {
-  return db.transaction(async (tx) => {
+  return withTransaction(executor, async (tx) => {
     const [session] = await tx
       .select({
         id: ptSessions.id,
@@ -281,7 +294,13 @@ export async function completePtSession(
         scheduledDate: ptSessions.scheduledDate,
       })
       .from(ptSessions)
-      .where(and(eq(ptSessions.id, sessionId), eq(ptSessions.status, "SCHEDULED")))
+      .innerJoin(ptPackages, eq(ptSessions.packageId, ptPackages.id))
+      .innerJoin(trainers, eq(ptPackages.trainerId, trainers.id))
+      .where(and(
+        eq(ptSessions.id, sessionId),
+        eq(ptSessions.status, "SCHEDULED"),
+        eq(trainers.branchId, branchId),
+      ))
       .limit(1)
       .for("update");
     if (!session)
@@ -332,8 +351,17 @@ export async function completePtSession(
 }
 
 /** ยกเลิกเฉพาะนัดที่ยังไม่เริ่มเพื่อคืนโควตาการนัดหมายให้แพ็กเกจ */
-export async function cancelPtSession(sessionId: number) {
-  const result = await db
+export async function cancelPtSession(sessionId: number, branchId: number, executor?: DbTransaction) {
+  const database = executor ?? db;
+  const [session] = await database
+    .select({ id: ptSessions.id })
+    .from(ptSessions)
+    .innerJoin(ptPackages, eq(ptSessions.packageId, ptPackages.id))
+    .innerJoin(trainers, eq(ptPackages.trainerId, trainers.id))
+    .where(and(eq(ptSessions.id, sessionId), eq(trainers.branchId, branchId)))
+    .limit(1);
+  if (!session) throw new PersonalTrainingOperationError("ไม่พบ Session ในสาขานี้", 404);
+  const result = await database
     .update(ptSessions)
     .set({ status: "CANCELLED", cancelledAt: new Date() })
     .where(and(eq(ptSessions.id, sessionId), eq(ptSessions.status, "SCHEDULED")));

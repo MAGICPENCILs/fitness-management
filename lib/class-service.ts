@@ -8,6 +8,7 @@ import {
   ptSessions,
   trainers,
 } from "@/db/schema";
+import { withTransaction, type DbTransaction } from "@/lib/audit-service";
 
 export class ClassOperationError extends Error {
   constructor(
@@ -125,8 +126,9 @@ export async function createTrainer(input: {
   specialty: string;
   phone?: string;
   note?: string;
-}) {
-  const [duplicate] = await db
+}, executor?: DbTransaction) {
+  const database = executor ?? db;
+  const [duplicate] = await database
     .select({ id: trainers.id })
     .from(trainers)
     .where(eq(trainers.code, input.code))
@@ -134,7 +136,7 @@ export async function createTrainer(input: {
   if (duplicate)
     throw new ClassOperationError("รหัสเทรนเนอร์นี้ถูกใช้งานแล้ว", 409);
 
-  const result = await db.insert(trainers).values({
+  const result = await database.insert(trainers).values({
     ...input,
     phone: input.phone || null,
     note: input.note || null,
@@ -154,8 +156,8 @@ export async function createFitnessClass(input: {
   endTime: string;
   capacity: number;
   note?: string;
-}) {
-  return db.transaction(async (tx) => {
+}, executor?: DbTransaction) {
+  return withTransaction(executor, async (tx) => {
     const [trainer] = await tx
       .select({ id: trainers.id, status: trainers.status })
       .from(trainers)
@@ -207,8 +209,8 @@ export async function createFitnessClass(input: {
 }
 
 /** จองที่นั่งภายใต้ transaction และล็อกรอบคลาสเพื่อป้องกันจำนวนจองเกินความจุ */
-export async function bookClass(classId: number, memberId: number) {
-  return db.transaction(async (tx) => {
+export async function bookClass(classId: number, memberId: number, executor?: DbTransaction) {
+  return withTransaction(executor, async (tx) => {
     const [fitnessClass] = await tx
       .select({
         id: fitnessClasses.id,
@@ -271,8 +273,8 @@ export async function bookClass(classId: number, memberId: number) {
 }
 
 /** ยกเลิกเฉพาะรายการที่ยืนยันแล้วเพื่อคืนที่นั่งให้คลาสอย่างถูกต้อง */
-export async function cancelClassBooking(classId: number, bookingId: number) {
-  const result = await db
+export async function cancelClassBooking(classId: number, bookingId: number, executor?: DbTransaction) {
+  const result = await (executor ?? db)
     .update(classBookings)
     .set({ status: "CANCELLED", cancelledAt: new Date() })
     .where(

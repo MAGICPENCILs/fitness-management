@@ -1,6 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { lockerRentals, lockers, members } from "@/db/schema";
+import { withTransaction, type DbTransaction } from "@/lib/audit-service";
 
 export class LockerOperationError extends Error {
   constructor(
@@ -96,14 +97,16 @@ export async function getLockerDashboard(branchId: number) {
 /** มอบล็อกเกอร์ด้วย conditional update เพื่อกันคำขอพร้อมกันใช้ตู้เดียวกัน */
 export async function rentLocker(input: {
   lockerId: number;
+  branchId: number;
   memberId: number;
   rentalType: "USAGE" | "MONTHLY";
   startDate: string;
   endDate?: string;
   price: number;
   note?: string;
-}) {
-  const [member] = await db
+}, executor?: DbTransaction) {
+  const database = executor ?? db;
+  const [member] = await database
     .select({ id: members.id, status: members.status })
     .from(members)
     .where(eq(members.id, input.memberId))
@@ -114,12 +117,16 @@ export async function rentLocker(input: {
       400,
     );
 
-  return db.transaction(async (tx) => {
+  return withTransaction(executor, async (tx) => {
     const updateResult = await tx
       .update(lockers)
       .set({ status: "OCCUPIED" })
       .where(
-        and(eq(lockers.id, input.lockerId), eq(lockers.status, "AVAILABLE")),
+        and(
+          eq(lockers.id, input.lockerId),
+          eq(lockers.branchId, input.branchId),
+          eq(lockers.status, "AVAILABLE"),
+        ),
       );
     if (updateResult[0].affectedRows !== 1)
       throw new LockerOperationError(
@@ -142,8 +149,14 @@ export async function rentLocker(input: {
 }
 
 /** ปิดประวัติการใช้งานก่อนคืนตู้เป็นว่าง เพื่อให้สองสถานะเปลี่ยนพร้อมกันใน transaction */
-export async function releaseLocker(lockerId: number) {
-  return db.transaction(async (tx) => {
+export async function releaseLocker(lockerId: number, branchId: number, executor?: DbTransaction) {
+  return withTransaction(executor, async (tx) => {
+    const [locker] = await tx
+      .select({ id: lockers.id })
+      .from(lockers)
+      .where(and(eq(lockers.id, lockerId), eq(lockers.branchId, branchId)))
+      .limit(1);
+    if (!locker) throw new LockerOperationError("ไม่พบล็อกเกอร์ในสาขานี้", 404);
     const rentalResult = await tx
       .update(lockerRentals)
       .set({ status: "COMPLETED", checkedOutAt: new Date() })

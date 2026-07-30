@@ -1,6 +1,7 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { equipment, maintenanceRecords } from "@/db/schema";
+import { withTransaction, type DbTransaction } from "@/lib/audit-service";
 
 export type EquipmentCategory =
   | "CARDIO"
@@ -123,8 +124,9 @@ export async function createEquipment(input: {
   maintenanceIntervalHours?: number;
   nextMaintenanceDate?: string;
   note?: string;
-}) {
-  const [existing] = await db
+}, executor?: DbTransaction) {
+  const database = executor ?? db;
+  const [existing] = await database
     .select({ id: equipment.id })
     .from(equipment)
     .where(eq(equipment.code, input.code))
@@ -132,7 +134,7 @@ export async function createEquipment(input: {
   if (existing)
     throw new EquipmentOperationError("รหัสอุปกรณ์นี้มีอยู่แล้ว", 409);
 
-  const result = await db.insert(equipment).values({
+  const result = await database.insert(equipment).values({
     ...input,
     serialNumber: input.serialNumber || null,
     purchaseDate: input.purchaseDate || null,
@@ -150,12 +152,15 @@ export async function createEquipment(input: {
 /** อัปเดตมิเตอร์แบบเพิ่มขึ้นเท่านั้นเพื่อรักษาความน่าเชื่อถือของรอบบำรุง และเปลี่ยนสถานะตามการตรวจหน้างาน */
 export async function updateEquipmentOperation(
   equipmentId: number,
+  branchId: number,
   input: { currentUsageHours: number; status: EquipmentStatus },
+  executor?: DbTransaction,
 ) {
-  const [current] = await db
+  const database = executor ?? db;
+  const [current] = await database
     .select({ id: equipment.id, currentUsageHours: equipment.currentUsageHours })
     .from(equipment)
-    .where(eq(equipment.id, equipmentId))
+    .where(and(eq(equipment.id, equipmentId), eq(equipment.branchId, branchId)))
     .limit(1);
   if (!current) throw new EquipmentOperationError("ไม่พบอุปกรณ์", 404);
   if (input.currentUsageHours < current.currentUsageHours)
@@ -163,15 +168,16 @@ export async function updateEquipmentOperation(
       "ชั่วโมงใช้งานใหม่ต้องไม่น้อยกว่าค่าปัจจุบัน",
     );
 
-  await db
+  await database
     .update(equipment)
     .set(input)
-    .where(eq(equipment.id, equipmentId));
+    .where(and(eq(equipment.id, equipmentId), eq(equipment.branchId, branchId)));
 }
 
 /** บันทึกงานบำรุงใน transaction และตั้งรอบถัดไปอัตโนมัติเมื่อปิดงานเรียบร้อย */
 export async function recordMaintenance(
   equipmentId: number,
+  branchId: number,
   input: {
     type: MaintenanceType;
     status: MaintenanceStatus;
@@ -183,8 +189,9 @@ export async function recordMaintenance(
     nextMaintenanceDate?: string;
     note?: string;
   },
+  executor?: DbTransaction,
 ) {
-  return db.transaction(async (tx) => {
+  return withTransaction(executor, async (tx) => {
     const [current] = await tx
       .select({
         id: equipment.id,
@@ -192,7 +199,7 @@ export async function recordMaintenance(
         maintenanceIntervalHours: equipment.maintenanceIntervalHours,
       })
       .from(equipment)
-      .where(eq(equipment.id, equipmentId))
+      .where(and(eq(equipment.id, equipmentId), eq(equipment.branchId, branchId)))
       .limit(1);
     if (!current) throw new EquipmentOperationError("ไม่พบอุปกรณ์", 404);
 

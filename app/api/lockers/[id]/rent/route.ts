@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { LockerOperationError, rentLocker } from "@/lib/locker-service";
+import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const rentalSchema = z
   .object({
@@ -29,10 +32,25 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("access.manage", branchId, {
+      action: "LOCKER_RENTED",
+      entityType: "LOCKER_RENTAL",
+    });
     const { id } = await params;
     const lockerId = z.coerce.number().int().positive().parse(id);
     const validated = rentalSchema.parse(await request.json());
-    const rentalId = await rentLocker({ lockerId, ...validated });
+    const rentalId = await runAuditedMutation<number>(
+      {
+        actorStaffId: actor.staffId,
+        branchId,
+        action: "LOCKER_RENTED",
+        entityType: "LOCKER_RENTAL",
+        metadata: { entityId: lockerId, memberId: validated.memberId },
+        success: (entityId) => ({ entityId }),
+      },
+      (tx) => rentLocker({ lockerId, branchId, ...validated }, tx),
+    );
     return NextResponse.json(
       { message: "มอบล็อกเกอร์ให้สมาชิกแล้ว", rentalId },
       { status: 201 },
@@ -48,6 +66,8 @@ export async function POST(
         { error: error.message },
         { status: error.status },
       );
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json(
       { error: "ไม่สามารถมอบล็อกเกอร์ได้" },

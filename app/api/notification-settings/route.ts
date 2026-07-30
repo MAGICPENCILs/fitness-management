@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/db";
 import { notificationSettings } from "@/db/schema";
 import { getNotificationSettings, parseReminderDays } from "@/lib/notification-engine";
+import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const settingsSchema = z.object({
   reminderDays: z.string().trim().min(1).max(50),
@@ -22,6 +24,11 @@ export async function GET() {
 /** ตรวจสอบและบันทึกค่าตั้งระบบแจ้งเตือนแบบ singleton ที่แถวหมายเลข 1 */
 export async function PATCH(request: Request) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("settings.manage", branchId, {
+      action: "NOTIFICATION_SETTINGS_UPDATED",
+      entityType: "NOTIFICATION_SETTINGS",
+    });
     const validated = settingsSchema.parse(await request.json());
     const reminderDays = parseReminderDays(validated.reminderDays);
     if (!reminderDays.length) {
@@ -40,15 +47,17 @@ export async function PATCH(request: Request) {
       enableEmail: validated.enableEmail,
       isActive: validated.isActive,
     };
-    await db
-      .insert(notificationSettings)
-      .values({ id: 1, ...values })
-      .onDuplicateKeyUpdate({ set: values });
+    await runAuditedMutation(
+      { actorStaffId: actor.staffId, branchId, action: "NOTIFICATION_SETTINGS_UPDATED", entityType: "NOTIFICATION_SETTINGS", entityId: 1, metadata: { status: values.isActive ? "ACTIVE" : "INACTIVE" } },
+      (tx) => tx.insert(notificationSettings).values({ id: 1, ...values }).onDuplicateKeyUpdate({ set: values }),
+    );
     return NextResponse.json({ message: "บันทึกการตั้งค่าแล้ว", settings: { id: 1, ...values } });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "ข้อมูลการตั้งค่าไม่ถูกต้อง", details: error.issues }, { status: 400 });
     }
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json({ error: "ไม่สามารถบันทึกการตั้งค่าได้" }, { status: 500 });
   }

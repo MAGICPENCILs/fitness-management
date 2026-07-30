@@ -15,6 +15,8 @@ import {
 import { CouponError, getCouponQuote } from "@/lib/coupon-service";
 import { calculatePromotionBenefit, isPromotionAvailable } from "@/lib/promotion-benefit";
 import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const paymentSchema = z
   .object({
@@ -44,8 +46,12 @@ export async function GET() {
 /** บันทึกการชำระเงิน ต่ออายุสมาชิก และใช้สิทธิ์คูปองภายใน transaction เดียว */
 export async function POST(request: Request) {
   try {
-    const validated = paymentSchema.parse(await request.json());
     const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("payments.manage", branchId, {
+      action: "PAYMENT_CREATED",
+      entityType: "PAYMENT",
+    });
+    const validated = paymentSchema.parse(await request.json());
     const [[member], [selectedPackage]] = await Promise.all([
       db
         .select({ id: members.id, status: members.status })
@@ -95,7 +101,16 @@ export async function POST(request: Request) {
     const receiptNumber = `REC${Date.now()}`;
 
     // ล็อกสิทธิ์ด้วยการเพิ่มตัวนับแบบมีเงื่อนไข เพื่อไม่ให้ใช้คูปองเกินจำนวนเมื่อมีคำขอพร้อมกัน
-    const result = await db.transaction(async (tx) => {
+    const result = await runAuditedMutation<{ paymentId: number; memberPackageId: number }>(
+      {
+        actorStaffId: actor.staffId,
+        branchId,
+        action: "PAYMENT_CREATED",
+        entityType: "PAYMENT",
+        metadata: { memberId: validated.memberId, method: validated.method, status: "PAID" },
+        success: (value) => ({ entityId: value.paymentId }),
+      },
+      async (tx) => {
       if (couponQuote) {
         const counterResult = await tx
           .update(couponCodes)
@@ -143,7 +158,8 @@ export async function POST(request: Request) {
         });
       }
       return { paymentId, memberPackageId: memberPackageResult[0].insertId };
-    });
+      },
+    );
 
     return NextResponse.json(
       {
@@ -165,6 +181,8 @@ export async function POST(request: Request) {
     if (error instanceof CouponError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json({ error: "ไม่สามารถบันทึกการชำระเงินได้" }, { status: 500 });
   }

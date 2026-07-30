@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
   AuthorizationError,
+  requirePermission,
   StaffOperationError,
   updateStaff,
 } from "@/lib/staff-service";
@@ -15,6 +16,10 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    await requirePermission("staff.manage", undefined, {
+      action: "STAFF_UPDATED",
+      entityType: "STAFF",
+    });
     const staffId = idSchema.parse((await params).id);
     const input = staffSchema.parse(await request.json());
     await updateStaff(staffId, input);
