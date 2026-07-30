@@ -1,8 +1,10 @@
 import "server-only";
 
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { auditLogs } from "@/db/schema";
+import { auditLogs, branches, staff } from "@/db/schema";
 import { sanitizeAuditMetadata } from "@/lib/audit-policy";
+import type { ActorContext } from "@/lib/rbac";
 
 export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type DbExecutor = typeof db | DbTransaction;
@@ -15,6 +17,16 @@ export type AuditEntry = {
   entityId?: number;
   result: "SUCCESS" | "DENIED" | "FAILED";
   metadata?: Record<string, unknown>;
+};
+
+export type AuditFilters = {
+  branchId?: number;
+  action?: string;
+  result?: "SUCCESS" | "DENIED" | "FAILED";
+  from?: Date;
+  to?: Date;
+  page: number;
+  pageSize: number;
 };
 
 type MutationAuditContext<T> = Omit<AuditEntry, "result"> & {
@@ -90,4 +102,58 @@ export async function runAuditedMutation<T>(
     }
     throw error;
   }
+}
+
+/** คืน audit log แบบแบ่งหน้า โดยบังคับผู้ใช้ที่ไม่ใช่ Owner ให้เห็นเฉพาะสาขาหลักของตน */
+export async function getAuditDashboard(
+  actor: ActorContext,
+  filters: AuditFilters,
+) {
+  const branchId =
+    actor.role === "OWNER" ? filters.branchId : actor.homeBranchId;
+  const conditions = [
+    branchId ? eq(auditLogs.branchId, branchId) : undefined,
+    filters.action ? eq(auditLogs.action, filters.action) : undefined,
+    filters.result ? eq(auditLogs.result, filters.result) : undefined,
+    filters.from ? gte(auditLogs.createdAt, filters.from) : undefined,
+    filters.to ? lte(auditLogs.createdAt, filters.to) : undefined,
+  ].filter((condition) => condition !== undefined);
+  const where = conditions.length ? and(...conditions) : undefined;
+  const [rows, [countRow]] = await Promise.all([
+    db
+      .select({
+        id: auditLogs.id,
+        branchId: auditLogs.branchId,
+        branchName: branches.name,
+        actorStaffId: auditLogs.actorStaffId,
+        actorFirstName: staff.firstName,
+        actorLastName: staff.lastName,
+        action: auditLogs.action,
+        entityType: auditLogs.entityType,
+        entityId: auditLogs.entityId,
+        result: auditLogs.result,
+        metadata: auditLogs.metadata,
+        createdAt: auditLogs.createdAt,
+      })
+      .from(auditLogs)
+      .innerJoin(branches, eq(auditLogs.branchId, branches.id))
+      .innerJoin(staff, eq(auditLogs.actorStaffId, staff.id))
+      .where(where)
+      .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
+      .limit(filters.pageSize)
+      .offset((filters.page - 1) * filters.pageSize),
+    db.select({ count: sql<number>`count(*)` }).from(auditLogs).where(where),
+  ]);
+  return {
+    rows: rows.map(({ actorFirstName, actorLastName, ...row }) => ({
+      ...row,
+      actorName: `${actorFirstName} ${actorLastName}`.trim(),
+      createdAt: row.createdAt?.toISOString() ?? null,
+    })),
+    pagination: {
+      page: filters.page,
+      pageSize: filters.pageSize,
+      total: Number(countRow?.count ?? 0),
+    },
+  };
 }

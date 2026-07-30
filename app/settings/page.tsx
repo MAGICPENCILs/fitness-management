@@ -1,7 +1,31 @@
 import Link from "next/link";
-import { Bell, Building2, ChevronRight, Database, DoorOpen, ShieldCheck, Tag } from "lucide-react";
+import { Bell, Building2, ChevronRight, Database, DoorOpen, ScrollText, ShieldCheck, Tag, UserCog } from "lucide-react";
 
 const settings = [
+  {
+    title: "บัญชีพนักงาน",
+    description: "จัดการบัญชี บทบาท สถานะ และขอบเขตสาขา",
+    href: "/settings/staff",
+    icon: UserCog,
+    status: "พร้อมใช้งาน",
+    tone: "bg-info-surface text-info",
+  },
+  {
+    title: "PDPA และคำขอ",
+    description: "ติดตาม consent, anonymization และงานลบไฟล์ที่ค้าง",
+    href: "/settings/privacy",
+    icon: ShieldCheck,
+    status: "พร้อมใช้งาน",
+    tone: "bg-success-surface text-success",
+  },
+  {
+    title: "Audit log",
+    description: "ตรวจสอบผู้ดำเนินการ ผลลัพธ์ และ metadata ที่ไม่มี PII",
+    href: "/settings/audit",
+    icon: ScrollText,
+    status: "พร้อมใช้งาน",
+    tone: "bg-warning-surface text-warning-foreground",
+  },
   {
     title: "โปรโมชัน",
     description: "จัดการส่วนลด เปอร์เซ็นต์ และวันใช้งานโบนัส",
@@ -30,7 +54,6 @@ const settings = [
 
 const upcoming = [
   { title: "สาขา", description: "ข้อมูลสาขาและเวลาเปิดให้บริการ", icon: Building2 },
-  { title: "สิทธิ์พนักงาน", description: "บทบาท การอนุมัติ และ Audit log", icon: ShieldCheck },
   { title: "สำรองข้อมูล", description: "รอบสำรองข้อมูลและการกู้คืน", icon: Database },
 ];
 

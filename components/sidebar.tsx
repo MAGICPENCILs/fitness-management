@@ -17,8 +17,11 @@ import {
   LockKeyhole,
   HeartHandshake,
   Menu,
+  ScrollText,
   Settings,
+  ShieldCheck,
   Tag,
+  UserCog,
   Users,
   Wrench,
 } from "lucide-react";
@@ -52,6 +55,9 @@ const menuItems = [
   { href: "/settings/promotions", label: "โปรโมชัน", icon: Tag, requiredPermission: "payments.manage" },
   { href: "/settings/notifications", label: "การแจ้งเตือน", icon: Bell, requiredPermission: "settings.manage" },
   { href: "/settings/branches", label: "จัดการสาขา", icon: Building2, requiredPermission: "settings.manage" },
+  { href: "/settings/staff", label: "บัญชีพนักงาน", icon: UserCog, requiredPermission: "staff.manage" },
+  { href: "/settings/privacy", label: "PDPA และคำขอ", icon: ShieldCheck, requiredPermission: "privacy.request.create" },
+  { href: "/settings/audit", label: "Audit log", icon: ScrollText, requiredPermission: "audit.read" },
   { href: "/settings", label: "ตั้งค่าระบบ", icon: Settings, requiredPermission: "settings.manage" },
 ] satisfies Array<{
   href: string;
@@ -157,7 +163,7 @@ export function Sidebar({
               <DialogTitle>เมนูหลัก</DialogTitle>
               <DialogDescription>เลือกส่วนงานที่ต้องการจัดการ</DialogDescription>
             </DialogHeader>
-            <div className="mt-2 border-t pt-4">
+            <div className="mt-2 min-h-0 flex-1 overflow-y-auto border-t pt-4">
               <div className="mb-4 space-y-4 rounded-xl border bg-card p-3 shadow-sm">
                 <StaffSwitcher staff={staff} currentStaffId={currentStaffId} />
                 <BranchSwitcher branches={branches} currentBranchId={currentBranchId} />
