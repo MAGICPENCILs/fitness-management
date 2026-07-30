@@ -81,4 +81,3 @@ function privacyRequestError(error: unknown, fallback: string) {
   console.error(error);
   return NextResponse.json({ error: fallback }, { status: 500 });
 }
-
