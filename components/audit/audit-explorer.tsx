@@ -25,9 +25,9 @@ import {
 
 type AuditRow = {
   id: number;
-  branchId: number;
+  branchId: number | null;
   branchName: string;
-  actorStaffId: number;
+  actorStaffId: number | null;
   actorName: string;
   action: string;
   entityType: string;

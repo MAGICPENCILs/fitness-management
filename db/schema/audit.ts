@@ -15,10 +15,8 @@ export const auditLogs = mysqlTable(
   {
     id: int("id").autoincrement().primaryKey(),
     branchId: int("branch_id")
-      .notNull()
       .references(() => branches.id),
     actorStaffId: int("actor_staff_id")
-      .notNull()
       .references(() => staff.id),
     action: varchar("action", { length: 100 }).notNull(),
     entityType: varchar("entity_type", { length: 60 }).notNull(),
