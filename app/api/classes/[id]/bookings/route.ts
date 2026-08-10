@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { bookClass, ClassOperationError } from "@/lib/class-service";
+import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const bookingSchema = z.object({
   memberId: z.coerce.number().int().positive(),
@@ -12,10 +15,25 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("classes.manage", branchId, {
+      action: "CLASS_BOOKING_CREATED",
+      entityType: "CLASS_BOOKING",
+    });
     const { id } = await params;
     const classId = z.coerce.number().int().positive().parse(id);
     const { memberId } = bookingSchema.parse(await request.json());
-    const bookingId = await bookClass(classId, memberId);
+    const bookingId = await runAuditedMutation<number>(
+      {
+        actorStaffId: actor.staffId,
+        branchId,
+        action: "CLASS_BOOKING_CREATED",
+        entityType: "CLASS_BOOKING",
+        metadata: { entityId: classId, memberId },
+        success: (entityId) => ({ entityId }),
+      },
+      (tx) => bookClass(classId, memberId, tx),
+    );
     return NextResponse.json(
       { message: "ยืนยันการจองคลาสแล้ว", bookingId },
       { status: 201 },
@@ -31,6 +49,8 @@ export async function POST(
         { error: error.message },
         { status: error.status },
       );
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json(
       { error: "ไม่สามารถจองคลาสได้" },

@@ -17,8 +17,11 @@ import {
   LockKeyhole,
   HeartHandshake,
   Menu,
+  ScrollText,
   Settings,
+  ShieldCheck,
   Tag,
+  UserCog,
   Users,
   Wrench,
 } from "lucide-react";
@@ -34,24 +37,34 @@ import {
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BranchSwitcher } from "@/components/branch-switcher";
+import { StaffSwitcher } from "@/components/staff-switcher";
+import type { Permission } from "@/lib/rbac";
 
 const menuItems = [
-  { href: "/", label: "ภาพรวม", icon: LayoutDashboard },
-  { href: "/members", label: "สมาชิก", icon: Users },
-  { href: "/payments", label: "ชำระเงิน", icon: CreditCard },
-  { href: "/access", label: "เข้าใช้บริการ", icon: DoorOpen },
-  { href: "/reports", label: "รายงาน", icon: BarChart3 },
-  { href: "/accounting", label: "บัญชี", icon: BookOpenText },
-  { href: "/lockers", label: "ล็อกเกอร์", icon: LockKeyhole },
-  { href: "/equipment", label: "อุปกรณ์", icon: Wrench },
-  { href: "/classes", label: "เทรนเนอร์และคลาส", icon: CalendarDays },
-  { href: "/personal-training", label: "PT และผลการฝึก", icon: ClipboardPlus },
-  { href: "/crm", label: "CRM และคะแนน", icon: HeartHandshake },
-  { href: "/settings/promotions", label: "โปรโมชัน", icon: Tag },
-  { href: "/settings/notifications", label: "การแจ้งเตือน", icon: Bell },
-  { href: "/settings/branches", label: "จัดการสาขา", icon: Building2 },
-  { href: "/settings", label: "ตั้งค่าระบบ", icon: Settings },
-];
+  { href: "/", label: "ภาพรวม", icon: LayoutDashboard, requiredPermission: null },
+  { href: "/members", label: "สมาชิก", icon: Users, requiredPermission: "members.manage" },
+  { href: "/payments", label: "ชำระเงิน", icon: CreditCard, requiredPermission: "payments.manage" },
+  { href: "/access", label: "เข้าใช้บริการ", icon: DoorOpen, requiredPermission: "access.manage" },
+  { href: "/reports", label: "รายงาน", icon: BarChart3, requiredPermission: "audit.read" },
+  { href: "/accounting", label: "บัญชี", icon: BookOpenText, requiredPermission: "accounting.manage" },
+  { href: "/lockers", label: "ล็อกเกอร์", icon: LockKeyhole, requiredPermission: "access.manage" },
+  { href: "/equipment", label: "อุปกรณ์", icon: Wrench, requiredPermission: "settings.manage" },
+  { href: "/classes", label: "เทรนเนอร์และคลาส", icon: CalendarDays, requiredPermission: "classes.manage" },
+  { href: "/personal-training", label: "PT และผลการฝึก", icon: ClipboardPlus, requiredPermission: "pt.manage" },
+  { href: "/crm", label: "CRM และคะแนน", icon: HeartHandshake, requiredPermission: "members.manage" },
+  { href: "/settings/promotions", label: "โปรโมชัน", icon: Tag, requiredPermission: "payments.manage" },
+  { href: "/settings/notifications", label: "การแจ้งเตือน", icon: Bell, requiredPermission: "settings.manage" },
+  { href: "/settings/branches", label: "จัดการสาขา", icon: Building2, requiredPermission: "settings.manage" },
+  { href: "/settings/staff", label: "บัญชีพนักงาน", icon: UserCog, requiredPermission: "staff.manage" },
+  { href: "/settings/privacy", label: "PDPA และคำขอ", icon: ShieldCheck, requiredPermission: "privacy.request.create" },
+  { href: "/settings/audit", label: "Audit log", icon: ScrollText, requiredPermission: "audit.read" },
+  { href: "/settings", label: "ตั้งค่าระบบ", icon: Settings, requiredPermission: "settings.manage" },
+] satisfies Array<{
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  requiredPermission: Permission | null;
+}>;
 
 function Brand() {
   return (
@@ -67,12 +80,22 @@ function Brand() {
   );
 }
 
-function Navigation({ onNavigate }: { onNavigate?: () => void }) {
+function Navigation({
+  permissions,
+  onNavigate,
+}: {
+  permissions: Record<Permission, boolean>;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
+  const visibleItems = menuItems.filter(
+    (item) =>
+      item.requiredPermission === null || permissions[item.requiredPermission],
+  );
 
   return (
     <nav aria-label="เมนูหลัก" className="space-y-1">
-      {menuItems.map((item) => {
+      {visibleItems.map((item) => {
         const Icon = item.icon;
         const isActive =
           item.href === "/"
@@ -105,9 +128,21 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
 export function Sidebar({
   branches,
   currentBranchId,
+  staff,
+  currentStaffId,
+  permissions,
 }: {
   branches: Array<{ id: number; code: string; name: string }>;
   currentBranchId: number;
+  staff: Array<{
+    id: number;
+    staffCode: string;
+    displayName: string;
+    role: "OWNER" | "MANAGER" | "COUNTER" | "TRAINER";
+    branchName: string;
+  }>;
+  currentStaffId: number;
+  permissions: Record<Permission, boolean>;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -128,11 +163,12 @@ export function Sidebar({
               <DialogTitle>เมนูหลัก</DialogTitle>
               <DialogDescription>เลือกส่วนงานที่ต้องการจัดการ</DialogDescription>
             </DialogHeader>
-            <div className="mt-2 border-t pt-4">
-              <div className="mb-4">
+            <div className="mt-2 min-h-0 flex-1 overflow-y-auto border-t pt-4">
+              <div className="mb-4 space-y-4 rounded-xl border bg-card p-3 shadow-sm">
+                <StaffSwitcher staff={staff} currentStaffId={currentStaffId} />
                 <BranchSwitcher branches={branches} currentBranchId={currentBranchId} />
               </div>
-              <Navigation onNavigate={() => setMobileOpen(false)} />
+              <Navigation permissions={permissions} onNavigate={() => setMobileOpen(false)} />
             </div>
           </DialogContent>
           </Dialog>
@@ -144,11 +180,12 @@ export function Sidebar({
           <Brand />
         </div>
         <div className="flex-1 overflow-y-auto p-3">
-          <div className="mb-4 rounded-xl border bg-card p-3 shadow-sm">
+          <div className="mb-4 space-y-4 rounded-xl border bg-card p-3 shadow-sm">
+            <StaffSwitcher staff={staff} currentStaffId={currentStaffId} />
             <BranchSwitcher branches={branches} currentBranchId={currentBranchId} />
           </div>
           <p className="px-3 pb-2 pt-1 text-xs font-semibold text-muted-foreground">เมนูหลัก</p>
-          <Navigation />
+          <Navigation permissions={permissions} />
         </div>
         <div className="flex items-center justify-between gap-3 border-t p-4">
           <span className="text-xs text-muted-foreground">Fitness Pro v1.0.0</span>

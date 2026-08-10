@@ -3,6 +3,9 @@ import { promotions, NewPromotion } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const promotionSchema = z.object({
   name:        z.string().min(1),
@@ -36,6 +39,11 @@ export async function GET() {
 // POST /api/promotions
 export async function POST(request: Request) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("payments.manage", branchId, {
+      action: "PROMOTION_CREATED",
+      entityType: "PROMOTION",
+    });
     const body = await request.json();
     const validated = promotionSchema.parse(body);
 
@@ -47,9 +55,15 @@ export async function POST(request: Request) {
       isActive:  true,
     };
 
-    const result = await db.insert(promotions).values(newPromotion);
+    const id = await runAuditedMutation<number>(
+      { actorStaffId: actor.staffId, branchId, action: "PROMOTION_CREATED", entityType: "PROMOTION", success: (entityId) => ({ entityId }) },
+      async (tx) => {
+        const result = await tx.insert(promotions).values(newPromotion);
+        return result[0].insertId;
+      },
+    );
     return NextResponse.json(
-      { message: "Promotion created", id: result[0].insertId },
+      { message: "Promotion created", id },
       { status: 201 }
     );
   } catch (error) {
@@ -59,6 +73,8 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: "Failed" }, { status: 500 });
   }
 }

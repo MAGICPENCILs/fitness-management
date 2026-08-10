@@ -2,12 +2,15 @@ import { and, desc, eq, max, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   accessLogs,
+  consentEvents,
   crmInteractions,
   loyaltyPoints,
   loyaltyRewards,
   memberCrmProfiles,
   members,
 } from "@/db/schema";
+import { withTransaction, type DbTransaction } from "@/lib/audit-service";
+import { getLatestConsent } from "@/lib/consent-policy";
 
 export class CrmOperationError extends Error {
   /** สร้างข้อผิดพลาดทางธุรกิจพร้อม HTTP status ที่ route handler นำไปใช้ได้ตรงกัน */
@@ -22,7 +25,7 @@ export class CrmOperationError extends Error {
 
 /** รวมข้อมูลสมาชิก การติดตาม คะแนน และรางวัลสำหรับหน้า CRM โดยถือว่าไม่เข้าใช้เกิน 30 วันคือ inactive */
 export async function getCrmDashboard() {
-  const [memberRows, interactionRows, rewardRows, balanceRows, lastVisitRows] =
+  const [memberRows, interactionRows, rewardRows, balanceRows, lastVisitRows, consentRows] =
     await Promise.all([
       db
         .select({
@@ -83,6 +86,15 @@ export async function getCrmDashboard() {
         .from(accessLogs)
         .where(eq(accessLogs.result, "APPROVED"))
         .groupBy(accessLogs.memberId),
+      db
+        .select({
+          id: consentEvents.id,
+          memberId: consentEvents.memberId,
+          consentType: consentEvents.consentType,
+          action: consentEvents.action,
+          createdAt: consentEvents.createdAt,
+        })
+        .from(consentEvents),
     ]);
 
   const balances = new Map(
@@ -93,6 +105,20 @@ export async function getCrmDashboard() {
   );
   const inactiveCutoff = new Date();
   inactiveCutoff.setDate(inactiveCutoff.getDate() - 30);
+  const marketingAllowed = new Set<number>();
+  const consentByMember = new Map<number, typeof consentRows>();
+  for (const event of consentRows) {
+    const events = consentByMember.get(event.memberId) ?? [];
+    events.push(event);
+    consentByMember.set(event.memberId, events);
+  }
+  for (const [memberId, events] of consentByMember) {
+    const validEvents = events.filter(
+      (event): event is typeof event & { createdAt: Date } =>
+        event.createdAt !== null,
+    );
+    if (getLatestConsent(validEvents).MARKETING) marketingAllowed.add(memberId);
+  }
 
   const dashboardMembers = memberRows.map((member) => {
     const lastVisit = lastVisits.get(member.id) ?? null;
@@ -112,40 +138,45 @@ export async function getCrmDashboard() {
       ...item,
       createdAt: item.createdAt?.toISOString() ?? null,
     }));
+  const campaignMembers = dashboardMembers.filter((member) =>
+    marketingAllowed.has(member.id),
+  );
 
   return {
-    members: dashboardMembers,
+    members: campaignMembers,
     interactions: openInteractions,
     rewards: rewardRows,
     summary: {
-      profiledMembers: dashboardMembers.filter(
+      profiledMembers: campaignMembers.filter(
         (item) => item.interests || item.fitnessGoals,
       ).length,
       openFollowUps: openInteractions.length,
-      outstandingPoints: dashboardMembers.reduce(
+      outstandingPoints: campaignMembers.reduce(
         (total, item) => total + item.points,
         0,
       ),
-      inactiveMembers: dashboardMembers.filter((item) => item.isInactive).length,
+      inactiveMembers: campaignMembers.filter((item) => item.isInactive).length,
     },
   };
 }
 
 /** บันทึกความสนใจและช่องทางติดต่อโดยใช้ upsert เพื่อให้สมาชิกหนึ่งคนมีโปรไฟล์ CRM เพียงชุดเดียว */
 export async function saveMemberCrmProfile(input: {
+  branchId: number;
   memberId: number;
   interests?: string;
   fitnessGoals?: string;
   preferredContact: "PHONE" | "LINE" | "SMS" | "EMAIL" | "NONE";
-}) {
-  const [member] = await db
+}, executor?: DbTransaction) {
+  const database = executor ?? db;
+  const [member] = await database
     .select({ id: members.id })
     .from(members)
-    .where(eq(members.id, input.memberId))
+    .where(and(eq(members.id, input.memberId), eq(members.homeBranchId, input.branchId)))
     .limit(1);
   if (!member) throw new CrmOperationError("ไม่พบสมาชิกที่ต้องการบันทึก", 404);
 
-  await db
+  await database
     .insert(memberCrmProfiles)
     .values({
       memberId: input.memberId,
@@ -164,28 +195,40 @@ export async function saveMemberCrmProfile(input: {
 
 /** เพิ่มบันทึกการสื่อสารและเก็บวันติดตามถัดไปเป็นงานเปิดจนกว่าพนักงานจะปิดงาน */
 export async function createCrmInteraction(input: {
+  branchId: number;
   memberId: number;
   channel: "NOTE" | "PHONE" | "LINE" | "SMS" | "EMAIL" | "IN_PERSON";
   summary: string;
   followUpDate?: string;
-}) {
-  const [member] = await db
+}, executor?: DbTransaction) {
+  const database = executor ?? db;
+  const [member] = await database
     .select({ id: members.id })
     .from(members)
-    .where(eq(members.id, input.memberId))
+    .where(and(eq(members.id, input.memberId), eq(members.homeBranchId, input.branchId)))
     .limit(1);
   if (!member) throw new CrmOperationError("ไม่พบสมาชิกที่ต้องการติดตาม", 404);
 
-  const result = await db.insert(crmInteractions).values({
-    ...input,
+  const result = await database.insert(crmInteractions).values({
+    memberId: input.memberId,
+    channel: input.channel,
+    summary: input.summary,
     followUpDate: input.followUpDate || null,
   });
   return result[0].insertId;
 }
 
 /** ปิดงานติดตามเฉพาะรายการที่ยังเปิด เพื่อป้องกันการบันทึกเสร็จซ้ำ */
-export async function completeCrmInteraction(interactionId: number) {
-  const result = await db
+export async function completeCrmInteraction(interactionId: number, branchId: number, executor?: DbTransaction) {
+  const database = executor ?? db;
+  const [interaction] = await database
+    .select({ id: crmInteractions.id })
+    .from(crmInteractions)
+    .innerJoin(members, eq(crmInteractions.memberId, members.id))
+    .where(and(eq(crmInteractions.id, interactionId), eq(members.homeBranchId, branchId)))
+    .limit(1);
+  if (!interaction) throw new CrmOperationError("ไม่พบงานติดตามในสาขานี้", 404);
+  const result = await database
     .update(crmInteractions)
     .set({ status: "COMPLETED", completedAt: new Date() })
     .where(
@@ -200,23 +243,26 @@ export async function completeCrmInteraction(interactionId: number) {
 
 /** เพิ่มคะแนนเป็นรายการ ledger บวกเท่านั้น เพื่อให้ตรวจสอบที่มาของยอดคงเหลือย้อนหลังได้ */
 export async function awardLoyaltyPoints(input: {
+  branchId: number;
   memberId: number;
   points: number;
   source: string;
   note?: string;
-}) {
-  return db.transaction(async (tx) => {
+}, executor?: DbTransaction) {
+  return withTransaction(executor, async (tx) => {
     const [member] = await tx
       .select({ id: members.id, status: members.status })
       .from(members)
-      .where(eq(members.id, input.memberId))
+      .where(and(eq(members.id, input.memberId), eq(members.homeBranchId, input.branchId)))
       .limit(1)
       .for("update");
     if (!member || member.status !== "ACTIVE")
       throw new CrmOperationError("สมาชิกไม่อยู่ในสถานะที่รับคะแนนได้", 409);
 
     const result = await tx.insert(loyaltyPoints).values({
-      ...input,
+      memberId: input.memberId,
+      points: input.points,
+      source: input.source,
       type: "EARN",
       note: input.note || null,
     });
@@ -230,8 +276,8 @@ export async function createLoyaltyReward(input: {
   description?: string;
   pointsRequired: number;
   stock?: number;
-}) {
-  const result = await db.insert(loyaltyRewards).values({
+}, executor?: DbTransaction) {
+  const result = await (executor ?? db).insert(loyaltyRewards).values({
     ...input,
     description: input.description || null,
     stock: input.stock ?? null,
@@ -240,12 +286,12 @@ export async function createLoyaltyReward(input: {
 }
 
 /** แลกรางวัลใน transaction เดียว โดยล็อกสมาชิกและรางวัลก่อนตรวจยอดเพื่อไม่ให้คะแนนหรือสต็อกติดลบเมื่อทำพร้อมกัน */
-export async function redeemLoyaltyReward(memberId: number, rewardId: number) {
-  return db.transaction(async (tx) => {
+export async function redeemLoyaltyReward(memberId: number, rewardId: number, branchId: number, executor?: DbTransaction) {
+  return withTransaction(executor, async (tx) => {
     const [member] = await tx
       .select({ id: members.id, status: members.status })
       .from(members)
-      .where(eq(members.id, memberId))
+      .where(and(eq(members.id, memberId), eq(members.homeBranchId, branchId)))
       .limit(1)
       .for("update");
     if (!member || member.status !== "ACTIVE")

@@ -14,6 +14,11 @@ import {
 import { Member } from "@/db/schema";
 import { ArrowLeft, Camera, Loader2, Save } from "lucide-react";
 import Link from "next/link";
+import {
+  MemberPrivacyCard,
+  type ConsentDisplay,
+  type ConsentType,
+} from "@/components/privacy/member-privacy-card";
 
 type MemberPackage = {
   id: number;
@@ -37,20 +42,26 @@ const statusLabel: Record<string, { label: string; variant: "default" | "seconda
   CANCELLED: { label: "ยกเลิก", variant: "outline" },
 };
 
+/** แสดงรายละเอียดสมาชิก แพ็กเกจ บัตร และ consent โดยล็อกฟอร์มเมื่อทำข้อมูลนิรนามแล้ว */
 export function MemberDetail({
   member,
   packages,
   assignedCard,
   availableCards,
+  privacySnapshot,
+  canManagePrivacy,
 }: {
   member: Member;
   packages: MemberPackage[];
   assignedCard: CardType | null;
   availableCards: CardType[];
+  privacySnapshot: Record<ConsentType, ConsentDisplay | null>;
+  canManagePrivacy: boolean;
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
+  const isAnonymized = member.status === "CANCELLED";
   const [photoPreview, setPhotoPreview] = useState<string | null>(
     member.photoUrl ?? null
   );
@@ -68,11 +79,14 @@ export function MemberDetail({
       : "",
   });
 
+  /** อัปเดตค่าฟอร์มเฉพาช่องที่ผู้ใช้แก้ไขโดยไม่แตะค่าอื่น */
   const handleChange = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  /** อัปโหลดรูปและบันทึก URL เฉพาสมาชิกที่ยังไม่ถูกทำข้อมูลนิรนาม */
   const handlePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isAnonymized) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -100,7 +114,9 @@ export function MemberDetail({
     });
   };
 
+  /** บันทึกข้อมูลสมาชิกและ refresh เฉพาหลัง request จบลง */
   const handleSave = async () => {
+    if (isAnonymized) return;
     setLoading(true);
     try {
       await fetch(`/api/members/${member.id}`, {
@@ -115,7 +131,7 @@ export function MemberDetail({
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl">
+    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6 lg:p-8">
       {/* Back */}
       <Link href="/members"
         className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
@@ -123,10 +139,10 @@ export function MemberDetail({
         กลับหน้าสมาชิก
       </Link>
 
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
         {/* LEFT — รูปและรหัส */}
-        <div className="space-y-4">
-          <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-muted border cursor-pointer"
+        <div className="max-w-sm space-y-4">
+          <button type="button" disabled={isAnonymized} aria-label="อัปโหลดรูปสมาชิก" className="relative w-full aspect-square rounded-2xl overflow-hidden bg-muted border cursor-pointer disabled:cursor-not-allowed disabled:opacity-70"
             onClick={() => fileRef.current?.click()}>
             {photoPreview ? (
               <img src={photoPreview} alt="photo"
@@ -140,9 +156,9 @@ export function MemberDetail({
             <div className="absolute inset-0 bg-black/30 opacity-0 hover:opacity-100 transition flex items-center justify-center">
               <Camera className="w-6 h-6 text-white" />
             </div>
-          </div>
+          </button>
           <input ref={fileRef} type="file" accept="image/*"
-            className="hidden" onChange={handlePhoto} />
+            disabled={isAnonymized} className="hidden" onChange={handlePhoto} />
 
           <div className="text-center space-y-1">
             <div className="font-bold text-lg">{member.memberCode}</div>
@@ -153,32 +169,35 @@ export function MemberDetail({
         </div>
 
         {/* RIGHT — ฟอร์ม */}
-        <div className="col-span-2 space-y-4">
+        <div className="space-y-4 md:col-span-2">
           <h1 className="text-xl font-bold">แก้ไขข้อมูลสมาชิก</h1>
 
-          <div className="grid grid-cols-2 gap-3">
+          <fieldset disabled={isAnonymized} className="space-y-4">
+          <legend className="sr-only">ข้อมูลสมาชิก</legend>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>ชื่อ</Label>
-              <Input value={form.firstName}
+              <Label htmlFor="member-first-name">ชื่อ</Label>
+              <Input id="member-first-name" value={form.firstName}
                 onChange={(e) => handleChange("firstName", e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label>นามสกุล</Label>
-              <Input value={form.lastName}
+              <Label htmlFor="member-last-name">นามสกุล</Label>
+              <Input id="member-last-name" value={form.lastName}
                 onChange={(e) => handleChange("lastName", e.target.value)} />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>เบอร์โทร</Label>
-              <Input value={form.phone}
+              <Label htmlFor="member-phone">เบอร์โทร</Label>
+              <Input id="member-phone" type="tel" value={form.phone}
                 onChange={(e) => handleChange("phone", e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label>เพศ</Label>
               <Select value={form.gender} onValueChange={(v) => handleChange("gender", v)}>
-                <SelectTrigger><SelectValue placeholder="เลือก" /></SelectTrigger>
+                <SelectTrigger aria-label="เพศ"><SelectValue placeholder="เลือก" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="MALE">ชาย</SelectItem>
                   <SelectItem value="FEMALE">หญิง</SelectItem>
@@ -188,36 +207,37 @@ export function MemberDetail({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>อีเมล</Label>
-              <Input value={form.email}
+              <Label htmlFor="member-email">อีเมล</Label>
+              <Input id="member-email" type="email" value={form.email}
                 onChange={(e) => handleChange("email", e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label>วันเกิด</Label>
-              <Input type="date" value={form.birthDate}
+              <Label htmlFor="member-birth-date">วันเกิด</Label>
+              <Input id="member-birth-date" type="date" value={form.birthDate}
                 onChange={(e) => handleChange("birthDate", e.target.value)} />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label>ที่อยู่</Label>
-            <Input value={form.address}
+            <Label htmlFor="member-address">ที่อยู่</Label>
+            <Input id="member-address" value={form.address}
               onChange={(e) => handleChange("address", e.target.value)} />
           </div>
 
           <div className="space-y-1.5">
-            <Label>หมายเหตุ</Label>
-            <Input value={form.note}
+            <Label htmlFor="member-note">หมายเหตุ</Label>
+            <Input id="member-note" value={form.note}
               onChange={(e) => handleChange("note", e.target.value)} />
           </div>
 
-          <Button onClick={handleSave} disabled={loading} className="gap-2">
+          <Button onClick={handleSave} disabled={loading || isAnonymized} className="gap-2">
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             <Save className="w-4 h-4" />
             บันทึก
           </Button>
+          </fieldset>
         </div>
       </div>
 
@@ -257,6 +277,12 @@ export function MemberDetail({
         memberId={member.id}
         assignedCard={assignedCard}
         availableCards={availableCards}
+      />
+      <MemberPrivacyCard
+        memberId={member.id}
+        snapshot={privacySnapshot}
+        canManage={canManagePrivacy}
+        anonymized={isAnonymized}
       />
     </div>
   );

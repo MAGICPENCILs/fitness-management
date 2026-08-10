@@ -4,6 +4,8 @@ import { and, asc, eq } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { db } from "@/db";
 import { branches } from "@/db/schema";
+import { runAuditedMutation, writeAudit } from "@/lib/audit-service";
+import { getStaffContext, requirePermission } from "@/lib/staff-service";
 
 const BRANCH_COOKIE = "fitness_branch_id";
 
@@ -60,12 +62,22 @@ export async function assertActiveBranch(branchId: number) {
 
 /** เขียน branch context ลง cookie แบบ HTTP-only เพื่อไม่ให้ client ปลอมค่าโดยตรง */
 export async function setCurrentBranchCookie(branchId: number) {
+  const staffContext = await getStaffContext();
   await assertActiveBranch(branchId);
   (await cookies()).set(BRANCH_COOKIE, String(branchId), {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 365,
+  });
+  await writeAudit(db, {
+    actorStaffId: staffContext.staff.id,
+    branchId: staffContext.staff.homeBranchId,
+    action: "BRANCH_CONTEXT_CHANGED",
+    entityType: "BRANCH",
+    entityId: branchId,
+    result: "SUCCESS",
+    metadata: { branchId },
   });
 }
 
@@ -86,14 +98,29 @@ export async function createBranch(input: {
   phone?: string;
   address?: string;
 }) {
+  const actor = await requirePermission("settings.manage", undefined, {
+    action: "BRANCH_CREATED",
+    entityType: "BRANCH",
+  });
   try {
-    const result = await db.insert(branches).values({
-      ...input,
-      code: input.code.toUpperCase(),
-      phone: input.phone || null,
-      address: input.address || null,
-    });
-    return result[0].insertId;
+    return await runAuditedMutation<number>(
+      {
+        actorStaffId: actor.staffId,
+        branchId: actor.homeBranchId,
+        action: "BRANCH_CREATED",
+        entityType: "BRANCH",
+        success: (id) => ({ entityId: id }),
+      },
+      async (tx) => {
+        const result = await tx.insert(branches).values({
+          ...input,
+          code: input.code.toUpperCase(),
+          phone: input.phone || null,
+          address: input.address || null,
+        });
+        return result[0].insertId;
+      },
+    );
   } catch (error) {
     if (error instanceof Error && error.message.includes("Duplicate"))
       throw new BranchOperationError("รหัสสาขานี้ถูกใช้งานแล้ว", 409);

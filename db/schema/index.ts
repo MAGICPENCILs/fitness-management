@@ -14,3 +14,6 @@ export * from "./classes";
 export * from "./personal-training";
 export * from "./crm";
 export * from "./branches";
+export * from "./staff";
+export * from "./privacy";
+export * from "./audit";

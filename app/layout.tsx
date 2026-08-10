@@ -4,6 +4,7 @@ import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
 import { getBranchContext } from "@/lib/branch-service";
+import { getStaffContext } from "@/lib/staff-service";
 
 const geist = Geist({ subsets: ["latin"] });
 
@@ -17,7 +18,10 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const branchContext = await getBranchContext();
+  const [branchContext, staffContext] = await Promise.all([
+    getBranchContext(),
+    getStaffContext(),
+  ]);
 
   return (
     <html lang="th" suppressHydrationWarning>
@@ -38,6 +42,9 @@ export default async function RootLayout({
             <Sidebar
               branches={branchContext.branches}
               currentBranchId={branchContext.current.id}
+              staff={staffContext.availableStaff}
+              currentStaffId={staffContext.staff.id}
+              permissions={staffContext.permissions}
             />
             <main id="main-content" tabIndex={-1} className="min-w-0 md:pl-64">
               {children}

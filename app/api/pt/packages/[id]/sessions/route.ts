@@ -4,6 +4,9 @@ import {
   PersonalTrainingOperationError,
   schedulePtSession,
 } from "@/lib/personal-training-service";
+import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -38,10 +41,18 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("pt.manage", branchId, {
+      action: "PT_SESSION_SCHEDULED",
+      entityType: "PT_SESSION",
+    });
     const { id } = await params;
     const packageId = z.coerce.number().int().positive().parse(id);
     const validated = sessionSchema.parse(await request.json());
-    const sessionId = await schedulePtSession(packageId, validated);
+    const sessionId = await runAuditedMutation<number>(
+      { actorStaffId: actor.staffId, branchId, action: "PT_SESSION_SCHEDULED", entityType: "PT_SESSION", metadata: { entityId: packageId }, success: (entityId) => ({ entityId }) },
+      (tx) => schedulePtSession(packageId, branchId, validated, tx),
+    );
     return NextResponse.json(
       { message: "นัดหมาย PT Session แล้ว", sessionId },
       { status: 201 },
@@ -53,6 +64,8 @@ export async function POST(
         { status: 400 },
       );
     if (error instanceof PersonalTrainingOperationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof AuthorizationError)
       return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json(

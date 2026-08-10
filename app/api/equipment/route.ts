@@ -5,6 +5,8 @@ import {
   EquipmentOperationError,
 } from "@/lib/equipment-service";
 import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const optionalDate = z
   .union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)])
@@ -55,12 +57,26 @@ const createEquipmentSchema = z
 /** ตรวจข้อมูลทะเบียนอุปกรณ์และส่งให้ service คำนวณรอบบำรุงครั้งแรก */
 export async function POST(request: Request) {
   try {
-    const validated = createEquipmentSchema.parse(await request.json());
-    const id = await createEquipment({
-      ...validated,
-      branchId: await getCurrentBranchId(),
-      maintenanceIntervalHours: validated.maintenanceIntervalHours || undefined,
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("settings.manage", branchId, {
+      action: "EQUIPMENT_CREATED",
+      entityType: "EQUIPMENT",
     });
+    const validated = createEquipmentSchema.parse(await request.json());
+    const id = await runAuditedMutation<number>(
+      {
+        actorStaffId: actor.staffId,
+        branchId,
+        action: "EQUIPMENT_CREATED",
+        entityType: "EQUIPMENT",
+        success: (entityId) => ({ entityId }),
+      },
+      (tx) => createEquipment({
+        ...validated,
+        branchId,
+        maintenanceIntervalHours: validated.maintenanceIntervalHours || undefined,
+      }, tx),
+    );
     return NextResponse.json(
       { message: "เพิ่มอุปกรณ์แล้ว", id },
       { status: 201 },
@@ -76,6 +92,8 @@ export async function POST(request: Request) {
         { error: error.message },
         { status: error.status },
       );
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json(
       { error: "ไม่สามารถเพิ่มอุปกรณ์ได้" },

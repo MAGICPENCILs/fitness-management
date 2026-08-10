@@ -5,6 +5,7 @@ import {
   createBranch,
   getBranchesDashboard,
 } from "@/lib/branch-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const branchSchema = z.object({
   code: z.string().trim().min(2, "กรุณาระบุรหัสสาขา").max(20).regex(/^[A-Za-z0-9_-]+$/, "รหัสสาขาใช้ได้เฉพาะตัวอักษร ตัวเลข - และ _"),
@@ -21,6 +22,10 @@ export async function GET() {
 /** ตรวจข้อมูลและสร้างสาขาใหม่ */
 export async function POST(request: Request) {
   try {
+    await requirePermission("settings.manage", undefined, {
+      action: "BRANCH_CREATED",
+      entityType: "BRANCH",
+    });
     const validated = branchSchema.parse(await request.json());
     const id = await createBranch(validated);
     return NextResponse.json({ message: "เพิ่มสาขาแล้ว", id }, { status: 201 });
@@ -31,6 +36,8 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     if (error instanceof BranchOperationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof AuthorizationError)
       return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json({ error: "ไม่สามารถเพิ่มสาขาได้" }, { status: 500 });

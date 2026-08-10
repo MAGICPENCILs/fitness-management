@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-    Dialog, DialogContent, DialogHeader,
+    Dialog, DialogContent, DialogDescription, DialogHeader,
     DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
@@ -23,6 +23,7 @@ type Package = {
     price: string;
 };
 
+/** สร้างสมาชิกพร้อม consent ledger แรกเริ่ม โดยบังคับ service privacy แต่ไม่บังคับ marketing หรือ photo */
 export function AddMemberDialog() {
     const router = useRouter();
     const [open, setOpen] = useState(false);
@@ -44,12 +45,17 @@ export function AddMemberDialog() {
         paidAmount: "",
         address: "",
         note: "",
+        servicePrivacy: false,
+        marketingConsent: false,
+        photoConsent: false,
     });
 
+    /** อัปเดตค่าฟอร์มเฉพาช่องที่เปลี่ยนเพื่อรักษาค่าอื่นไว้ */
     const handleChange = (field: string, value: string) => {
         setForm((prev) => ({ ...prev, [field]: value }));
     };
 
+    /** โหลดรหัสถัดไปและแพ็กเกจเฉพาะเมื่อเปิด dialog เพื่อลด request ที่ไม่จำเป็น */
     const handleOpenChange = async (val: boolean) => {
         setOpen(val);
         if (val) {
@@ -64,7 +70,7 @@ export function AddMemberDialog() {
         }
     };
 
-    // เมื่อเลือก package ให้ auto-fill ราคา
+    /** เติมราคาอัตโนมัติจากแพ็กเกจที่เลือก โดยยังเปิดให้พนักงานแก้ราคาชำระได้ */
     const handlePackageChange = (packageId: string) => {
         const pkg = packages.find((p) => String(p.id) === packageId);
         setForm((prev) => ({
@@ -74,10 +80,15 @@ export function AddMemberDialog() {
         }));
     };
 
+    /** สร้างสมาชิกก่อนผูกแพ็กเกจ และไม่ refresh หากขั้นใดขั้นหนึ่งล้มเหลว */
     const handleSubmit = async () => {
         setError("");
         if (!form.memberCode || !form.firstName || !form.lastName) {
             setError("กรุณากรอกรหัสสมาชิก ชื่อ และนามสกุล");
+            return;
+        }
+        if (!form.servicePrivacy) {
+            setError("ต้องได้รับความยินยอมเพื่อให้บริการก่อนสมัครสมาชิก");
             return;
         }
 
@@ -97,12 +108,18 @@ export function AddMemberDialog() {
                     gender: form.gender || undefined,
                     birthDate: form.birthDate || undefined,
                     address: form.address || undefined,
-                    note:     form.note 
+                    note: form.note,
+                    consents: {
+                        servicePrivacy: form.servicePrivacy,
+                        marketing: form.marketingConsent,
+                        photo: form.photoConsent,
+                        policyVersion: "2026-01",
+                    },
                 }),
             });
 
-            if (!memberRes.ok) throw new Error("สร้างสมาชิกไม่สำเร็จ");
             const memberData = await memberRes.json();
+            if (!memberRes.ok) throw new Error(memberData.error ?? "สร้างสมาชิกไม่สำเร็จ");
 
             // 2. ผูก package (ถ้าเลือก)
             if (form.packageId) {
@@ -139,28 +156,29 @@ export function AddMemberDialog() {
                 </Button>
             </DialogTrigger>
 
-            <DialogContent className="sm:max-w-lg">
+            <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
                 <DialogHeader>
                     <DialogTitle>เพิ่มสมาชิกใหม่</DialogTitle>
+                    <DialogDescription>กรอกข้อมูลสมาชิกและบันทึกความยินยอมเริ่มต้นตามวัตถุประสงค์การใช้งาน</DialogDescription>
                 </DialogHeader>
 
                 <div className="space-y-4 py-2">
                     {/* รหัสสมาชิก */}
                     <div className="space-y-1.5">
-                        <Label>รหัสสมาชิก</Label>
-                        <Input value={form.memberCode} readOnly className="bg-muted cursor-not-allowed" />
+                        <Label htmlFor="new-member-code">รหัสสมาชิก</Label>
+                        <Input id="new-member-code" value={form.memberCode} readOnly className="bg-muted cursor-not-allowed" />
                     </div>
 
                     {/* ชื่อ - นามสกุล */}
                     <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
-                            <Label>ชื่อ <span className="text-destructive">*</span></Label>
-                            <Input placeholder="สมชาย" value={form.firstName}
+                            <Label htmlFor="new-member-first-name">ชื่อ <span className="text-destructive">*</span></Label>
+                            <Input id="new-member-first-name" required placeholder="สมชาย" value={form.firstName}
                                 onChange={(e) => handleChange("firstName", e.target.value)} />
                         </div>
                         <div className="space-y-1.5">
-                            <Label>นามสกุล <span className="text-destructive">*</span></Label>
-                            <Input placeholder="ใจดี" value={form.lastName}
+                            <Label htmlFor="new-member-last-name">นามสกุล <span className="text-destructive">*</span></Label>
+                            <Input id="new-member-last-name" required placeholder="ใจดี" value={form.lastName}
                                 onChange={(e) => handleChange("lastName", e.target.value)} />
                         </div>
                     </div>
@@ -168,14 +186,14 @@ export function AddMemberDialog() {
                     {/* เบอร์โทร + เพศ */}
                     <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
-                            <Label>เบอร์โทร</Label>
-                            <Input placeholder="0812345678" value={form.phone}
+                            <Label htmlFor="new-member-phone">เบอร์โทร</Label>
+                            <Input id="new-member-phone" type="tel" placeholder="0812345678" value={form.phone}
                                 onChange={(e) => handleChange("phone", e.target.value)} />
                         </div>
                         <div className="space-y-1.5">
                             <Label>เพศ</Label>
                             <Select value={form.gender} onValueChange={(v) => handleChange("gender", v)}>
-                                <SelectTrigger><SelectValue placeholder="เลือก" /></SelectTrigger>
+                                <SelectTrigger aria-label="เพศ"><SelectValue placeholder="เลือก" /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="MALE">ชาย</SelectItem>
                                     <SelectItem value="FEMALE">หญิง</SelectItem>
@@ -187,23 +205,23 @@ export function AddMemberDialog() {
 
                     {/* อีเมล */}
                     <div className="space-y-1.5">
-                        <Label>อีเมล</Label>
-                        <Input placeholder="email@example.com" value={form.email}
+                        <Label htmlFor="new-member-email">อีเมล</Label>
+                        <Input id="new-member-email" type="email" placeholder="email@example.com" value={form.email}
                             onChange={(e) => handleChange("email", e.target.value)} />
                     </div>
 
                     {/* ที่อยู่ */}
                     <div className="space-y-1.5">
-                        <Label>ที่อยู่</Label>
-                        <Input placeholder="บ้านเลขที่ ถนน ตำบล อำเภอ จังหวัด"
+                        <Label htmlFor="new-member-address">ที่อยู่</Label>
+                        <Input id="new-member-address" placeholder="บ้านเลขที่ ถนน ตำบล อำเภอ จังหวัด"
                             value={form.address}
                             onChange={(e) => handleChange("address", e.target.value)} />
                     </div>
 
                     {/* หมายเหตุ */}
                     <div className="space-y-1.5">
-                        <Label>หมายเหตุ</Label>
-                        <Input placeholder="หมายเหตุเพิ่มเติม"
+                        <Label htmlFor="new-member-note">หมายเหตุ</Label>
+                        <Input id="new-member-note" placeholder="หมายเหตุเพิ่มเติม"
                             value={form.note}
                             onChange={(e) => handleChange("note", e.target.value)} />
                     </div>
@@ -211,13 +229,13 @@ export function AddMemberDialog() {
                     {/* เลขบัตรประชาชน + วันเกิด */}
                     <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
-                            <Label>เลขบัตรประชาชน</Label>
-                            <Input placeholder="1234567890123" maxLength={13} value={form.idCard}
+                            <Label htmlFor="new-member-id-card">เลขบัตรประชาชน</Label>
+                            <Input id="new-member-id-card" inputMode="numeric" placeholder="1234567890123" maxLength={13} value={form.idCard}
                                 onChange={(e) => handleChange("idCard", e.target.value)} />
                         </div>
                         <div className="space-y-1.5">
-                            <Label>วันเกิด</Label>
-                            <Input type="date" value={form.birthDate}
+                            <Label htmlFor="new-member-birth-date">วันเกิด</Label>
+                            <Input id="new-member-birth-date" type="date" value={form.birthDate}
                                 onChange={(e) => handleChange("birthDate", e.target.value)} />
                         </div>
                     </div>
@@ -225,7 +243,7 @@ export function AddMemberDialog() {
                     <div className="space-y-1.5">
                         <Label>แพ็กเกจ</Label>
                         <Select value={form.packageId} onValueChange={handlePackageChange}>
-                            <SelectTrigger><SelectValue placeholder="เลือกแพ็กเกจ" /></SelectTrigger>
+                            <SelectTrigger aria-label="แพ็กเกจ"><SelectValue placeholder="เลือกแพ็กเกจ" /></SelectTrigger>
                             <SelectContent>
                                 {packages.map((pkg) => (
                                     <SelectItem key={pkg.id} value={String(pkg.id)}>
@@ -236,17 +254,33 @@ export function AddMemberDialog() {
                         </Select>
                     </div>
 
+                    <fieldset className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                        <legend className="px-1 font-medium">ความยินยอม PDPA</legend>
+                        <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm">
+                            <input type="checkbox" required checked={form.servicePrivacy} onChange={(event) => setForm((prev) => ({ ...prev, servicePrivacy: event.target.checked }))} className="mt-1 size-4 accent-primary" />
+                            <span><span className="font-medium">การใช้ข้อมูลเพื่อให้บริการ *</span><span className="block text-muted-foreground">จำเป็นต่อการสมัครและเข้าใช้บริการ</span></span>
+                        </label>
+                        <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm">
+                            <input type="checkbox" checked={form.marketingConsent} onChange={(event) => setForm((prev) => ({ ...prev, marketingConsent: event.target.checked }))} className="mt-1 size-4 accent-primary" />
+                            <span><span className="font-medium">การตลาด</span><span className="block text-muted-foreground">รับข่าวสารและโปรโมชัน</span></span>
+                        </label>
+                        <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm">
+                            <input type="checkbox" checked={form.photoConsent} onChange={(event) => setForm((prev) => ({ ...prev, photoConsent: event.target.checked }))} className="mt-1 size-4 accent-primary" />
+                            <span><span className="font-medium">รูปถ่ายสมาชิก</span><span className="block text-muted-foreground">อนุญาตให้เก็บรูปสำหรับการตรวจสอบหน้าสาขา</span></span>
+                        </label>
+                    </fieldset>
+
                     {/* วันเริ่ม + ราคา */}
                     {form.packageId && (
                         <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-1.5">
-                                <Label>วันเริ่มต้น</Label>
-                                <Input type="date" value={form.startDate}
+                                <Label htmlFor="new-member-start-date">วันเริ่มต้น</Label>
+                                <Input id="new-member-start-date" type="date" value={form.startDate}
                                     onChange={(e) => handleChange("startDate", e.target.value)} />
                             </div>
                             <div className="space-y-1.5">
-                                <Label>ราคาที่ชำระ (บาท)</Label>
-                                <Input type="number" value={form.paidAmount}
+                                <Label htmlFor="new-member-paid-amount">ราคาที่ชำระ (บาท)</Label>
+                                <Input id="new-member-paid-amount" type="number" value={form.paidAmount}
                                     onChange={(e) => handleChange("paidAmount", e.target.value)} />
                             </div>
                         </div>
@@ -265,7 +299,7 @@ export function AddMemberDialog() {
                         </div>
                     )}
 
-                    {error && <p className="text-sm text-destructive">{error}</p>}
+                    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
                     <div className="flex justify-end gap-2 pt-2">
                         <Button variant="outline" onClick={() => setOpen(false)}>ยกเลิก</Button>

@@ -5,6 +5,8 @@ import {
   createFitnessClass,
 } from "@/lib/class-service";
 import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -42,8 +44,22 @@ const classSchema = z
 /** ตรวจข้อมูลรอบคลาสและส่งให้ service ตรวจตารางเทรนเนอร์ก่อนบันทึก */
 export async function POST(request: Request) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("classes.manage", branchId, {
+      action: "CLASS_CREATED",
+      entityType: "CLASS",
+    });
     const validated = classSchema.parse(await request.json());
-    const id = await createFitnessClass({ ...validated, branchId: await getCurrentBranchId() });
+    const id = await runAuditedMutation<number>(
+      {
+        actorStaffId: actor.staffId,
+        branchId,
+        action: "CLASS_CREATED",
+        entityType: "CLASS",
+        success: (entityId) => ({ entityId }),
+      },
+      (tx) => createFitnessClass({ ...validated, branchId }, tx),
+    );
     return NextResponse.json(
       { message: "สร้างรอบคลาสแล้ว", id },
       { status: 201 },
@@ -59,6 +75,8 @@ export async function POST(request: Request) {
         { error: error.message },
         { status: error.status },
       );
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json(
       { error: "ไม่สามารถสร้างรอบคลาสได้" },

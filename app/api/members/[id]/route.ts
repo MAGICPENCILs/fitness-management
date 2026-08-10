@@ -1,7 +1,10 @@
 import { db } from "@/db";
 import { members, memberPackages, packages } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { getCurrentBranchId } from "@/lib/branch-service";
+import { runAuditedMutation } from "@/lib/audit-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 // GET /api/members/[id]
 export async function GET(
@@ -52,26 +55,42 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const branchId = await getCurrentBranchId();
+    const actor = await requirePermission("members.manage", branchId, {
+      action: "MEMBER_UPDATED",
+      entityType: "MEMBER",
+    });
     const { id } = await params;
     const body = await request.json();
+    const memberId = Number(id);
 
-    await db
-      .update(members)
-      .set({
-        firstName:  body.firstName,
-        lastName:   body.lastName,
-        phone:      body.phone,
-        email:      body.email,
-        address:    body.address,
-        note:       body.note,
-        gender:     body.gender,
-        birthDate:  body.birthDate ? new Date(body.birthDate) : undefined,
-        photoUrl:   body.photoUrl,
-      })
-      .where(eq(members.id, Number(id)));
+    await runAuditedMutation(
+      { actorStaffId: actor.staffId, branchId, action: "MEMBER_UPDATED", entityType: "MEMBER", entityId: memberId, metadata: { fields: ["firstName", "lastName", "phone", "email", "address", "note", "gender", "birthDate", "photoUrl"] } },
+      async (tx) => {
+        const result = await tx
+          .update(members)
+          .set({
+            firstName: body.firstName,
+            lastName: body.lastName,
+            phone: body.phone,
+            email: body.email,
+            address: body.address,
+            note: body.note,
+            gender: body.gender,
+            birthDate: body.birthDate ? new Date(body.birthDate) : undefined,
+            photoUrl: body.photoUrl,
+          })
+          .where(and(eq(members.id, memberId), eq(members.homeBranchId, branchId)));
+        if (result[0].affectedRows !== 1) throw new Error("MEMBER_NOT_FOUND_IN_BRANCH");
+      },
+    );
 
     return NextResponse.json({ message: "Updated" });
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof Error && error.message === "MEMBER_NOT_FOUND_IN_BRANCH")
+      return NextResponse.json({ error: "Member not found" }, { status: 404 });
     return NextResponse.json({ error: "Failed to update" }, { status: 500 });
   }
 }
