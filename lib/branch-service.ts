@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { db } from "@/db";
 import { branches } from "@/db/schema";
@@ -20,8 +20,9 @@ export class BranchOperationError extends Error {
   }
 }
 
-/** โหลดสาขาที่เปิดใช้งานและเลือกสาขาจาก cookie โดย fallback ไปสาขาหลักเสมอ */
+/** โหลดเฉพาะสาขาที่ authoritative Staff มีสิทธิ์ แล้วเลือก cookie ภายในขอบเขตนั้นเท่านั้น */
 export async function getBranchContext() {
+  const staffContext = await getStaffContext();
   const branchRows = await db
     .select({
       id: branches.id,
@@ -30,7 +31,12 @@ export async function getBranchContext() {
       isMain: branches.isMain,
     })
     .from(branches)
-    .where(eq(branches.status, "ACTIVE"))
+    .where(
+      and(
+        eq(branches.status, "ACTIVE"),
+        inArray(branches.id, staffContext.branchesAllowed),
+      ),
+    )
     .orderBy(asc(branches.name));
   if (branchRows.length === 0)
     throw new BranchOperationError("ระบบยังไม่มีสาขาที่เปิดใช้งาน", 503);
@@ -60,9 +66,12 @@ export async function assertActiveBranch(branchId: number) {
   if (!branch) throw new BranchOperationError("ไม่พบสาขาที่เลือก", 404);
 }
 
-/** เขียน branch context ลง cookie แบบ HTTP-only เพื่อไม่ให้ client ปลอมค่าโดยตรง */
+/** เขียน branch context แบบ HTTP-only หลังยืนยันว่า authoritative Staff มีสิทธิ์ในสาขาเป้าหมาย */
 export async function setCurrentBranchCookie(branchId: number) {
   const staffContext = await getStaffContext();
+  if (!staffContext.branchesAllowed.includes(branchId)) {
+    throw new BranchOperationError("ไม่มีสิทธิ์เลือกสาขานี้", 403);
+  }
   await assertActiveBranch(branchId);
   (await cookies()).set(BRANCH_COOKIE, String(branchId), {
     httpOnly: true,

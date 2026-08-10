@@ -13,12 +13,20 @@ import {
   type StaffRole,
 } from "@/lib/rbac";
 import {
-  resolveStaffSelection,
-  StaffContextError,
-} from "@/lib/staff-context-core";
+  requireFullSession,
+  SessionAuthenticationError,
+} from "@/lib/auth/session-service";
 import { runAuditedMutation, writeAudit } from "@/lib/audit-service";
 
 const STAFF_COOKIE = "fitness_staff_id";
+
+/** เปิดข้อมูล Staff Switcher เฉพาะ development ที่ opt in ชัดเจน เพื่อไม่เผยรายชื่อพนักงานใน runtime ปกติ */
+function isDevStaffSwitcherEnabled() {
+  return (
+    process.env.NODE_ENV === "development" &&
+    process.env.ENABLE_DEV_STAFF_SWITCHER === "true"
+  );
+}
 
 export class AuthorizationError extends Error {
   /** สร้างข้อผิดพลาดการยืนยันสิทธิ์พร้อมสถานะ HTTP สำหรับ Route Handler */
@@ -72,31 +80,36 @@ async function getActiveStaffRows() {
     .orderBy(asc(staff.firstName), asc(staff.lastName));
 }
 
-/** สร้างบริบทพนักงานปัจจุบันจาก cookie โดยไม่ส่ง phone หรือ email ไปยัง sidebar */
+/** สร้างบริบทพนักงานจาก authoritative session และไม่เผยรายชื่อ Staff เว้นแต่เปิด development switcher */
 export async function getStaffContext() {
-  const rows = await getActiveStaffRows();
-  const cookieValue = (await cookies()).get(STAFF_COOKIE)?.value;
-  const current = resolveStaffSelection(rows, cookieValue);
+  const current = await requireFullSession();
   const actor: ActorContext = {
-    staffId: current.id,
+    staffId: current.staffId,
     role: current.role,
     homeBranchId: current.homeBranchId,
   };
-  const branchRows = await db
-    .select({ id: branches.id })
-    .from(branches)
-    .where(eq(branches.status, "ACTIVE"));
+  const [branchRows, availableStaff] = await Promise.all([
+    actor.role === "OWNER"
+      ? db
+          .select({ id: branches.id })
+          .from(branches)
+          .where(eq(branches.status, "ACTIVE"))
+      : Promise.resolve([{ id: actor.homeBranchId }]),
+    isDevStaffSwitcherEnabled()
+      ? getActiveStaffRows()
+      : Promise.resolve([]),
+  ]);
 
   return {
     staff: {
-      id: current.id,
+      id: current.staffId,
       staffCode: current.staffCode,
       displayName: `${current.firstName} ${current.lastName}`.trim(),
       role: current.role,
       homeBranchId: current.homeBranchId,
       branchName: current.branchName,
     },
-    availableStaff: rows.map((row) => ({
+    availableStaff: availableStaff.map((row) => ({
       id: row.id,
       staffCode: row.staffCode,
       displayName: `${row.firstName} ${row.lastName}`.trim(),
@@ -121,8 +134,9 @@ export async function requirePermission(
   try {
     context = await getStaffContext();
   } catch (error) {
-    if (error instanceof StaffContextError)
-      throw new AuthorizationError(error.message, error.status === 503 ? 401 : error.status);
+    if (error instanceof SessionAuthenticationError) {
+      throw new AuthorizationError(error.message, error.status);
+    }
     throw error;
   }
 
@@ -151,6 +165,9 @@ export async function requirePermission(
 
 /** ตรวจว่าบัญชีเป้าหมายเปิดใช้งานก่อนบันทึกเป็นบริบทพนักงานปัจจุบัน */
 export async function setCurrentStaffCookie(staffId: number) {
+  if (!isDevStaffSwitcherEnabled()) {
+    throw new StaffOperationError("ไม่พบการทำงานนี้", 404);
+  }
   const previousContext = await getStaffContext();
   const [selected] = await db
     .select({ id: staff.id, homeBranchId: staff.homeBranchId })

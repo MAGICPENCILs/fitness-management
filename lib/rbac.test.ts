@@ -39,6 +39,37 @@ describe("RBAC", () => {
     expect(hasPermission(actor("TRAINER"), "pt.manage", 3)).toBe(false);
   });
 
+  it("ให้ Owner อ่านและจัดการ security state ได้ทุกสาขา", () => {
+    expect(hasPermission(actor("OWNER"), "auth.security.read", 99)).toBe(true);
+    expect(hasPermission(actor("OWNER"), "auth.security.manage", 99)).toBe(
+      true,
+    );
+  });
+
+  it("จำกัด Manager อ่านและจัดการ security state เฉพาะสาขาตน", () => {
+    expect(hasPermission(actor("MANAGER"), "auth.security.read", 2)).toBe(
+      true,
+    );
+    expect(hasPermission(actor("MANAGER"), "auth.security.manage", 2)).toBe(
+      true,
+    );
+    expect(hasPermission(actor("MANAGER"), "auth.security.read", 3)).toBe(
+      false,
+    );
+    expect(hasPermission(actor("MANAGER"), "auth.security.manage", 3)).toBe(
+      false,
+    );
+  });
+
+  it("ไม่ให้ Counter และ Trainer เข้าถึง security state", () => {
+    expect(hasPermission(actor("COUNTER"), "auth.security.read", 2)).toBe(
+      false,
+    );
+    expect(hasPermission(actor("TRAINER"), "auth.security.manage", 2)).toBe(
+      false,
+    );
+  });
+
   it("สร้าง snapshot สำหรับกรอง UI จาก matrix เดียวกัน", () => {
     expect(getPermissionSnapshot(actor("COUNTER"))).toMatchObject({
       "members.manage": true,

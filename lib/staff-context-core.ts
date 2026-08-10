@@ -19,34 +19,28 @@ export class StaffContextError extends Error {
   }
 }
 
-/** เลือกพนักงานจาก cookie โดย fallback เป็น Owner เฉพาะการเปิดระบบครั้งแรก */
+/** เลือก Staff เฉพาะจาก cookie ที่ระบุชัด และห้าม fallback เป็น Owner เมื่อไม่มีหรือใช้ค่าไม่ถูกต้อง */
 export function resolveStaffSelection<T extends StaffSelectionRow>(
   rows: readonly T[],
   cookieValue: string | undefined,
 ): T {
   if (cookieValue === undefined) {
-    const owner = rows.find(
-      (row) => row.role === "OWNER" && row.status === "ACTIVE",
-    );
-    if (!owner)
-      throw new StaffContextError(
-        "ระบบยังไม่มีบัญชี Owner ที่เปิดใช้งาน",
-        503,
-      );
-    return owner;
+    throw new StaffContextError("ไม่พบข้อมูลพนักงานปัจจุบัน", 401);
   }
 
   const requestedId = Number(cookieValue);
-  if (!Number.isInteger(requestedId) || requestedId <= 0)
+  if (!Number.isInteger(requestedId) || requestedId <= 0) {
     throw new StaffContextError("ข้อมูลพนักงานปัจจุบันไม่ถูกต้อง", 401);
+  }
 
   const selected = rows.find(
     (row) => row.id === requestedId && row.status === "ACTIVE",
   );
-  if (!selected)
+  if (!selected) {
     throw new StaffContextError(
       "ไม่พบบัญชีพนักงานที่เปิดใช้งานสำหรับบริบทนี้",
       401,
     );
+  }
   return selected;
 }
