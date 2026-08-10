@@ -4,6 +4,13 @@ import { jwtVerify, SignJWT } from "jose";
 
 import type { SessionClaims } from "@/lib/auth/types";
 
+const SESSION_ROLES: readonly string[] = [
+  "OWNER",
+  "MANAGER",
+  "COUNTER",
+  "TRAINER",
+];
+
 /** อ่าน secret จาก environment และหยุด flow หากค่าว่างหรืออ่อนเกินไป แทนการใช้ fallback ใน source code */
 function getSessionSecret(): Uint8Array {
   const secret = process.env.AUTH_SESSION_SECRET;
@@ -45,6 +52,7 @@ export async function verifySessionClaims(
       typeof payload.sessionId !== "string" ||
       typeof payload.staffId !== "number" ||
       typeof payload.role !== "string" ||
+      !SESSION_ROLES.includes(payload.role) ||
       typeof payload.homeBranchId !== "number" ||
       (payload.mode !== "FULL" && payload.mode !== "PASSWORD_CHANGE_REQUIRED") ||
       typeof payload.expiresAt !== "number"

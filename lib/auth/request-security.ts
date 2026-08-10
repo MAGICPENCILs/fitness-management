@@ -46,14 +46,17 @@ export function getRequestFingerprintInput(
   request: Request,
 ): RequestFingerprintInput {
   const forwardedIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const source =
-    process.env.TRUST_PROXY === "true" && forwardedIp
-      ? forwardedIp
-      : request.headers.get("origin") ?? new URL(request.url).origin;
+
+  if (process.env.TRUST_PROXY !== "true" || !forwardedIp) {
+    return {
+      ipFingerprint: null,
+      userAgentCategory: getUserAgentCategory(request.headers.get("user-agent") ?? ""),
+    };
+  }
 
   return {
     ipFingerprint: createHmac("sha256", getFingerprintSecret())
-      .update(source)
+      .update(forwardedIp)
       .digest("hex"),
     userAgentCategory: getUserAgentCategory(request.headers.get("user-agent") ?? ""),
   };

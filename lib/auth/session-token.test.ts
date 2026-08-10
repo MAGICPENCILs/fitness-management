@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { SignJWT } from "jose";
 import {
   createSessionId,
   hashSessionId,
@@ -43,5 +44,20 @@ describe("session token security", () => {
     expect(createSessionId()).not.toBe(sessionId);
     expect(hashSessionId(sessionId)).toMatch(/^[a-f0-9]{64}$/);
     expect(hashSessionId(sessionId)).not.toContain(sessionId);
+  });
+
+  it("rejects a validly signed token with a role outside the staff allowlist", async () => {
+    const token = await new SignJWT({
+      sessionId: "session-id-for-test",
+      staffId: 1,
+      role: "GUEST",
+      homeBranchId: 1,
+      mode: "FULL",
+      expiresAt: 1786377600,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .sign(new TextEncoder().encode(process.env.AUTH_SESSION_SECRET));
+
+    await expect(verifySessionClaims(token)).resolves.toBeNull();
   });
 });

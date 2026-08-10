@@ -19,6 +19,6 @@ export type UserAgentCategory =
   | "UNKNOWN";
 
 export type RequestFingerprintInput = {
-  ipFingerprint: string;
+  ipFingerprint: string | null;
   userAgentCategory: UserAgentCategory;
 };

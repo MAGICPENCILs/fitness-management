@@ -1,3 +1,5 @@
+import "server-only";
+
 import { hash, verify } from "@node-rs/argon2";
 
 import { ARGON2_OPTIONS, PASSWORD_MIN_LENGTH } from "@/lib/auth/constants";
@@ -5,7 +7,7 @@ import { ARGON2_OPTIONS, PASSWORD_MIN_LENGTH } from "@/lib/auth/constants";
 export type PasswordValidation = { valid: boolean; errors: string[] };
 
 /** ใช้ hash คงที่สำหรับบัญชีที่ไม่พบ เพื่อลดความต่างของเวลาและไม่เปิดเผยการมีอยู่ของบัญชี */
-export const DUMMY_PASSWORD_HASH =
+const DUMMY_PASSWORD_HASH =
   "$argon2id$v=19$m=19456,t=2,p=1$3koZ92UNP5XYEyw3qrboWw$YvhgRlWZmol3lWhHScZjZaZ/tQq7JLwaNPd42zLCMEc";
 
 /** ตรวจ policy ฝั่ง server ซ้ำเสมอ เพราะ validation ฝั่ง client ไม่ใช่ security boundary */

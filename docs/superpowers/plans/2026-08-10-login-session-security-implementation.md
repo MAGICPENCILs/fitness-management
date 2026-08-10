@@ -14,7 +14,7 @@
 - Function และ business rule ที่เพิ่มหรือแก้ต้องมี comment ภาษาไทย อธิบายเหตุผล เงื่อนไขสำคัญ และผลข้างเคียง
 - Development และ production server ใช้ port `3005`
 - Session absolute lifetime 8 ชั่วโมง, idle timeout 30 นาที และ touch interval 5 นาที
-- ACCOUNT limit คือ 5 ครั้งใน 15 นาทีแล้วล็อก 15 นาที; IP limit คือ 20 ครั้งใน 15 นาทีแล้วล็อก 15 นาที
+- ACCOUNT limit คือ 5 ครั้งใน 15 นาทีแล้วล็อก 15 นาที; IP limit คือ 20 ครั้งใน 15 นาทีแล้วล็อก 15 นาทีและใช้ได้เฉพาะ `TRUST_PROXY=true` เท่านั้น หากไม่ใช่ `true` ห้ามสร้าง IP fingerprint หรือ origin/global fallback bucket และใช้เฉพาะ ACCOUNT limit
 - Password ขั้นต่ำ 12 ตัว มี uppercase, lowercase, number และ special character
 - Production ต้องมี `AUTH_SESSION_SECRET`, `AUTH_FINGERPRINT_SECRET`, `APP_ORIGIN`; ห้าม fallback secret ใน source code
 - ห้ามเก็บ plaintext/hash ของ password, raw session ID/cookie, staff code ที่ไม่พบ, raw IP หรือ full user-agent ใน log/audit/response
@@ -28,7 +28,7 @@
 - `lib/auth/types.ts`: session claims, authenticated Staff, Login input/result และ security status types
 - `lib/auth/password.ts`: password policy, Argon2id hash/verify และ dummy verification
 - `lib/auth/session-token.ts`: สร้าง session ID, sign/verify claims และ hash token
-- `lib/auth/request-security.ts`: Origin, safe return path, proxy IP และ user-agent category
+- `lib/auth/request-security.ts`: Origin, safe return path, trusted-proxy IP fingerprint และ user-agent category
 - `lib/auth/rate-limit-core.ts`: state transition ของ fixed window/lock โดยไม่แตะฐานข้อมูล
 - `lib/auth/auth-repository.ts`: Drizzle queries/transactions สำหรับ Staff, limit, session และ auth audit
 - `lib/auth/auth-service.ts`: Login, Logout, change password และ session lifecycle
@@ -139,7 +139,7 @@ it("accepts only local relative return paths", () => {
 
 - [ ] **Step 6: Implement token and request security primitives**
 
-Use `jose` HS256 with `AUTH_SESSION_SECRET`, `crypto.randomBytes(32)` for session ID, SHA-256 for DB token hash, HMAC-SHA256 for fingerprint, exact Origin comparison with `APP_ORIGIN`, and coarse user-agent categories `DESKTOP`, `MOBILE`, `TABLET`, `BOT`, `UNKNOWN`.
+Use `jose` HS256 with `AUTH_SESSION_SECRET`, `crypto.randomBytes(32)` for session ID, SHA-256 for DB token hash, HMAC-SHA256 for fingerprint, exact Origin comparison with `APP_ORIGIN`, and coarse user-agent categories `DESKTOP`, `MOBILE`, `TABLET`, `BOT`, `UNKNOWN`. สร้าง IP fingerprint เฉพาะเมื่อ `TRUST_PROXY=true` และมี forwarded IP ที่ trusted; กรณีอื่นคืนสถานะไม่มี IP fingerprint เพื่อให้ Task 3 ใช้เฉพาะ ACCOUNT limit.
 
 - [ ] **Step 7: Run GREEN and commit**
 

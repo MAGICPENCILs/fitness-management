@@ -46,6 +46,8 @@ describe("request security", () => {
   });
 
   it("returns an HMAC fingerprint and a coarse user-agent category", () => {
+    process.env.TRUST_PROXY = "true";
+
     const fingerprint = getRequestFingerprintInput(
       new Request("https://fitness.example/api/auth/login", {
         headers: {
@@ -58,5 +60,17 @@ describe("request security", () => {
     expect(fingerprint.ipFingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(fingerprint.ipFingerprint).not.toContain("203.0.113.9");
     expect(fingerprint.userAgentCategory).toBe("MOBILE");
+  });
+
+  it("omits the IP fingerprint when the proxy is not explicitly trusted", () => {
+    const firstRequest = new Request("https://fitness.example/api/auth/login", {
+      headers: { "x-forwarded-for": "203.0.113.9" },
+    });
+    const secondRequest = new Request("https://fitness.example/api/auth/login", {
+      headers: { "x-forwarded-for": "198.51.100.7" },
+    });
+
+    expect(getRequestFingerprintInput(firstRequest).ipFingerprint).toBeNull();
+    expect(getRequestFingerprintInput(secondRequest).ipFingerprint).toBeNull();
   });
 });
