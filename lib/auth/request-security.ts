@@ -14,6 +14,13 @@ function getFingerprintSecret(): string {
   return secret;
 }
 
+/** สร้าง HMAC จาก subject ที่ normalize แล้ว เพื่อไม่เก็บ staff code หรือ IP ดิบใน rate-limit/session storage */
+export function createAuthSubjectFingerprint(value: string): string {
+  return createHmac("sha256", getFingerprintSecret())
+    .update(value)
+    .digest("hex");
+}
+
 /** จัดหมวดอุปกรณ์แบบหยาบเพื่อให้ audit มีประโยชน์โดยไม่เก็บ full user-agent */
 function getUserAgentCategory(userAgent: string): UserAgentCategory {
   if (!userAgent) return "UNKNOWN";
@@ -55,9 +62,7 @@ export function getRequestFingerprintInput(
   }
 
   return {
-    ipFingerprint: createHmac("sha256", getFingerprintSecret())
-      .update(forwardedIp)
-      .digest("hex"),
+    ipFingerprint: createAuthSubjectFingerprint(forwardedIp),
     userAgentCategory: getUserAgentCategory(request.headers.get("user-agent") ?? ""),
   };
 }

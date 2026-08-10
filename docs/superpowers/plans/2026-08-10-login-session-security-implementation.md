@@ -230,11 +230,14 @@ git commit -m "feat: add authentication database schema"
 - Create: `lib/auth/auth-repository.ts`
 - Create: `lib/auth/auth-service.ts`
 - Create: `lib/auth/auth-service.test.ts`
+- Modify: `lib/auth/password.ts` and test to expose `verifyPasswordOrDummy` while keeping the dummy hash private
+- Modify: `lib/auth/request-security.ts` and test to reuse one HMAC helper for ACCOUNT/IP subjects
 
 **Interfaces:**
 - Produces: `evaluateRateLimit(state, policy, now): RateLimitDecision`
 - Produces: `login(input: LoginInput, request: AuthRequestContext): Promise<LoginResult>`
 - Produces: `logout(sessionCookie: string | undefined, request: AuthRequestContext): Promise<void>`
+- Produces: `createAuthService(repository, dependencies)` for repository-fake service tests
 - Consumes: password/session/request primitives and auth schema from Tasks 1-2
 
 - [ ] **Step 1: Write RED rate-limit transition tests**
@@ -282,13 +285,15 @@ it("creates PASSWORD_CHANGE_REQUIRED session for temporary password", async () =
 
 ```ts
 findLoginStaff(staffCode: string): Promise<LoginStaff | null>;
+checkLimit(scope: "ACCOUNT" | "IP", subjectHash: string, now: Date): Promise<RateLimitCheck>;
 consumeFailure(scope: "ACCOUNT" | "IP", subjectHash: string, now: Date): Promise<RateLimitDecision>;
 clearAccountLimit(subjectHash: string): Promise<void>;
+writeLoginAudit(input: LoginAuditInput): Promise<void>;
 createSessionAndAudit(input: CreateSessionInput): Promise<void>;
 revokeSessionAndAudit(input: RevokeSessionInput): Promise<void>;
 ```
 
-Implement `consumeFailure` atomically with row lock/transaction so concurrent requests cannot pass threshold.
+`checkLimit` is read-only so a valid credential cannot bypass an existing lock. Implement `consumeFailure` atomically with row lock/transaction so concurrent requests cannot pass threshold. `writeLoginAudit` writes one event only after ACCOUNT/IP decisions, avoiding duplicate events per bucket.
 
 - [ ] **Step 5: Implement Login/Logout orchestration**
 

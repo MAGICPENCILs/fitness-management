@@ -43,3 +43,11 @@ export async function verifyPassword(
     return false;
   }
 }
+
+/** ใช้ dummy hash เมื่อไม่พบบัญชี เพื่อให้ทุก credential failure ยังผ่าน Argon2id และลด timing signal ที่บอกว่าบัญชีมีอยู่จริง */
+export async function verifyPasswordOrDummy(
+  passwordHash: string | null,
+  password: string,
+): Promise<boolean> {
+  return verifyPassword(passwordHash ?? DUMMY_PASSWORD_HASH, password);
+}

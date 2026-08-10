@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   assertTrustedOrigin,
+  createAuthSubjectFingerprint,
   getRequestFingerprintInput,
   getSafeReturnPath,
 } from "@/lib/auth/request-security";
@@ -60,6 +61,21 @@ describe("request security", () => {
     expect(fingerprint.ipFingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(fingerprint.ipFingerprint).not.toContain("203.0.113.9");
     expect(fingerprint.userAgentCategory).toBe("MOBILE");
+  });
+
+  it("creates deterministic opaque subject fingerprints and fails closed without a strong secret", () => {
+    const first = createAuthSubjectFingerprint("OWNER001");
+    const second = createAuthSubjectFingerprint("OWNER001");
+
+    expect(first).toBe(second);
+    expect(first).toMatch(/^[a-f0-9]{64}$/);
+    expect(first).not.toContain("OWNER001");
+
+    delete process.env.AUTH_FINGERPRINT_SECRET;
+    expect(() => createAuthSubjectFingerprint("OWNER001")).toThrow();
+
+    process.env.AUTH_FINGERPRINT_SECRET = "too-short";
+    expect(() => createAuthSubjectFingerprint("OWNER001")).toThrow();
   });
 
   it("omits the IP fingerprint when the proxy is not explicitly trusted", () => {
