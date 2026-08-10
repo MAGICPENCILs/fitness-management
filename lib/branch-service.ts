@@ -5,7 +5,11 @@ import { cookies } from "next/headers";
 import { db } from "@/db";
 import { branches } from "@/db/schema";
 import { runAuditedMutation, writeAudit } from "@/lib/audit-service";
-import { getStaffContext, requirePermission } from "@/lib/staff-service";
+import {
+  AuthorizationError,
+  getStaffContext,
+  requirePermission,
+} from "@/lib/staff-service";
 
 const BRANCH_COOKIE = "fitness_branch_id";
 
@@ -66,9 +70,17 @@ export async function assertActiveBranch(branchId: number) {
   if (!branch) throw new BranchOperationError("ไม่พบสาขาที่เลือก", 404);
 }
 
-/** เขียน branch context แบบ HTTP-only หลังยืนยันว่า authoritative Staff มีสิทธิ์ในสาขาเป้าหมาย */
+/** เขียน branch context หลังยืนยันสิทธิ์ และแปลง auth failure เป็น BranchOperationError เพื่อให้ selector route ตอบ 401 */
 export async function setCurrentBranchCookie(branchId: number) {
-  const staffContext = await getStaffContext();
+  let staffContext: Awaited<ReturnType<typeof getStaffContext>>;
+  try {
+    staffContext = await getStaffContext();
+  } catch (error) {
+    if (error instanceof AuthorizationError) {
+      throw new BranchOperationError(error.message, error.status);
+    }
+    throw error;
+  }
   if (!staffContext.branchesAllowed.includes(branchId)) {
     throw new BranchOperationError("ไม่มีสิทธิ์เลือกสาขานี้", 403);
   }

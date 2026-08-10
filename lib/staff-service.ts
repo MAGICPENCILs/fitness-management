@@ -80,9 +80,17 @@ async function getActiveStaffRows() {
     .orderBy(asc(staff.firstName), asc(staff.lastName));
 }
 
-/** สร้างบริบทพนักงานจาก authoritative session และไม่เผยรายชื่อ Staff เว้นแต่เปิด development switcher */
+/** สร้างบริบทจาก authoritative session, แปลง auth failure เป็น AuthorizationError และไม่เผยรายชื่อ Staff นอก development */
 export async function getStaffContext() {
-  const current = await requireFullSession();
+  let current: Awaited<ReturnType<typeof requireFullSession>>;
+  try {
+    current = await requireFullSession();
+  } catch (error) {
+    if (error instanceof SessionAuthenticationError) {
+      throw new AuthorizationError(error.message, error.status);
+    }
+    throw error;
+  }
   const actor: ActorContext = {
     staffId: current.staffId,
     role: current.role,
@@ -130,16 +138,7 @@ export async function requirePermission(
   resourceBranchId?: number,
   denial?: { action: string; entityType: string; entityId?: number },
 ) {
-  let context: Awaited<ReturnType<typeof getStaffContext>>;
-  try {
-    context = await getStaffContext();
-  } catch (error) {
-    if (error instanceof SessionAuthenticationError) {
-      throw new AuthorizationError(error.message, error.status);
-    }
-    throw error;
-  }
-
+  const context = await getStaffContext();
   const actor: ActorContext = {
     staffId: context.staff.id,
     role: context.staff.role,
@@ -163,12 +162,20 @@ export async function requirePermission(
   return actor;
 }
 
-/** ตรวจว่าบัญชีเป้าหมายเปิดใช้งานก่อนบันทึกเป็นบริบทพนักงานปัจจุบัน */
+/** ใช้เฉพาะ dev switcher และแปลง auth failure เป็น StaffOperationError เพื่อให้ selector route ตอบ 401 */
 export async function setCurrentStaffCookie(staffId: number) {
   if (!isDevStaffSwitcherEnabled()) {
     throw new StaffOperationError("ไม่พบการทำงานนี้", 404);
   }
-  const previousContext = await getStaffContext();
+  let previousContext: Awaited<ReturnType<typeof getStaffContext>>;
+  try {
+    previousContext = await getStaffContext();
+  } catch (error) {
+    if (error instanceof AuthorizationError) {
+      throw new StaffOperationError(error.message, error.status);
+    }
+    throw error;
+  }
   const [selected] = await db
     .select({ id: staff.id, homeBranchId: staff.homeBranchId })
     .from(staff)

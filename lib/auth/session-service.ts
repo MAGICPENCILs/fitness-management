@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
-import { and, eq, gt, isNull, lte } from "drizzle-orm";
+import { and, eq, gt, isNull, lte, or } from "drizzle-orm";
 import { cookies } from "next/headers";
 
 import { db } from "@/db";
@@ -310,7 +310,7 @@ class DrizzleSessionRepository implements SessionRepository {
       );
   }
 
-  /** mark EXPIRED และเขียน SESSION_EXPIRED ใน transaction เดียว โดย audit เฉพาะ request แรกที่เปลี่ยน row สำเร็จ */
+  /** ใช้ expiry CAS ก่อน mark/audit เพื่อไม่ revoke row ที่ concurrent touch ต่ออายุสำเร็จ และให้ audit มีเพียง request แรก */
   async expireSessionAndAudit(input: ExpireSessionInput): Promise<void> {
     await db.transaction(async (tx) => {
       const result = await tx
@@ -320,6 +320,10 @@ class DrizzleSessionRepository implements SessionRepository {
           and(
             eq(authSessions.id, input.authSessionId),
             isNull(authSessions.revokedAt),
+            or(
+              lte(authSessions.absoluteExpiresAt, input.occurredAt),
+              lte(authSessions.idleExpiresAt, input.occurredAt),
+            ),
           ),
         );
       if (result[0].affectedRows === 0) return;
