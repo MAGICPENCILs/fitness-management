@@ -84,16 +84,20 @@ async function consumeLoginFailures(
   request: AuthRequestContext,
   now: Date,
 ) {
-  const failures: Array<Promise<{ blocked: boolean }>> = [
-    repository.consumeFailure("ACCOUNT", accountSubjectHash, now),
-  ];
+  const accountDecision = await repository.consumeFailure(
+    "ACCOUNT",
+    accountSubjectHash,
+    now,
+  );
   if (request.ipFingerprint) {
-    failures.push(
-      repository.consumeFailure("IP", request.ipFingerprint, now),
+    const ipDecision = await repository.consumeFailure(
+      "IP",
+      request.ipFingerprint,
+      now,
     );
+    return accountDecision.blocked || ipDecision.blocked;
   }
-  const decisions = await Promise.all(failures);
-  return decisions.some((decision) => decision.blocked);
+  return accountDecision.blocked;
 }
 
 /** เขียน audit ก่อนคืน credential/rate-limit error และแปลง audit failure เป็นข้อความกลางแบบ fail closed */
@@ -217,8 +221,8 @@ export function createAuthService(
     };
     const sessionCookie = await signSessionClaims(claims);
 
-    await repository.clearAccountLimit(accountSubjectHash);
     await repository.createSessionAndAudit({
+      accountSubjectHash,
       staffId: loginStaff.id,
       branchId: loginStaff.homeBranchId,
       sessionTokenHash: hashSessionId(sessionId),

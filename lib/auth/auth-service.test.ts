@@ -38,7 +38,7 @@ class FakeAuthRepository implements AuthRepository {
   checkedScopes: RateLimitScope[] = [];
   failedScopes: RateLimitScope[] = [];
   failedSubjects: string[] = [];
-  clearedAccountSubjects: string[] = [];
+  finalizedAccountSubjects: string[] = [];
   createdSessions: CreateSessionInput[] = [];
   audits: Array<{
     action: "LOGIN_FAILED" | "LOGIN_RATE_LIMITED" | "LOGIN_SUCCESS" | "LOGOUT_SUCCESS";
@@ -47,10 +47,13 @@ class FakeAuthRepository implements AuthRepository {
     branchId: number | null;
   }> = [];
   failLoginAudit = false;
+  failSessionFinalization = false;
+  maxConcurrentFailureCalls = 0;
 
   private limits = new Map<string, RateLimitState>();
   private revokedTokenHashes = new Set<string>();
   private mutationQueue: Promise<void> = Promise.resolve();
+  private activeFailureCalls = 0;
 
   async findLoginStaff(staffCode: string): Promise<LoginStaff | null> {
     return staffCode === "OWNER001" ? this.staff : null;
@@ -80,6 +83,11 @@ class FakeAuthRepository implements AuthRepository {
     subjectHash: string,
     now: Date,
   ): Promise<RateLimitDecision> {
+    this.activeFailureCalls += 1;
+    this.maxConcurrentFailureCalls = Math.max(
+      this.maxConcurrentFailureCalls,
+      this.activeFailureCalls,
+    );
     const operation = this.mutationQueue.then(() => {
       this.failedScopes.push(scope);
       this.failedSubjects.push(subjectHash);
@@ -99,12 +107,11 @@ class FakeAuthRepository implements AuthRepository {
     });
 
     this.mutationQueue = operation.then(() => undefined, () => undefined);
-    return operation;
-  }
-
-  async clearAccountLimit(subjectHash: string): Promise<void> {
-    this.clearedAccountSubjects.push(subjectHash);
-    this.limits.delete(this.key("ACCOUNT", subjectHash));
+    try {
+      return await operation;
+    } finally {
+      this.activeFailureCalls -= 1;
+    }
   }
 
   async writeLoginAudit(input: LoginAuditInput): Promise<void> {
@@ -113,13 +120,30 @@ class FakeAuthRepository implements AuthRepository {
   }
 
   async createSessionAndAudit(input: CreateSessionInput): Promise<void> {
-    this.createdSessions.push(input);
-    this.audits.push({
-      action: "LOGIN_SUCCESS",
-      result: "SUCCESS",
-      actorStaffId: input.staffId,
-      branchId: input.branchId,
-    });
+    const accountSubjectHash = input.accountSubjectHash;
+    this.finalizedAccountSubjects.push(accountSubjectHash);
+    const limitsBefore = new Map(this.limits);
+    const sessionsBefore = [...this.createdSessions];
+    const auditsBefore = [...this.audits];
+
+    try {
+      this.limits.delete(this.key("ACCOUNT", accountSubjectHash));
+      this.createdSessions.push(input);
+      if (this.failSessionFinalization) {
+        throw new Error("session audit unavailable");
+      }
+      this.audits.push({
+        action: "LOGIN_SUCCESS",
+        result: "SUCCESS",
+        actorStaffId: input.staffId,
+        branchId: input.branchId,
+      });
+    } catch (error) {
+      this.limits = limitsBefore;
+      this.createdSessions = sessionsBefore;
+      this.audits = auditsBefore;
+      throw error;
+    }
   }
 
   async revokeSessionAndAudit(input: RevokeSessionInput): Promise<void> {
@@ -212,6 +236,20 @@ describe("auth service", () => {
     expect(JSON.stringify(repo.audits)).not.toContain("WrongPass#2026");
   });
 
+  it("consumes ACCOUNT and IP failures sequentially within one request", async () => {
+    const service = createAuthService(repo, { now: () => NOW });
+
+    await expect(
+      service.login(
+        { staffCode: "OWNER001", password: "WrongPass#2026", returnTo: "/" },
+        REQUEST_WITH_IP,
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
+
+    expect(repo.failedScopes).toEqual(["ACCOUNT", "IP"]);
+    expect(repo.maxConcurrentFailureCalls).toBe(1);
+  });
+
   it("uses the private dummy verification path and the same generic failure for unknown Staff", async () => {
     const service = createAuthService(repo, { now: () => NOW });
     const knownFailure = service.login(
@@ -292,6 +330,12 @@ describe("auth service", () => {
   it("creates an eight-hour password-change session without incrementing or clearing IP", async () => {
     repo.staff = { ...repo.staff!, mustChangePassword: true };
     const service = createAuthService(repo, { now: () => NOW });
+    const accountHash = createAuthSubjectFingerprint("OWNER001");
+    repo.setLimit("ACCOUNT", accountHash, {
+      attempts: 2,
+      windowStartedAt: NOW,
+      lockedUntil: null,
+    });
 
     const result = await service.login(
       { staffCode: "OWNER001", password: "ValidPass#2026", returnTo: "/members" },
@@ -306,7 +350,8 @@ describe("auth service", () => {
     expect(result.returnTo).toBe("/members");
     expect(result.sessionCookie).toEqual(expect.any(String));
     expect(repo.failedScopes).toEqual([]);
-    expect(repo.clearedAccountSubjects).toHaveLength(1);
+    expect(repo.finalizedAccountSubjects).toEqual([accountHash]);
+    expect(repo.getLimit("ACCOUNT", accountHash)).toBeUndefined();
     expect(repo.createdSessions[0]).toMatchObject({
       mode: "PASSWORD_CHANGE_REQUIRED",
       createdAt: NOW,
@@ -319,6 +364,30 @@ describe("auth service", () => {
       action: "LOGIN_SUCCESS",
       result: "SUCCESS",
     });
+  });
+
+  it("keeps the account limit and rolls back the session when success audit fails", async () => {
+    const service = createAuthService(repo, { now: () => NOW });
+    const accountHash = createAuthSubjectFingerprint("OWNER001");
+    repo.setLimit("ACCOUNT", accountHash, {
+      attempts: 3,
+      windowStartedAt: NOW,
+      lockedUntil: null,
+    });
+    repo.failSessionFinalization = true;
+
+    await expect(
+      service.login(
+        { staffCode: "OWNER001", password: "ValidPass#2026", returnTo: "/" },
+        REQUEST_WITHOUT_IP,
+      ),
+    ).rejects.toThrow("session audit unavailable");
+
+    expect(repo.getLimit("ACCOUNT", accountHash)).toMatchObject({ attempts: 3 });
+    expect(repo.createdSessions).toHaveLength(0);
+    expect(
+      repo.audits.filter((audit) => audit.action === "LOGIN_SUCCESS"),
+    ).toHaveLength(0);
   });
 
   it("serializes concurrent failures so the fifth failure locks the account", async () => {

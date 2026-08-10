@@ -230,6 +230,7 @@ git commit -m "feat: add authentication database schema"
 - Create: `lib/auth/auth-repository.ts`
 - Create: `lib/auth/auth-service.ts`
 - Create: `lib/auth/auth-service.test.ts`
+- Modify: `db/index.ts` and test to use a MySQL pool so concurrent transactions lease independent connections
 - Modify: `lib/auth/password.ts` and test to expose `verifyPasswordOrDummy` while keeping the dummy hash private
 - Modify: `lib/auth/request-security.ts` and test to reuse one HMAC helper for ACCOUNT/IP subjects
 
@@ -287,13 +288,12 @@ it("creates PASSWORD_CHANGE_REQUIRED session for temporary password", async () =
 findLoginStaff(staffCode: string): Promise<LoginStaff | null>;
 checkLimit(scope: "ACCOUNT" | "IP", subjectHash: string, now: Date): Promise<RateLimitCheck>;
 consumeFailure(scope: "ACCOUNT" | "IP", subjectHash: string, now: Date): Promise<RateLimitDecision>;
-clearAccountLimit(subjectHash: string): Promise<void>;
 writeLoginAudit(input: LoginAuditInput): Promise<void>;
 createSessionAndAudit(input: CreateSessionInput): Promise<void>;
 revokeSessionAndAudit(input: RevokeSessionInput): Promise<void>;
 ```
 
-`checkLimit` is read-only so a valid credential cannot bypass an existing lock. Implement `consumeFailure` atomically with row lock/transaction so concurrent requests cannot pass threshold. `writeLoginAudit` writes one event only after ACCOUNT/IP decisions, avoiding duplicate events per bucket.
+`checkLimit` is read-only so a valid credential cannot bypass an existing lock. Implement `consumeFailure` atomically with row lock/transaction so concurrent requests cannot pass threshold. `writeLoginAudit` writes one event only after ACCOUNT/IP decisions, avoiding duplicate events per bucket. `CreateSessionInput` carries the ACCOUNT subject hash so its delete, session insert and `LOGIN_SUCCESS` audit commit or roll back in one repository transaction.
 
 - [ ] **Step 5: Implement Login/Logout orchestration**
 

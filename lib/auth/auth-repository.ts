@@ -48,6 +48,7 @@ export type LoginAuditInput = AuthAuditRequest & AuthAuditIdentity & {
 };
 
 export type CreateSessionInput = AuthAuditRequest & {
+  accountSubjectHash: string;
   staffId: number;
   branchId: number;
   sessionTokenHash: string;
@@ -75,7 +76,6 @@ export interface AuthRepository {
     subjectHash: string,
     now: Date,
   ): Promise<RateLimitDecision>;
-  clearAccountLimit(subjectHash: string): Promise<void>;
   writeLoginAudit(input: LoginAuditInput): Promise<void>;
   createSessionAndAudit(input: CreateSessionInput): Promise<void>;
   revokeSessionAndAudit(input: RevokeSessionInput): Promise<void>;
@@ -237,18 +237,6 @@ class DrizzleAuthRepository implements AuthRepository {
     });
   }
 
-  /** ล้างเฉพาะ ACCOUNT bucket เมื่อ credential สำเร็จ โดยไม่ลด IP protection ของแหล่งคำขอร่วม */
-  async clearAccountLimit(subjectHash: string): Promise<void> {
-    await db
-      .delete(authLoginLimits)
-      .where(
-        and(
-          eq(authLoginLimits.scope, "ACCOUNT"),
-          eq(authLoginLimits.subjectHash, subjectHash),
-        ),
-      );
-  }
-
   /** เขียน failure/rate-limit event เดียวหลัง bucket ทั้งหมดตัดสินแล้ว โดย unknown Staff คง actor/branch เป็น null */
   async writeLoginAudit(input: LoginAuditInput): Promise<void> {
     await insertAuthAudit(db, {
@@ -257,9 +245,18 @@ class DrizzleAuthRepository implements AuthRepository {
     });
   }
 
-  /** สร้าง session และ LOGIN_SUCCESS ใน transaction เดียว เพื่อไม่ให้ session ที่ไม่มี audit ถูก commit */
+  /** ล้าง ACCOUNT bucket, สร้าง session และ LOGIN_SUCCESS ใน transaction เดียว เพื่อ rollback security state พร้อมกันเมื่อขั้นใดล้มเหลว */
   async createSessionAndAudit(input: CreateSessionInput): Promise<void> {
     await db.transaction(async (tx) => {
+      await tx
+        .delete(authLoginLimits)
+        .where(
+          and(
+            eq(authLoginLimits.scope, "ACCOUNT"),
+            eq(authLoginLimits.subjectHash, input.accountSubjectHash),
+          ),
+        );
+
       const [created] = await tx
         .insert(authSessions)
         .values({
