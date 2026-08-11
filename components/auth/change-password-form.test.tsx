@@ -132,7 +132,71 @@ describe("ChangePasswordForm", () => {
     await user.click(screen.getByRole("button", { name: "บันทึกรหัสผ่านใหม่" }));
 
     expect(await screen.findByText(/รหัสผ่านไม่เป็นไปตามนโยบาย/)).toBeVisible();
-    expect(screen.getByText(/กรุณาตรวจสอบกฎทั้งสี่แล้วลองอีกครั้ง/)).toBeVisible();
+    expect(screen.getByText(/กรุณาลองอีกครั้ง/)).toBeVisible();
     expect(screen.getByRole("button", { name: "บันทึกรหัสผ่านใหม่" })).toBeEnabled();
+  });
+
+  it.each([
+    { status: 401, destination: "/login" },
+    { status: 403, destination: "/" },
+  ])(
+    "ล้างรหัสผ่านและไป $destination เมื่อ server ตอบ $status",
+    async ({ status, destination }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ error: "เซสชันไม่สามารถใช้งานได้" }), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const user = userEvent.setup();
+      render(<ChangePasswordForm />);
+      const password = screen.getByLabelText("รหัสผ่านใหม่");
+      const confirmation = screen.getByLabelText("ยืนยันรหัสผ่านใหม่");
+
+      await user.type(password, "ValidPass#2026");
+      await user.type(confirmation, "ValidPass#2026");
+      await user.click(
+        screen.getByRole("button", { name: "บันทึกรหัสผ่านใหม่" }),
+      );
+
+      await waitFor(() =>
+        expect(mocks.replace).toHaveBeenCalledWith(destination),
+      );
+      expect(password).toHaveValue("");
+      expect(confirmation).toHaveValue("");
+      expect(screen.queryByText(/กฎทั้งสี่/)).not.toBeInTheDocument();
+    },
+  );
+
+  it.each([
+    {
+      name: "invalid JSON",
+      response: () => Promise.resolve(new Response("not-json", { status: 500 })),
+      secret: "Unexpected token",
+    },
+    {
+      name: "network exception",
+      response: () => Promise.reject(new TypeError("database tunnel closed")),
+      secret: "database tunnel closed",
+    },
+  ])("ซ่อนรายละเอียด $name และแสดงข้อความกลาง", async ({ response, secret }) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(response);
+    const user = userEvent.setup();
+    render(<ChangePasswordForm />);
+
+    await user.type(screen.getByLabelText("รหัสผ่านใหม่"), "ValidPass#2026");
+    await user.type(
+      screen.getByLabelText("ยืนยันรหัสผ่านใหม่"),
+      "ValidPass#2026",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "บันทึกรหัสผ่านใหม่" }),
+    );
+
+    expect(
+      await screen.findByText(/ไม่สามารถเปลี่ยนรหัสผ่านได้ชั่วคราว/),
+    ).toBeVisible();
+    expect(screen.queryByText(new RegExp(secret, "i"))).not.toBeInTheDocument();
+    expect(screen.queryByText(/กฎทั้งสี่/)).not.toBeInTheDocument();
   });
 });

@@ -129,6 +129,7 @@ function Navigation({
   );
 }
 
+/** แสดง Staff ที่ยืนยันตัวตนแล้วเสมอ และเปิดตัวสลับ Staff เฉพาะ flag จาก server เพื่อไม่เผยรายชื่อหรือจำลองตัวตนในโหมดปกติ */
 export function Sidebar({
   branches,
   currentBranchId,

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Building2, LogOut, ShieldCheck, UserRoundCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+import { readAuthClientResponse } from "@/components/auth/auth-client-response";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { StaffRole } from "@/lib/rbac";
@@ -22,7 +23,7 @@ export type CurrentStaffSummary = {
   branchName: string;
 };
 
-type LogoutResponse = { error?: string };
+const LOGOUT_UNAVAILABLE_MESSAGE = "ไม่สามารถออกจากระบบได้ชั่วคราว";
 
 /** Revoke session ผ่าน Route Handler ก่อนนำผู้ใช้กลับหน้า Login และคง error ไว้บนหน้าเพื่อให้ลองใหม่ได้ */
 export function LogoutButton({ className }: { className?: string }) {
@@ -36,17 +37,15 @@ export function LogoutButton({ className }: { className?: string }) {
     setError("");
     try {
       const response = await fetch("/api/auth/logout", { method: "POST" });
-      const result = (await response.json()) as LogoutResponse;
-      if (!response.ok) {
-        throw new Error(result.error ?? "ไม่สามารถออกจากระบบได้ชั่วคราว");
+      const result = await readAuthClientResponse(response);
+      if (!response.ok || !result) {
+        setError(result?.error ?? LOGOUT_UNAVAILABLE_MESSAGE);
+        setPending(false);
+        return;
       }
       router.replace("/login");
-    } catch (logoutError) {
-      setError(
-        logoutError instanceof Error
-          ? logoutError.message
-          : "ไม่สามารถออกจากระบบได้ชั่วคราว",
-      );
+    } catch {
+      setError(LOGOUT_UNAVAILABLE_MESSAGE);
       setPending(false);
     }
   }

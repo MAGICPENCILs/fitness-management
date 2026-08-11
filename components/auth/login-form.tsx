@@ -4,11 +4,12 @@ import { useState, type FormEvent } from "react";
 import { Dumbbell, Eye, EyeOff, LogIn } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+import { readAuthClientResponse } from "@/components/auth/auth-client-response";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type LoginResponse = { error?: string; returnTo?: string };
+const LOGIN_UNAVAILABLE_MESSAGE = "ไม่สามารถเข้าสู่ระบบได้ชั่วคราว";
 
 /** ส่ง credential ไปยัง Route Handler เท่านั้น และล้างสถานะรหัสผ่านเมื่อ request จบเพื่อไม่เก็บไว้นานเกินจำเป็น */
 export function LoginForm({ returnTo }: { returnTo: string }) {
@@ -35,20 +36,19 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
           returnTo,
         }),
       });
-      const result = (await response.json()) as LoginResponse;
-      if (!response.ok) {
-        throw new Error(result.error ?? "ไม่สามารถเข้าสู่ระบบได้ชั่วคราว");
+      const result = await readAuthClientResponse(response);
+      if (!response.ok || !result) {
+        form.reset();
+        setError(result?.error ?? LOGIN_UNAVAILABLE_MESSAGE);
+        setPending(false);
+        return;
       }
 
       form.reset();
       router.replace(result.returnTo ?? "/");
-    } catch (loginError) {
+    } catch {
       form.reset();
-      setError(
-        loginError instanceof Error
-          ? loginError.message
-          : "ไม่สามารถเข้าสู่ระบบได้ชั่วคราว",
-      );
+      setError(LOGIN_UNAVAILABLE_MESSAGE);
       setPending(false);
     }
   }

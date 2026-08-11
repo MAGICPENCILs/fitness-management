@@ -4,12 +4,14 @@ import { useState, type FormEvent } from "react";
 import { Check, Eye, EyeOff, KeyRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+import { readAuthClientResponse } from "@/components/auth/auth-client-response";
 import { LogoutButton } from "@/components/auth/current-staff-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type ChangePasswordResponse = { error?: string; returnTo?: string };
+const CHANGE_PASSWORD_UNAVAILABLE_MESSAGE =
+  "ไม่สามารถเปลี่ยนรหัสผ่านได้ชั่วคราว";
 
 const POLICY_RULES = [
   "อย่างน้อย 12 ตัวอักษร",
@@ -49,20 +51,33 @@ export function ChangePasswordForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password, confirmation }),
       });
-      const result = (await response.json()) as ChangePasswordResponse;
+      const result = await readAuthClientResponse(response);
       if (!response.ok) {
-        throw new Error(result.error ?? "ไม่สามารถเปลี่ยนรหัสผ่านได้ชั่วคราว");
+        form.reset();
+        if (response.status === 401) {
+          router.replace("/login");
+          return;
+        }
+        if (response.status === 403) {
+          router.replace("/");
+          return;
+        }
+        setError(result?.error ?? CHANGE_PASSWORD_UNAVAILABLE_MESSAGE);
+        setPending(false);
+        return;
+      }
+      if (!result) {
+        form.reset();
+        setError(CHANGE_PASSWORD_UNAVAILABLE_MESSAGE);
+        setPending(false);
+        return;
       }
 
       form.reset();
       router.replace(result.returnTo ?? "/");
-    } catch (changeError) {
+    } catch {
       form.reset();
-      setError(
-        changeError instanceof Error
-          ? changeError.message
-          : "ไม่สามารถเปลี่ยนรหัสผ่านได้ชั่วคราว",
-      );
+      setError(CHANGE_PASSWORD_UNAVAILABLE_MESSAGE);
       setPending(false);
     }
   }
@@ -72,7 +87,7 @@ export function ChangePasswordForm() {
     : pending
       ? "กำลังบันทึกรหัสผ่าน..."
       : error
-        ? `${error} กรุณาตรวจสอบกฎทั้งสี่แล้วลองอีกครั้ง`
+        ? `${error} กรุณาลองอีกครั้ง`
         : "";
 
   return (

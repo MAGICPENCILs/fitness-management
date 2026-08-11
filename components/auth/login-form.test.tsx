@@ -132,4 +132,33 @@ describe("LoginForm", () => {
     );
     expect(screen.getByRole("button", { name: "เข้าสู่ระบบ" })).toBeEnabled();
   });
+
+  it.each([
+    {
+      name: "invalid JSON",
+      response: () =>
+        Promise.resolve(
+          new Response("<html>upstream failure</html>", { status: 502 }),
+        ),
+      secret: "Unexpected token",
+    },
+    {
+      name: "network exception",
+      response: () => Promise.reject(new TypeError("internal proxy refused")),
+      secret: "internal proxy refused",
+    },
+  ])("ซ่อนรายละเอียด $name และแสดงข้อความกลาง", async ({ response, secret }) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(response);
+    const user = userEvent.setup();
+    render(<LoginForm returnTo="/" />);
+
+    await user.type(screen.getByLabelText("รหัสพนักงาน"), "OWNER001");
+    await user.type(screen.getByLabelText("รหัสผ่าน"), "ValidPass#2026");
+    await user.click(screen.getByRole("button", { name: "เข้าสู่ระบบ" }));
+
+    expect(
+      await screen.findByText(/ไม่สามารถเข้าสู่ระบบได้ชั่วคราว/),
+    ).toBeVisible();
+    expect(screen.queryByText(new RegExp(secret, "i"))).not.toBeInTheDocument();
+  });
 });

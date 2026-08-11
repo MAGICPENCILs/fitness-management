@@ -82,4 +82,29 @@ describe("CurrentStaffMenu", () => {
     expect(screen.getByText(/กรุณาลองอีกครั้ง/)).toBeVisible();
     expect(screen.getByRole("button", { name: "ออกจากระบบ" })).toBeEnabled();
   });
+
+  it.each([
+    {
+      name: "empty response",
+      response: () => Promise.resolve(new Response("", { status: 500 })),
+      secret: "Unexpected end",
+    },
+    {
+      name: "network exception",
+      response: () => Promise.reject(new TypeError("private gateway detail")),
+      secret: "private gateway detail",
+    },
+  ])("ซ่อนรายละเอียด $name และแสดงข้อความกลาง", async ({ response, secret }) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(response);
+    const user = userEvent.setup();
+    render(<LogoutButton />);
+
+    await user.click(screen.getByRole("button", { name: "ออกจากระบบ" }));
+
+    expect(
+      await screen.findByText(/ไม่สามารถออกจากระบบได้ชั่วคราว/),
+    ).toBeVisible();
+    expect(screen.queryByText(new RegExp(secret, "i"))).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ออกจากระบบ" })).toBeEnabled();
+  });
 });
