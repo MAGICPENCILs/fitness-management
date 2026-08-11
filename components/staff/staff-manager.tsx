@@ -301,7 +301,11 @@ export function StaffManager({
                           <KeyRound aria-hidden="true" />ตั้งรหัสผ่าน
                         </Button>
                       )}
-                      <Button variant="ghost" onClick={() => openEditDialog(row)} aria-label={`แก้ไข ${row.firstName} ${row.lastName}`}><Pencil aria-hidden="true" />แก้ไข</Button>
+                      {(actor.role === "OWNER" ||
+                        (row.role !== "OWNER" &&
+                          row.homeBranchId === actor.homeBranchId)) && (
+                        <Button variant="ghost" onClick={() => openEditDialog(row)} aria-label={`แก้ไข ${row.firstName} ${row.lastName}`}><Pencil aria-hidden="true" />แก้ไข</Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

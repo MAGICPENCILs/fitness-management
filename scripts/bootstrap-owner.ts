@@ -31,12 +31,11 @@ export async function bootstrapOwner(
   const validation = validatePassword(password);
   if (!validation.valid) throw new Error("BOOTSTRAP_OWNER_PASSWORD fails password policy");
 
-  const passwordHash = await hashPassword(password);
-  const changedAt = new Date();
   await db.transaction(async (tx) => {
     const [owner] = await tx
       .select({
         id: staff.id,
+        staffCode: staff.staffCode,
         homeBranchId: staff.homeBranchId,
         role: staff.role,
         passwordHash: staff.passwordHash,
@@ -45,13 +44,19 @@ export async function bootstrapOwner(
       .where(eq(staff.staffCode, "OWNER001"))
       .limit(1)
       .for("update");
-    if (!owner || owner.role !== "OWNER")
+    if (
+      !owner ||
+      owner.staffCode !== "OWNER001" ||
+      owner.role !== "OWNER"
+    )
       throw new Error("OWNER001 is not available for bootstrap");
 
     const rotated = owner.passwordHash !== null;
     if (rotated && environment.BOOTSTRAP_OWNER_ROTATE !== "true")
       throw new Error("Set BOOTSTRAP_OWNER_ROTATE=true to rotate OWNER001");
 
+    const passwordHash = await hashPassword(password);
+    const changedAt = new Date();
     const result = await tx
       .update(staff)
       .set({

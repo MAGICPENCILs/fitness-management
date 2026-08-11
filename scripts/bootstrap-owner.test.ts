@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const database = vi.hoisted(() => {
   type Owner = {
     id: number;
+    staffCode: string;
     homeBranchId: number;
     role: "OWNER" | "MANAGER";
     passwordHash: string | null;
@@ -78,6 +79,7 @@ const database = vi.hoisted(() => {
         ? null
         : {
             id: 1,
+            staffCode: "OWNER001",
             homeBranchId: 1,
             role: "OWNER",
             passwordHash: null,
@@ -138,6 +140,21 @@ describe("Owner bootstrap", () => {
       bootstrapOwner({ BOOTSTRAP_OWNER_PASSWORD: password }),
     ).rejects.toThrow("OWNER001 is not available");
   });
+
+  it.each(["owner001", "Owner001"])(
+    "ปฏิเสธ staff code %s ที่ collation อาจ match โดยไม่ hash หรือเขียนข้อมูล",
+    async (staffCode) => {
+      database.reset({ staffCode });
+
+      await expect(
+        bootstrapOwner({ BOOTSTRAP_OWNER_PASSWORD: password }),
+      ).rejects.toThrow("OWNER001 is not available");
+      expect(hashPassword).not.toHaveBeenCalled();
+      expect(database.state.owner?.passwordHash).toBeNull();
+      expect(database.state.revocations).toEqual([]);
+      expect(database.state.audits).toEqual([]);
+    },
+  );
 
   it("ไม่เขียนทับ hash เดิมหากไม่ได้ยืนยัน rotate=true", async () => {
     database.reset({ passwordHash: "existing-hash" });

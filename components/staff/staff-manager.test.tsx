@@ -105,8 +105,8 @@ it("reset dialog ยืนยันเป้าหมายและล้าง
   expect(screen.getByLabelText("ยืนยันรหัสผ่านชั่วคราวใหม่")).toHaveValue("");
 });
 
-it("Manager ไม่เห็น reset control ของ Owner แม้อยู่สาขาเดียวกัน", () => {
-  render(
+it("Manager ไม่เห็น Edit/Reset ของ Owner แต่ Owner ยังเห็นทั้งสอง controls", () => {
+  const { rerender } = render(
     <StaffManager
       staff={[{ ...staffRow, role: "OWNER" }]}
       branches={[{ id: 2, name: "สาขา 2" }]}
@@ -117,6 +117,23 @@ it("Manager ไม่เห็น reset control ของ Owner แม้อย�
   expect(
     screen.queryByRole("button", { name: "ตั้งรหัสผ่านใหม่ให้ สมชาย ใจดี" }),
   ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "แก้ไข สมชาย ใจดี" }),
+  ).not.toBeInTheDocument();
+
+  rerender(
+    <StaffManager
+      staff={[{ ...staffRow, role: "OWNER" }]}
+      branches={[{ id: 2, name: "สาขา 2" }]}
+      actor={{ role: "OWNER", homeBranchId: 1 }}
+    />,
+  );
+  expect(
+    screen.getByRole("button", { name: "ตั้งรหัสผ่านใหม่ให้ สมชาย ใจดี" }),
+  ).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "แก้ไข สมชาย ใจดี" }),
+  ).toBeVisible();
 });
 
 it("ส่ง reset password ไป endpoint เป้าหมายและประกาศ error แบบ aria-live", async () => {
