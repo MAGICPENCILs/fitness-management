@@ -19,6 +19,7 @@ import {
   Menu,
   ScrollText,
   Settings,
+  ShieldAlert,
   ShieldCheck,
   Tag,
   UserCog,
@@ -62,6 +63,7 @@ const menuItems = [
   { href: "/settings/staff", label: "บัญชีพนักงาน", icon: UserCog, requiredPermission: "staff.manage" },
   { href: "/settings/privacy", label: "PDPA และคำขอ", icon: ShieldCheck, requiredPermission: "privacy.request.create" },
   { href: "/settings/audit", label: "Audit log", icon: ScrollText, requiredPermission: "audit.read" },
+  { href: "/settings/security", label: "ความปลอดภัย", icon: ShieldAlert, requiredPermission: "auth.security.read" },
   { href: "/settings", label: "ตั้งค่าระบบ", icon: Settings, requiredPermission: "settings.manage" },
 ] satisfies Array<{
   href: string;

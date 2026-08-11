@@ -5,8 +5,10 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const navigation = vi.hoisted(() => ({ pathname: "/" }));
+
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/",
+  usePathname: () => navigation.pathname,
   useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }),
 }));
 vi.mock("next-themes", () => ({
@@ -31,6 +33,44 @@ const currentStaff = {
 };
 
 describe("Sidebar auth controls", () => {
+  it("แสดงเมนูความปลอดภัยเฉพาะผู้มี auth.security.read", () => {
+    const deniedPermissions = new Proxy(
+      {},
+      { get: (_target, key) => key !== "auth.security.read" },
+    ) as Record<Permission, boolean>;
+    const common = {
+      branches: [{ id: 1, code: "BKK", name: "สำนักงานใหญ่" }],
+      currentBranchId: 1,
+      currentStaff,
+      availableStaff: [],
+      devSwitcherEnabled: false,
+    };
+    const { rerender } = render(<Sidebar {...common} permissions={deniedPermissions} />);
+    expect(screen.queryByRole("link", { name: "ความปลอดภัย" })).not.toBeInTheDocument();
+    rerender(<Sidebar {...common} permissions={permissions} />);
+    expect(screen.getByRole("link", { name: "ความปลอดภัย" })).toHaveAttribute(
+      "href",
+      "/settings/security",
+    );
+  });
+
+  it("ระบุเมนูความปลอดภัยเป็นหน้าปัจจุบันโดยไม่ทำให้เมนูตั้งค่าราก active", () => {
+    navigation.pathname = "/settings/security";
+    render(
+      <Sidebar
+        branches={[{ id: 1, code: "BKK", name: "สำนักงานใหญ่" }]}
+        currentBranchId={1}
+        currentStaff={currentStaff}
+        availableStaff={[]}
+        devSwitcherEnabled={false}
+        permissions={permissions}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "ความปลอดภัย" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "ตั้งค่าระบบ" })).not.toHaveAttribute("aria-current");
+    navigation.pathname = "/";
+  });
+
   it("แสดง current staff และ logout ทั้ง mobile/desktop โดยไม่เผยรายชื่อ Staff ปกติ", async () => {
     const user = userEvent.setup();
     render(
