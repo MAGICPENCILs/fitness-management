@@ -52,16 +52,10 @@ export function StaffSwitcher({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ staffId: Number(value) }),
       });
-      const result = (await response.json()) as { error?: string };
-      if (!response.ok)
-        throw new Error(result.error ?? "ไม่สามารถเปลี่ยนบัญชีพนักงานได้");
+      if (!response.ok) throw new Error("STAFF_SWITCH_FAILED");
       router.refresh();
-    } catch (changeError) {
-      setError(
-        changeError instanceof Error
-          ? `${changeError.message} กรุณาลองอีกครั้ง`
-          : "ไม่สามารถเปลี่ยนบัญชีพนักงานได้ กรุณาลองอีกครั้ง",
-      );
+    } catch {
+      setError("ไม่สามารถเปลี่ยนบัญชีพนักงานได้ กรุณาลองอีกครั้ง");
     } finally {
       setPending(false);
     }

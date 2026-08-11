@@ -37,6 +37,37 @@ type AuditRow = {
   createdAt: string | null;
 };
 
+const DISPLAY_METADATA_KEYS = new Set([
+  "entityId", "memberId", "branchId", "fields", "status", "result",
+  "count", "method", "module", "errorCode", "source", "rotated", "scope",
+  "reasonCode", "ipFingerprint", "userAgentCategory",
+]);
+
+/** กรอง metadata ซ้ำที่ client boundary เพื่อไม่ render key แปลกปลอมหรือ fingerprint เต็มแม้ props ผิดรูป */
+function displayAuditMetadata(metadata: Record<string, unknown> | null) {
+  if (!metadata) return null;
+  const safe: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (!DISPLAY_METADATA_KEYS.has(key)) continue;
+    if (key === "ipFingerprint") {
+      if (typeof value === "string" && /^[a-f0-9]{1,12}$/i.test(value)) {
+        safe[key] = value.toLowerCase();
+      }
+      continue;
+    }
+    if (
+      value === null ||
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      (typeof value === "string" && /^[A-Z0-9_.-]+$/.test(value)) ||
+      (key === "fields" && Array.isArray(value) && value.every(
+        (item) => typeof item === "string" && /^[A-Za-z][A-Za-z0-9]*$/.test(item),
+      ))
+    ) safe[key] = value;
+  }
+  return Object.keys(safe).length ? safe : null;
+}
+
 /** แสดง audit log ด้วย URL filters เพื่อให้ refresh, back และ deep link คงสภาพเดิม */
 export function AuditExplorer({
   rows,
@@ -102,7 +133,7 @@ export function AuditExplorer({
         <div className="border-b p-4 sm:p-5"><h2 id="audit-table-heading" className="font-semibold">เหตุการณ์ในระบบ</h2><p className="text-sm text-muted-foreground">พบ {pagination.total.toLocaleString("th-TH")} รายการ</p></div>
         <Table>
           <TableHeader><TableRow><TableHead>เวลา</TableHead><TableHead>ผู้ดำเนินการ</TableHead><TableHead>สาขา</TableHead><TableHead>Action</TableHead><TableHead>Entity</TableHead><TableHead>ผลลัพธ์</TableHead><TableHead>Metadata</TableHead></TableRow></TableHeader>
-          <TableBody>{rows.length ? rows.map((row) => <TableRow key={row.id}><TableCell className="tabular-nums">{row.createdAt ? new Date(row.createdAt).toLocaleString("th-TH") : "—"}</TableCell><TableCell>{row.actorName}</TableCell><TableCell>{row.branchName}</TableCell><TableCell className="font-mono text-xs">{row.action}</TableCell><TableCell>{row.entityType}{row.entityId ? ` #${row.entityId}` : ""}</TableCell><TableCell><Badge variant={row.result === "SUCCESS" ? "default" : row.result === "FAILED" ? "destructive" : "outline"}>{row.result}</Badge></TableCell><TableCell className="max-w-sm whitespace-normal font-mono text-xs text-muted-foreground">{row.metadata ? JSON.stringify(row.metadata) : "—"}</TableCell></TableRow>) : <TableRow><TableCell colSpan={7} className="h-28 text-center text-muted-foreground">ยังไม่มี audit log ตามตัวกรองนี้</TableCell></TableRow>}</TableBody>
+          <TableBody>{rows.length ? rows.map((row) => { const metadata = displayAuditMetadata(row.metadata); return <TableRow key={row.id}><TableCell className="tabular-nums">{row.createdAt ? new Date(row.createdAt).toLocaleString("th-TH") : "—"}</TableCell><TableCell>{row.actorName}</TableCell><TableCell>{row.branchName}</TableCell><TableCell className="font-mono text-xs">{row.action}</TableCell><TableCell>{row.entityType}{row.entityId ? ` #${row.entityId}` : ""}</TableCell><TableCell><Badge variant={row.result === "SUCCESS" ? "default" : row.result === "FAILED" ? "destructive" : "outline"}>{row.result}</Badge></TableCell><TableCell className="max-w-sm whitespace-normal font-mono text-xs text-muted-foreground">{metadata ? JSON.stringify(metadata) : "—"}</TableCell></TableRow>; }) : <TableRow><TableCell colSpan={7} className="h-28 text-center text-muted-foreground">ยังไม่มี audit log ตามตัวกรองนี้</TableCell></TableRow>}</TableBody>
         </Table>
         <div className="flex items-center justify-between gap-4 border-t p-4"><p className="text-sm text-muted-foreground tabular-nums">หน้า {pagination.page} จาก {pageCount}</p><div className="flex gap-2"><Button variant="outline" disabled={pagination.page <= 1} onClick={() => goToPage(pagination.page - 1)} aria-label="หน้าก่อนหน้า"><ChevronLeft aria-hidden="true" />ก่อนหน้า</Button><Button variant="outline" disabled={pagination.page >= pageCount} onClick={() => goToPage(pagination.page + 1)} aria-label="หน้าถัดไป">ถัดไป<ChevronRight aria-hidden="true" /></Button></div></div>
       </section>

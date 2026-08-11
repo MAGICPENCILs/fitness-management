@@ -144,13 +144,20 @@ export function mapAuditDashboardRow(row: AuditDashboardSourceRow) {
   };
 }
 
+/** ให้ Owner เลือกสาขาหรืออ่าน global/null rows ได้ แต่บังคับ Manager อยู่สาขาหลักเพื่อกันข้ามขอบเขต */
+export function resolveAuditBranchScope(
+  actor: ActorContext,
+  requestedBranchId: number | undefined,
+) {
+  return actor.role === "OWNER" ? requestedBranchId : actor.homeBranchId;
+}
+
 /** คืน audit log แบบแบ่งหน้า โดยบังคับผู้ใช้ที่ไม่ใช่ Owner ให้เห็นเฉพาะสาขาหลักของตน */
 export async function getAuditDashboard(
   actor: ActorContext,
   filters: AuditFilters,
 ) {
-  const branchId =
-    actor.role === "OWNER" ? filters.branchId : actor.homeBranchId;
+  const branchId = resolveAuditBranchScope(actor, filters.branchId);
   const conditions = [
     branchId ? eq(auditLogs.branchId, branchId) : undefined,
     filters.action ? eq(auditLogs.action, filters.action) : undefined,

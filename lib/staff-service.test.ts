@@ -49,7 +49,10 @@ describe("Staff session error boundaries", () => {
       ),
     );
 
-    await expect(setCurrentStaffCookie(1)).rejects.toEqual(
+    await expect(setCurrentStaffCookie(1, {
+      ipFingerprint: null,
+      userAgentCategory: "UNKNOWN",
+    })).rejects.toEqual(
       expect.objectContaining<Partial<StaffOperationError>>({
         name: "StaffOperationError",
         status: 401,

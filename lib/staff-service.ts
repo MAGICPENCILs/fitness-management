@@ -1,7 +1,6 @@
 import "server-only";
 
 import { and, asc, eq, isNull } from "drizzle-orm";
-import { cookies } from "next/headers";
 import { db } from "@/db";
 import { authSessions, branches, staff } from "@/db/schema";
 import {
@@ -17,9 +16,9 @@ import {
   SessionAuthenticationError,
 } from "@/lib/auth/session-service";
 import { hashPassword, validatePassword } from "@/lib/auth/password";
+import { rotateDevStaffSession } from "@/lib/auth/dev-staff-switch";
+import type { RequestFingerprintInput } from "@/lib/auth/types";
 import { runAuditedMutation, writeAudit } from "@/lib/audit-service";
-
-const STAFF_COOKIE = "fitness_staff_id";
 
 /** เปิดข้อมูล Staff Switcher เฉพาะ development ที่ opt in ชัดเจน เพื่อไม่เผยรายชื่อพนักงานใน runtime ปกติ */
 function isDevStaffSwitcherEnabled() {
@@ -171,42 +170,30 @@ export async function requirePermission(
 }
 
 /** ใช้เฉพาะ dev switcher และแปลง auth failure เป็น StaffOperationError เพื่อให้ selector route ตอบ 401 */
-export async function setCurrentStaffCookie(staffId: number) {
+export async function setCurrentStaffCookie(
+  staffId: number,
+  request: RequestFingerprintInput,
+) {
   if (!isDevStaffSwitcherEnabled()) {
     throw new StaffOperationError("ไม่พบการทำงานนี้", 404);
   }
-  let previousContext: Awaited<ReturnType<typeof getStaffContext>>;
+  let current: Awaited<ReturnType<typeof requireFullSession>>;
   try {
-    previousContext = await getStaffContext();
+    current = await requireFullSession();
   } catch (error) {
-    if (error instanceof AuthorizationError) {
+    if (error instanceof SessionAuthenticationError) {
       throw new StaffOperationError(error.message, error.status);
     }
     throw error;
   }
-  const [selected] = await db
-    .select({ id: staff.id, homeBranchId: staff.homeBranchId })
-    .from(staff)
-    .where(and(eq(staff.id, staffId), eq(staff.status, "ACTIVE")))
-    .limit(1);
-  if (!selected)
-    throw new StaffOperationError("ไม่พบบัญชีพนักงานที่เปิดใช้งาน", 404);
-
-  (await cookies()).set(STAFF_COOKIE, String(staffId), {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 365,
-  });
-  await writeAudit(db, {
-    actorStaffId: previousContext.staff.id,
-    branchId: previousContext.staff.homeBranchId,
-    action: "STAFF_CONTEXT_CHANGED",
-    entityType: "STAFF",
-    entityId: staffId,
-    result: "SUCCESS",
-    metadata: { branchId: selected.homeBranchId },
-  });
+  try {
+    return await rotateDevStaffSession(current, staffId, request);
+  } catch (error) {
+    if (error && typeof error === "object" && "status" in error) {
+      throw new StaffOperationError("ไม่สามารถเปลี่ยนบัญชีพนักงานได้", Number(error.status));
+    }
+    throw error;
+  }
 }
 
 /** คืนรายการพนักงานตามขอบเขตสาขาที่ actor มีสิทธิ์จัดการ */

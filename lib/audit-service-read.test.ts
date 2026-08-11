@@ -1,9 +1,26 @@
 import { describe, expect, it } from "vitest";
 
-import { mapAuditDashboardRow } from "@/lib/audit-service";
+import {
+  mapAuditDashboardRow,
+  resolveAuditBranchScope,
+} from "@/lib/audit-service";
 import { sanitizeAuditMetadataForRead } from "@/lib/audit-policy";
 
 describe("audit reader redaction", () => {
+  it("ให้ Owner อ่าน null/global rows แต่บังคับ Manager อยู่สาขาหลักเสมอ", () => {
+    expect(resolveAuditBranchScope(
+      { staffId: 1, role: "OWNER", homeBranchId: 1 },
+      undefined,
+    )).toBeUndefined();
+    expect(resolveAuditBranchScope(
+      { staffId: 2, role: "MANAGER", homeBranchId: 2 },
+      undefined,
+    )).toBe(2);
+    expect(resolveAuditBranchScope(
+      { staffId: 2, role: "MANAGER", homeBranchId: 2 },
+      1,
+    )).toBe(2);
+  });
   it("ย่อ SHA-256 fingerprint และคงเฉพาะ metadata ที่ผ่าน allowlist", () => {
     expect(
       sanitizeAuditMetadataForRead({
