@@ -7,7 +7,7 @@ export type RouteDecision =
   | { type: "CHANGE_PASSWORD" }
   | { type: "FORBIDDEN" };
 
-const PUBLIC_AUTH_PATHS = ["/login", "/change-password", "/api/auth"];
+const PUBLIC_PATHS = ["/login", "/change-password", "/forbidden", "/api/auth"];
 
 const PAGE_POLICIES = [
   ["/settings/security", "auth.security.read"],
@@ -49,7 +49,7 @@ export function decideRouteAccess(
   claims: SessionClaims | null,
   now = new Date(),
 ): RouteDecision {
-  if (PUBLIC_AUTH_PATHS.some((prefix) => matchesPrefix(pathname, prefix))) {
+  if (PUBLIC_PATHS.some((prefix) => matchesPrefix(pathname, prefix))) {
     return { type: "ALLOW" };
   }
 

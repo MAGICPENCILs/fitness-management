@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { consentEvents, members, NewMember } from "@/db/schema";
 import { NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getCurrentBranchId } from "@/lib/branch-service";
 import { runAuditedMutation } from "@/lib/audit-service";
@@ -34,9 +35,16 @@ const createMemberSchema = z.object({
 // GET /api/members
 export async function GET() {
   try {
-    const result = await db.select().from(members);
+    const branchId = await getCurrentBranchId();
+    await requirePermission("members.manage", branchId);
+    const result = await db
+      .select()
+      .from(members)
+      .where(eq(members.homeBranchId, branchId));
     return NextResponse.json(result);
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json(
       { error: "Failed to fetch members" },
       { status: 500 }

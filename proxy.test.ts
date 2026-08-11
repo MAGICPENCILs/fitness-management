@@ -10,6 +10,7 @@ import { config, proxy } from "@/proxy";
 const NOW = new Date("2026-08-11T04:00:00.000Z");
 const originalSecret = process.env.AUTH_SESSION_SECRET;
 
+/** สร้าง claims สำหรับทดสอบ optimistic Proxy โดยไม่ใช้ state จากฐานข้อมูล */
 function claims(
   role: SessionClaims["role"],
   overrides: Partial<SessionClaims> = {},
@@ -25,6 +26,7 @@ function claims(
   };
 }
 
+/** สร้าง NextRequest พร้อม signed cookie เฉพาะกรณีที่ต้องทดสอบ claims */
 async function request(
   path: string,
   sessionClaims?: SessionClaims,
@@ -91,13 +93,15 @@ describe("proxy", () => {
     }
   });
 
-  it("returns a direct 403 page response for an optimistic role denial", async () => {
+  it("redirects an optimistic page denial to the safe public forbidden page", async () => {
     const response = await proxy(
       await request("/settings/security", claims("COUNTER")),
     );
 
-    expect(response.status).toBe(403);
-    await expect(response.text()).resolves.toBe("บัญชีนี้ไม่มีสิทธิ์เข้าถึงหน้านี้");
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://fitness.example/forbidden",
+    );
   });
 
   it("leaves API role denials to the authoritative handler", async () => {
@@ -121,6 +125,21 @@ describe("proxy", () => {
     );
   });
 
+  it("returns JSON 403 for a protected API during forced password change", async () => {
+    const response = await proxy(
+      await request(
+        "/api/members",
+        claims("COUNTER", { mode: "PASSWORD_CHANGE_REQUIRED" }),
+      ),
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("location")).toBeNull();
+    await expect(response.json()).resolves.toEqual({
+      error: "กรุณาเปลี่ยนรหัสผ่านก่อนใช้งานระบบ",
+    });
+  });
+
   it("does not trust a correctly signed claim after its custom expiry", async () => {
     const response = await proxy(
       await request(
@@ -136,12 +155,16 @@ describe("proxy", () => {
     );
   });
 
-  it("redirects FULL sessions away from the login and password-change pages", async () => {
-    for (const path of ["/login", "/change-password"]) {
-      const response = await proxy(await request(path, claims("OWNER")));
-      expect(response.headers.get("location")).toBe(
-        "https://fitness.example/",
-      );
+  it("allows auth pages for FULL and forced claims to avoid stale-cookie redirect loops", async () => {
+    for (const sessionClaims of [
+      claims("OWNER"),
+      claims("COUNTER", { mode: "PASSWORD_CHANGE_REQUIRED" }),
+    ]) {
+      for (const path of ["/login", "/change-password"]) {
+        const response = await proxy(await request(path, sessionClaims));
+        expect(response.headers.get("x-middleware-next")).toBe("1");
+        expect(response.headers.get("location")).toBeNull();
+      }
     }
   });
 });

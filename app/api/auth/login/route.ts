@@ -51,7 +51,7 @@ export function loginErrorResponse(error: unknown): NextResponse {
     );
   }
 
-  if (error instanceof z.ZodError) {
+  if (error instanceof z.ZodError || error instanceof SyntaxError) {
     return NextResponse.json(
       { error: "ข้อมูลเข้าสู่ระบบไม่ถูกต้อง" },
       { status: 400 },

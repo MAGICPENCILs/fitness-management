@@ -26,12 +26,16 @@ const promotionSchema = z.object({
 // GET /api/promotions
 export async function GET() {
   try {
+    const branchId = await getCurrentBranchId();
+    await requirePermission("payments.manage", branchId);
     const result = await db
       .select()
       .from(promotions)
       .where(eq(promotions.isActive, true));
     return NextResponse.json(result);
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: "Failed" }, { status: 500 });
   }
 }

@@ -18,7 +18,19 @@ const settingsSchema = z.object({
 
 /** โหลดค่าตั้งระบบแจ้งเตือนล่าสุดสำหรับหน้า Admin */
 export async function GET() {
-  return NextResponse.json(await getNotificationSettings());
+  try {
+    const branchId = await getCurrentBranchId();
+    await requirePermission("settings.manage", branchId);
+    return NextResponse.json(await getNotificationSettings());
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    console.error(error);
+    return NextResponse.json(
+      { error: "ไม่สามารถโหลดการตั้งค่าได้" },
+      { status: 500 },
+    );
+  }
 }
 
 /** ตรวจสอบและบันทึกค่าตั้งระบบแจ้งเตือนแบบ singleton ที่แถวหมายเลข 1 */

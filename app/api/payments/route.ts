@@ -36,8 +36,11 @@ const paymentSchema = z
 export async function GET() {
   try {
     const branchId = await getCurrentBranchId();
+    await requirePermission("payments.manage", branchId);
     return NextResponse.json(await db.select().from(payments).where(eq(payments.branchId, branchId)));
   } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json({ error: "ไม่สามารถโหลดรายการชำระเงินได้" }, { status: 500 });
   }

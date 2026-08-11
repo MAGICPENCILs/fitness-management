@@ -5,6 +5,7 @@ import type { SessionClaims } from "@/lib/auth/types";
 
 const NOW = new Date("2026-08-11T04:00:00.000Z");
 
+/** สร้าง signed-claims fixture โดยเปลี่ยนเฉพาะ field ที่แต่ละกรณีต้องการทดสอบ */
 function claims(
   role: SessionClaims["role"],
   overrides: Partial<SessionClaims> = {},
@@ -87,5 +88,18 @@ describe("auth route policy", () => {
     expect(decideRouteAccess("/api/auth/login", null)).toEqual({
       type: "ALLOW",
     });
+    expect(decideRouteAccess("/forbidden", null)).toEqual({ type: "ALLOW" });
+  });
+
+  it("allows auth pages for signed claims because authoritative page loaders decide redirects", () => {
+    expect(decideRouteAccess("/login", claims("OWNER"))).toEqual({
+      type: "ALLOW",
+    });
+    expect(
+      decideRouteAccess(
+        "/login",
+        claims("COUNTER", { mode: "PASSWORD_CHANGE_REQUIRED" }),
+      ),
+    ).toEqual({ type: "ALLOW" });
   });
 });

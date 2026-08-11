@@ -2,9 +2,13 @@ import { db } from "@/db";
 import { members } from "@/db/schema";
 import { desc } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { getCurrentBranchId } from "@/lib/branch-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 export async function GET() {
   try {
+    const branchId = await getCurrentBranchId();
+    await requirePermission("members.manage", branchId);
     const last = await db
       .select({ memberCode: members.memberCode })
       .from(members)
@@ -20,7 +24,9 @@ export async function GET() {
     }
 
     return NextResponse.json({ code: nextCode });
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: "Failed" }, { status: 500 });
   }
 }

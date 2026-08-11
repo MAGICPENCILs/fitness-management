@@ -26,7 +26,7 @@ const changePasswordSchema = z
 
 /** ตอบข้อผิดพลาดแบบกลางเพื่อไม่เปิดเผยสถานะ session หรือรายละเอียด policy มากกว่าที่หน้าจอต้องใช้ */
 function changePasswordErrorResponse(error: unknown): NextResponse {
-  if (error instanceof z.ZodError) {
+  if (error instanceof z.ZodError || error instanceof SyntaxError) {
     return NextResponse.json(
       { error: "ข้อมูลรหัสผ่านไม่ถูกต้อง" },
       { status: 400 },

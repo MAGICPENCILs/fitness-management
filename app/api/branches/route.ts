@@ -16,7 +16,15 @@ const branchSchema = z.object({
 
 /** คืนรายการสาขาสำหรับหน้าตั้งค่า */
 export async function GET() {
-  return NextResponse.json(await getBranchesDashboard());
+  try {
+    await requirePermission("settings.manage");
+    return NextResponse.json(await getBranchesDashboard());
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    console.error(error);
+    return NextResponse.json({ error: "ไม่สามารถโหลดสาขาได้" }, { status: 500 });
+  }
 }
 
 /** ตรวจข้อมูลและสร้างสาขาใหม่ */

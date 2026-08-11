@@ -2,6 +2,7 @@ import { z } from "zod";
 import { accountingMethodLabels, expenseCategoryLabels } from "@/lib/accounting-constants";
 import { getAccountingSnapshot } from "@/lib/accounting";
 import { getCurrentBranchId } from "@/lib/branch-service";
+import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -13,11 +14,13 @@ function csvCell(value: string | number | null) {
 /** ส่งออกสมุดรายการรายรับรายจ่ายเป็น UTF-8 CSV ที่เปิดภาษาไทยใน Excel ได้ */
 export async function GET(request: Request) {
   try {
+    const branchId = await getCurrentBranchId();
+    await requirePermission("accounting.manage", branchId);
     const { searchParams } = new URL(request.url);
     const from = dateSchema.parse(searchParams.get("from"));
     const to = dateSchema.parse(searchParams.get("to"));
     if (from > to) return Response.json({ error: "วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด" }, { status: 400 });
-    const snapshot = await getAccountingSnapshot(from, to, await getCurrentBranchId());
+    const snapshot = await getAccountingSnapshot(from, to, branchId);
     const rows = [
       ["วันที่", "ประเภท", "หมวดหมู่", "รายละเอียด", "ช่องทาง", "เลขอ้างอิง", "รายรับ", "รายจ่าย"],
       ...snapshot.transactions.map((item) => [
@@ -40,6 +43,8 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     if (error instanceof z.ZodError) return Response.json({ error: "รูปแบบช่วงวันที่ไม่ถูกต้อง" }, { status: 400 });
+    if (error instanceof AuthorizationError)
+      return Response.json({ error: error.message }, { status: error.status });
     console.error(error);
     return Response.json({ error: "ไม่สามารถส่งออกข้อมูลบัญชีได้" }, { status: 500 });
   }

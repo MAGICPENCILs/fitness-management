@@ -48,6 +48,7 @@ const SESSION = {
   mode: "PASSWORD_CHANGE_REQUIRED" as const,
 };
 
+/** สร้าง POST request แบบ same-origin สำหรับทดสอบ boundary ของ Route Handler โดยตรง */
 function post(path: string, body?: unknown, origin = APP_ORIGIN): Request {
   return new Request(`${APP_ORIGIN}${path}`, {
     method: "POST",
@@ -153,6 +154,22 @@ describe("authentication route handlers", () => {
     expect(mocks.login).not.toHaveBeenCalled();
   });
 
+  it("maps malformed and empty Login JSON to the generic validation response", async () => {
+    for (const body of ["", "{"]) {
+      const response = await loginPost(
+        new Request(`${APP_ORIGIN}/api/auth/login`, {
+          method: "POST",
+          headers: { origin: APP_ORIGIN, "content-type": "application/json" },
+          body,
+        }),
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: "ข้อมูลเข้าสู่ระบบไม่ถูกต้อง",
+      });
+    }
+  });
+
   it("uses a generic 429 response and fixed Retry-After", async () => {
     const response = loginErrorResponse(
       new AuthError("RATE_LIMITED", 429, "account-specific detail", 321),
@@ -223,5 +240,21 @@ describe("authentication route handlers", () => {
 
     expect(response.status).toBe(400);
     expect(mocks.changeOwnPassword).not.toHaveBeenCalled();
+  });
+
+  it("maps malformed and empty Change Password JSON to generic validation", async () => {
+    for (const body of ["", "{"]) {
+      const response = await changePasswordPost(
+        new Request(`${APP_ORIGIN}/api/auth/change-password`, {
+          method: "POST",
+          headers: { origin: APP_ORIGIN, "content-type": "application/json" },
+          body,
+        }),
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: "ข้อมูลรหัสผ่านไม่ถูกต้อง",
+      });
+    }
   });
 });

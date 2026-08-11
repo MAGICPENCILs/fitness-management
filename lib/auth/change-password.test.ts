@@ -25,6 +25,7 @@ const PASSWORD_CHANGE_SESSION: AuthenticatedStaff = {
   mode: "PASSWORD_CHANGE_REQUIRED",
 };
 
+/** สร้าง repository boundary ที่บันทึก input transaction โดยไม่เชื่อม MySQL จริง */
 function createRepository() {
   const changed: ChangePasswordSessionInput[] = [];
   const repository = {

@@ -17,9 +17,13 @@ const createPackageSchema = z.object({
 // GET /api/packages
 export async function GET() {
   try {
+    const branchId = await getCurrentBranchId();
+    await requirePermission("payments.manage", branchId);
     const result = await db.select().from(packages);
     return NextResponse.json(result);
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 });
   }
 }
