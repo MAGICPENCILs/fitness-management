@@ -12,7 +12,11 @@ import type {
   LoginStaff,
   RateLimitCheck,
 } from "@/lib/auth/auth-repository";
-import { verifyPasswordOrDummy } from "@/lib/auth/password";
+import {
+  hashPassword,
+  validatePassword,
+  verifyPasswordOrDummy,
+} from "@/lib/auth/password";
 import {
   createAuthSubjectFingerprint,
   getSafeReturnPath,
@@ -28,6 +32,7 @@ import type {
   SessionClaims,
   SessionMode,
 } from "@/lib/auth/types";
+import type { AuthenticatedStaff } from "@/lib/auth/session-service";
 
 export type LoginInput = {
   staffCode: string;
@@ -41,6 +46,11 @@ export type LoginResult = {
   sessionCookie: string;
   claims: SessionClaims;
   returnTo: string;
+};
+
+export type ChangePasswordResult = {
+  sessionCookie: string;
+  claims: SessionClaims;
 };
 
 type AuthServiceDependencies = {
@@ -259,7 +269,66 @@ export function createAuthService(
     });
   }
 
-  return { login, logout };
+  /** เปลี่ยนรหัสผ่านเฉพาะ forced session แล้วให้ repository หมุน session และ audit แบบ atomic โดยไม่ส่ง plaintext ลง storage */
+  async function changeOwnPassword(
+    session: AuthenticatedStaff,
+    password: string,
+    request: AuthRequestContext,
+  ): Promise<ChangePasswordResult> {
+    if (session.mode !== "PASSWORD_CHANGE_REQUIRED") {
+      throw new AuthError(
+        "PASSWORD_CHANGE_NOT_REQUIRED",
+        403,
+        "เซสชันนี้ไม่ต้องเปลี่ยนรหัสผ่าน",
+      );
+    }
+    if (!validatePassword(password).valid) {
+      throw new AuthError(
+        "INVALID_PASSWORD",
+        400,
+        "รหัสผ่านไม่เป็นไปตามนโยบาย",
+      );
+    }
+
+    const occurredAt = now();
+    const passwordHash = await hashPassword(password);
+    const sessionId = createSessionId();
+    const absoluteExpiresAt = new Date(
+      occurredAt.getTime() + SESSION_ABSOLUTE_LIFETIME_SECONDS * 1_000,
+    );
+    const claims: SessionClaims = {
+      sessionId,
+      staffId: session.staffId,
+      role: session.role,
+      homeBranchId: session.homeBranchId,
+      mode: "FULL",
+      expiresAt: Math.floor(absoluteExpiresAt.getTime() / 1_000),
+    };
+    const sessionCookie = await signSessionClaims(claims);
+
+    await repository.changePasswordAndRotateSession({
+      currentAuthSessionId: session.authSessionId,
+      staffId: session.staffId,
+      branchId: session.homeBranchId,
+      passwordHash,
+      passwordChangedAt: occurredAt,
+      newSession: {
+        sessionTokenHash: hashSessionId(sessionId),
+        mode: "FULL",
+        createdAt: occurredAt,
+        lastSeenAt: occurredAt,
+        absoluteExpiresAt,
+        idleExpiresAt: new Date(
+          occurredAt.getTime() + SESSION_IDLE_TIMEOUT_SECONDS * 1_000,
+        ),
+        ...request,
+      },
+    });
+
+    return { sessionCookie, claims };
+  }
+
+  return { login, logout, changeOwnPassword };
 }
 
 /** ใช้ repository production แบบ lazy เพื่อให้ unit tests โหลด orchestration โดยไม่เปิด database connection */
@@ -278,4 +347,18 @@ export async function logout(
 ): Promise<void> {
   const { authRepository } = await import("@/lib/auth/auth-repository");
   return createAuthService(authRepository).logout(sessionCookie, request);
+}
+
+/** เปลี่ยนรหัสผ่านด้วย repository production และคืน signed FULL session ใหม่เมื่อ transaction สำเร็จแล้วเท่านั้น */
+export async function changeOwnPassword(
+  session: AuthenticatedStaff,
+  password: string,
+  request: AuthRequestContext,
+): Promise<ChangePasswordResult> {
+  const { authRepository } = await import("@/lib/auth/auth-repository");
+  return createAuthService(authRepository).changeOwnPassword(
+    session,
+    password,
+    request,
+  );
 }

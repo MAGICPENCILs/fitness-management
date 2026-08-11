@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import type {
   AuthRepository,
+  ChangePasswordSessionInput,
   CreateSessionInput,
   LoginAuditInput,
   LoginStaff,
@@ -159,6 +160,13 @@ class FakeAuthRepository implements AuthRepository {
       actorStaffId: session.staffId,
       branchId: session.branchId,
     });
+  }
+
+  async changePasswordAndRotateSession(
+    input: ChangePasswordSessionInput,
+  ): Promise<void> {
+    void input;
+    throw new Error("Not used by login/logout tests");
   }
 
   setLimit(scope: RateLimitScope, subjectHash: string, state: RateLimitState) {

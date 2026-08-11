@@ -4,6 +4,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { auditLogs, authLoginLimits, authSessions, staff } from "@/db/schema";
+import { AuthError } from "@/lib/auth/auth-errors";
 import type { UserAgentCategory } from "@/lib/auth/types";
 import {
   ACCOUNT_POLICY,
@@ -64,6 +65,22 @@ export type RevokeSessionInput = AuthAuditRequest & {
   revokedAt: Date;
 };
 
+export type ChangePasswordSessionInput = {
+  currentAuthSessionId: number;
+  staffId: number;
+  branchId: number;
+  passwordHash: string;
+  passwordChangedAt: Date;
+  newSession: AuthAuditRequest & {
+    sessionTokenHash: string;
+    mode: "FULL";
+    createdAt: Date;
+    lastSeenAt: Date;
+    absoluteExpiresAt: Date;
+    idleExpiresAt: Date;
+  };
+};
+
 export interface AuthRepository {
   findLoginStaff(staffCode: string): Promise<LoginStaff | null>;
   checkLimit(
@@ -79,6 +96,9 @@ export interface AuthRepository {
   writeLoginAudit(input: LoginAuditInput): Promise<void>;
   createSessionAndAudit(input: CreateSessionInput): Promise<void>;
   revokeSessionAndAudit(input: RevokeSessionInput): Promise<void>;
+  changePasswordAndRotateSession(
+    input: ChangePasswordSessionInput,
+  ): Promise<void>;
 }
 
 type AuthDbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -89,8 +109,9 @@ type AuthAuditInsert = AuthAuditRequest & AuthAuditIdentity & {
     | "LOGIN_FAILED"
     | "LOGIN_RATE_LIMITED"
     | "LOGIN_SUCCESS"
-    | "LOGOUT_SUCCESS";
-  entityType: "AUTH_LOGIN" | "AUTH_SESSION";
+    | "LOGOUT_SUCCESS"
+    | "PASSWORD_CHANGED";
+  entityType: "AUTH_LOGIN" | "AUTH_SESSION" | "STAFF";
   entityId?: number;
   result: "SUCCESS" | "DENIED" | "FAILED";
   occurredAt: Date;
@@ -326,6 +347,96 @@ class DrizzleAuthRepository implements AuthRepository {
         occurredAt: input.revokedAt,
         ipFingerprint: input.ipFingerprint,
         userAgentCategory: input.userAgentCategory,
+      });
+    });
+  }
+
+  /** ล็อก session ปัจจุบันก่อนเปลี่ยน hash แล้ว revoke session เดิมทั้งหมด สร้าง FULL session และ audit ใน transaction เดียว */
+  async changePasswordAndRotateSession(
+    input: ChangePasswordSessionInput,
+  ): Promise<void> {
+    await db.transaction(async (tx) => {
+      const [currentSession] = await tx
+        .select({
+          staffId: authSessions.staffId,
+          mode: authSessions.mode,
+          revokedAt: authSessions.revokedAt,
+          absoluteExpiresAt: authSessions.absoluteExpiresAt,
+          idleExpiresAt: authSessions.idleExpiresAt,
+        })
+        .from(authSessions)
+        .where(eq(authSessions.id, input.currentAuthSessionId))
+        .limit(1)
+        .for("update");
+
+      if (
+        !currentSession ||
+        currentSession.staffId !== input.staffId ||
+        currentSession.mode !== "PASSWORD_CHANGE_REQUIRED" ||
+        currentSession.revokedAt ||
+        currentSession.absoluteExpiresAt.getTime() <=
+          input.passwordChangedAt.getTime() ||
+        currentSession.idleExpiresAt.getTime() <=
+          input.passwordChangedAt.getTime()
+      ) {
+        throw new AuthError(
+          "SESSION_INVALID",
+          401,
+          "เซสชันไม่สามารถใช้งานได้",
+        );
+      }
+
+      const staffUpdate = await tx
+        .update(staff)
+        .set({
+          passwordHash: input.passwordHash,
+          passwordChangedAt: input.passwordChangedAt,
+          mustChangePassword: false,
+        })
+        .where(and(eq(staff.id, input.staffId), eq(staff.status, "ACTIVE")));
+      if (staffUpdate[0].affectedRows === 0) {
+        throw new AuthError(
+          "SESSION_INVALID",
+          401,
+          "บัญชีพนักงานไม่สามารถใช้งานได้",
+        );
+      }
+
+      await tx
+        .update(authSessions)
+        .set({
+          revokedAt: input.passwordChangedAt,
+          revokedReason: "PASSWORD_CHANGED",
+        })
+        .where(
+          and(
+            eq(authSessions.staffId, input.staffId),
+            isNull(authSessions.revokedAt),
+          ),
+        );
+
+      await tx.insert(authSessions).values({
+        staffId: input.staffId,
+        sessionTokenHash: input.newSession.sessionTokenHash,
+        mode: input.newSession.mode,
+        createdAt: input.newSession.createdAt,
+        lastSeenAt: input.newSession.lastSeenAt,
+        absoluteExpiresAt: input.newSession.absoluteExpiresAt,
+        idleExpiresAt: input.newSession.idleExpiresAt,
+        ipFingerprint: input.newSession.ipFingerprint,
+        userAgentCategory: input.newSession.userAgentCategory,
+      });
+
+      await insertAuthAudit(tx, {
+        actorStaffId: input.staffId,
+        branchId: input.branchId,
+        action: "PASSWORD_CHANGED",
+        entityType: "STAFF",
+        entityId: input.staffId,
+        result: "SUCCESS",
+        occurredAt: input.passwordChangedAt,
+        ipFingerprint: input.newSession.ipFingerprint,
+        userAgentCategory: input.newSession.userAgentCategory,
       });
     });
   }

@@ -1,7 +1,10 @@
 export type AuthErrorCode =
   | "INVALID_CREDENTIALS"
   | "RATE_LIMITED"
-  | "AUTH_UNAVAILABLE";
+  | "AUTH_UNAVAILABLE"
+  | "INVALID_PASSWORD"
+  | "PASSWORD_CHANGE_NOT_REQUIRED"
+  | "SESSION_INVALID";
 
 /** เก็บเฉพาะรหัสและสถานะ HTTP ที่ route แปลงเป็น response กลางได้ โดยไม่แนบ credential หรือรายละเอียดฐานข้อมูล */
 export class AuthError extends Error {
