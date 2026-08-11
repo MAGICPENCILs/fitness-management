@@ -3,7 +3,10 @@ import "server-only";
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLogs, branches, staff } from "@/db/schema";
-import { sanitizeAuditMetadata } from "@/lib/audit-policy";
+import {
+  sanitizeAuditMetadata,
+  sanitizeAuditMetadataForRead,
+} from "@/lib/audit-policy";
 import type { ActorContext } from "@/lib/rbac";
 
 export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -31,6 +34,21 @@ export type AuditFilters = {
   to?: Date;
   page: number;
   pageSize: number;
+};
+
+export type AuditDashboardSourceRow = {
+  id: number;
+  branchId: number | null;
+  branchName: string | null;
+  actorStaffId: number | null;
+  actorFirstName: string | null;
+  actorLastName: string | null;
+  action: string;
+  entityType: string;
+  entityId: number | null;
+  result: "SUCCESS" | "DENIED" | "FAILED";
+  metadata: Record<string, unknown> | null;
+  createdAt: Date | null;
 };
 
 type MutationAuditContext<T> = Omit<AuditEntry, "result"> & {
@@ -111,6 +129,21 @@ export async function runAuditedMutation<T>(
   }
 }
 
+/** แปลง nullable audit join เป็น DTO ที่มีข้อความ unknown และ metadata ผ่าน read-time redaction */
+export function mapAuditDashboardRow(row: AuditDashboardSourceRow) {
+  const { actorFirstName, actorLastName, branchName, ...safeRow } = row;
+  return {
+    ...safeRow,
+    branchName: branchName ?? "ไม่ทราบสาขา",
+    actorName:
+      actorFirstName && actorLastName
+        ? `${actorFirstName} ${actorLastName}`.trim()
+        : "ไม่ทราบบัญชี",
+    metadata: sanitizeAuditMetadataForRead(row.metadata),
+    createdAt: row.createdAt?.toISOString() ?? null,
+  };
+}
+
 /** คืน audit log แบบแบ่งหน้า โดยบังคับผู้ใช้ที่ไม่ใช่ Owner ให้เห็นเฉพาะสาขาหลักของตน */
 export async function getAuditDashboard(
   actor: ActorContext,
@@ -152,15 +185,7 @@ export async function getAuditDashboard(
     db.select({ count: sql<number>`count(*)` }).from(auditLogs).where(where),
   ]);
   return {
-    rows: rows.map(({ actorFirstName, actorLastName, branchName, ...row }) => ({
-      ...row,
-      branchName: branchName ?? "ไม่ทราบสาขา",
-      actorName:
-        actorFirstName && actorLastName
-          ? `${actorFirstName} ${actorLastName}`.trim()
-          : "ไม่ทราบบัญชี",
-      createdAt: row.createdAt?.toISOString() ?? null,
-    })),
+    rows: rows.map(mapAuditDashboardRow),
     pagination: {
       page: filters.page,
       pageSize: filters.pageSize,

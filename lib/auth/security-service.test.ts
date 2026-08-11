@@ -90,6 +90,13 @@ describe("admin security service", () => {
     expect(dashboard.sessions.pagination.total).toBe(2);
     expect(dashboard.limits.rows.map((row) => row.id)).toEqual([21, 22, 23]);
     expect(dashboard.events.rows.some((row) => row.actorStaffId === null)).toBe(true);
+    expect(
+      dashboard.events.rows.find((row) => row.id === 31),
+    ).toMatchObject({
+      branchId: null,
+      actorStaffId: null,
+      metadata: { ipFingerprint: "dddddddddddd" },
+    });
     expect(JSON.stringify(dashboard)).not.toContain("c".repeat(64));
     expect(JSON.stringify(dashboard)).not.toContain("d".repeat(64));
     expect(JSON.stringify(dashboard)).not.toContain("email@example.com");
@@ -102,6 +109,7 @@ describe("admin security service", () => {
     expect(dashboard.sessions.rows.map((row) => row.id)).toEqual([12]);
     expect(dashboard.limits.rows.map((row) => row.id)).toEqual([21]);
     expect(dashboard.events.rows.map((row) => row.id)).toEqual([32]);
+    expect(dashboard.events.rows.some((row) => row.branchId === null)).toBe(false);
   });
 
   it("คำนวณสถานะ session จาก revoke และ expiry โดยไม่คืน token hash หรือ fingerprint เต็ม", async () => {

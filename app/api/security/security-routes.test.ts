@@ -66,6 +66,14 @@ describe("security API routes", () => {
     expect(mocks.getSecurityDashboard).not.toHaveBeenCalled();
   });
 
+  it("GET ปฏิเสธวันที่ที่รูปแบบถูกแต่ไม่มีจริงในปฏิทิน", async () => {
+    const response = await GET(
+      new Request("https://fitness.example/api/security?from=2026-02-30"),
+    );
+    expect(response.status).toBe(400);
+    expect(mocks.getSecurityDashboard).not.toHaveBeenCalled();
+  });
+
   it.each([
     [revokeSession, mocks.revokeSecuritySession],
     [revokeStaff, mocks.revokeStaffSessions],

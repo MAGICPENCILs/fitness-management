@@ -23,6 +23,10 @@ import {
   staff,
 } from "@/db/schema";
 import { writeAudit } from "@/lib/audit-service";
+import {
+  sanitizeAuditMetadataForRead,
+  truncateAuthFingerprint,
+} from "@/lib/audit-policy";
 import { createAuthSubjectFingerprint } from "@/lib/auth/request-security";
 import {
   canManageStaff,
@@ -42,15 +46,6 @@ const AUTH_EVENT_ACTIONS = [
   "PASSWORD_RESET",
   "AUTH_RATE_LIMIT_CLEARED",
 ] as const;
-const SAFE_REASON_CODES = new Set(["INVALID_CREDENTIALS", "RATE_LIMITED"]);
-const SAFE_USER_AGENT_CATEGORIES = new Set([
-  "DESKTOP",
-  "MOBILE",
-  "TABLET",
-  "BOT",
-  "UNKNOWN",
-]);
-const SHA256_FINGERPRINT = /^[a-f0-9]{64}$/i;
 
 type SecurityResult = "SUCCESS" | "DENIED" | "FAILED";
 type SessionMode = "FULL" | "PASSWORD_CHANGE_REQUIRED";
@@ -154,7 +149,7 @@ export class SecurityOperationError extends Error {
 
 /** ย่อ fingerprint สำหรับการระบุรายการใน UI โดยไม่เปิดเผย HMAC เต็ม */
 function shortenFingerprint(value: string | null): string | null {
-  return value && SHA256_FINGERPRINT.test(value) ? value.slice(0, 12) : null;
+  return truncateAuthFingerprint(value);
 }
 
 /** แปลงวันที่จากฐานข้อมูลเป็น DTO ที่ serialize ได้โดยรักษาค่า null */
@@ -165,28 +160,8 @@ function toIso(value: Date | null): string | null {
 /** คืน metadata เฉพาะ reason/device/fingerprint แบบย่อ เพื่อไม่ส่งข้อมูลดิบหรือ key อื่นจาก audit ไปยัง client */
 function toSafeEventMetadata(
   metadata: Record<string, unknown> | null,
-): Record<string, string> | null {
-  if (!metadata) return null;
-  const safe: Record<string, string> = {};
-  if (
-    typeof metadata.reasonCode === "string" &&
-    SAFE_REASON_CODES.has(metadata.reasonCode)
-  ) {
-    safe.reasonCode = metadata.reasonCode;
-  }
-  if (
-    typeof metadata.userAgentCategory === "string" &&
-    SAFE_USER_AGENT_CATEGORIES.has(metadata.userAgentCategory)
-  ) {
-    safe.userAgentCategory = metadata.userAgentCategory;
-  }
-  if (
-    typeof metadata.ipFingerprint === "string" &&
-    SHA256_FINGERPRINT.test(metadata.ipFingerprint)
-  ) {
-    safe.ipFingerprint = shortenFingerprint(metadata.ipFingerprint)!;
-  }
-  return Object.keys(safe).length ? safe : null;
+): Record<string, unknown> | null {
+  return sanitizeAuditMetadataForRead(metadata);
 }
 
 /** ป้องกันการเรียก service โดยตรงที่ข้าม Route Handler permission guard */
@@ -371,7 +346,7 @@ function pageOffset(query: PageQuery) {
   return (query.page - 1) * query.pageSize;
 }
 
-class DrizzleSecurityRepository implements SecurityRepository {
+export class DrizzleSecurityRepository implements SecurityRepository {
   /** อ่าน Staff code ภายใน server เพื่อสร้าง HMAC mapping โดยไม่ส่ง code ออก DTO */
   async listStaffSubjects(branchId?: number) {
     return db
@@ -626,7 +601,7 @@ class DrizzleSecurityRepository implements SecurityRepository {
     });
   }
 
-  /** reset bucket แทนการลบ เพื่อให้คำสั่งซ้ำเป็น no-op และยัง re-check Manager scope ใต้ lock เดียวกัน */
+  /** reset bucket แทนการลบและ resolve ACCOUNT target ใต้ lock เดียวกัน เพื่อให้ idempotent พร้อม audit สาขาที่ถูกต้อง */
   async clearLimitWithAudit(input: SecurityMutationContext & { limitId: number }) {
     await db.transaction(async (tx) => {
       const [limit] = await tx
@@ -637,9 +612,17 @@ class DrizzleSecurityRepository implements SecurityRepository {
         .for("update");
       if (!limit) return;
 
-      let branchId = input.actor.homeBranchId;
-      if (input.actor.role !== "OWNER") {
-        if (limit.scope !== "ACCOUNT") throw new SecurityOperationError("ไม่มีสิทธิ์ปลดล็อก rate limit นี้", 403);
+      if (input.actor.role !== "OWNER" && limit.scope !== "ACCOUNT") {
+        throw new SecurityOperationError("ไม่มีสิทธิ์ปลดล็อก rate limit นี้", 403);
+      }
+
+      let target: {
+        id: number;
+        staffCode: string;
+        role: StaffRole;
+        homeBranchId: number;
+      } | null = null;
+      if (limit.scope === "ACCOUNT") {
         const subjects = await tx
           .select({
             id: staff.id,
@@ -648,14 +631,22 @@ class DrizzleSecurityRepository implements SecurityRepository {
             homeBranchId: staff.homeBranchId,
           })
           .from(staff)
-          .where(eq(staff.homeBranchId, input.actor.homeBranchId))
+          .where(
+            input.actor.role === "OWNER"
+              ? undefined
+              : eq(staff.homeBranchId, input.actor.homeBranchId),
+          )
           .for("update");
-        const target = subjects.find(
+        target = subjects.find(
           (row) => createAuthSubjectFingerprint(row.staffCode.trim().toUpperCase()) === limit.subjectHash,
-        );
-        if (!target) throw new SecurityOperationError("ไม่มีสิทธิ์ปลดล็อก rate limit นี้", 403);
+        ) ?? null;
+      }
+
+      if (input.actor.role !== "OWNER") {
+        if (!target) {
+          throw new SecurityOperationError("ไม่มีสิทธิ์ปลดล็อก rate limit นี้", 403);
+        }
         requireManageableTarget(input.actor, target);
-        branchId = target.homeBranchId;
       }
       const result = await tx
         .update(authLoginLimits)
@@ -677,7 +668,7 @@ class DrizzleSecurityRepository implements SecurityRepository {
       if (result[0].affectedRows === 0) return;
       await writeAudit(tx, {
         actorStaffId: input.actor.staffId,
-        branchId,
+        branchId: target?.homeBranchId ?? null,
         action: "AUTH_RATE_LIMIT_CLEARED",
         entityType: "AUTH_LOGIN_LIMIT",
         entityId: limit.id,
