@@ -64,6 +64,13 @@ function statusVariant(status: string) {
   return "outline" as const;
 }
 
+/** แสดงเฉพาะ fingerprint hex ที่ย่อแล้วและ normalize case เพื่อไม่ให้ raw IP/hash เต็มหลุดทั้งข้อความและ accessible name */
+function displayFingerprint(value: string | null) {
+  return value && /^[a-f0-9]{1,12}$/i.test(value)
+    ? value.toLowerCase()
+    : "ไม่ทราบ fingerprint";
+}
+
 /** กรองซ้ำที่ display boundary เพื่อไม่ render key แปลกปลอมหรือ fingerprint ที่ไม่ใช่ค่าย่อ แม้ DTO ถูกประกอบผิดพลาด */
 function displayMetadata(metadata: Record<string, unknown> | null) {
   if (!metadata) return [];
@@ -77,19 +84,18 @@ function displayMetadata(metadata: Record<string, unknown> | null) {
   });
 }
 
-/** อ่านเฉพาะข้อความกลางจาก mutation response โดยไม่สะท้อนรายละเอียด transport ภายใน */
-async function readMutationMessage(response: Response) {
-  try {
-    const payload: unknown = await response.json();
-    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-      const record = payload as Record<string, unknown>;
-      if (typeof record.message === "string") return record.message;
-      if (typeof record.error === "string") return record.error;
-    }
-  } catch {
-    // body ว่างหรือไม่ใช่ JSON ใช้ข้อความกลางแทน
-  }
-  return response.ok ? "ดำเนินการสำเร็จ" : "ไม่สามารถดำเนินการได้";
+/** แปลงเฉพาะ HTTP status เป็นข้อความคงที่และไม่อ่านข้อความ response ที่อาจมี secret/internal detail */
+function mutationErrorMessage(status: number) {
+  if (status === 401) return "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่";
+  if (status === 403) return "คุณไม่มีสิทธิ์ดำเนินการนี้";
+  if (status === 404) return "ไม่พบรายการที่ต้องการจัดการ";
+  return "ไม่สามารถดำเนินการได้ กรุณาลองใหม่";
+}
+
+function mutationSuccessMessage(kind: ActionTarget["kind"]) {
+  if (kind === "limit") return "ปลดล็อก Rate limit แล้ว";
+  if (kind === "staff") return "ยกเลิกทุกเซสชันแล้ว";
+  return "ยกเลิกเซสชันแล้ว";
 }
 
 /** ใช้ DTO ที่ server ลดรูปแล้ว และเชื่อ manageable เพื่อซ่อนปุ่มโดยไม่แทน authorization ฝั่ง server */
@@ -100,6 +106,8 @@ export function SecurityConsole({ data, branches, filters }: {
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const filterKey = [filters.tab, filters.branchId, filters.staffId, filters.action, filters.result, filters.from, filters.to].join("|");
+  const [previousFilterKey, setPreviousFilterKey] = useState(filterKey);
   const [activeTab, setActiveTab] = useState<SecurityTab>(filters.tab);
   const [branchId, setBranchId] = useState(filters.branchId ? String(filters.branchId) : "");
   const [staffId, setStaffId] = useState(filters.staffId ? String(filters.staffId) : "");
@@ -113,6 +121,18 @@ export function SecurityConsole({ data, branches, filters }: {
   const [notice, setNotice] = useState("");
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  /** ปรับ derived draft ก่อน commit เมื่อ server props เปลี่ยน เพื่อให้ Back/Forward ไม่มี stale frame หรือ effect cascade */
+  if (previousFilterKey !== filterKey) {
+    setPreviousFilterKey(filterKey);
+    setActiveTab(filters.tab);
+    setBranchId(filters.branchId ? String(filters.branchId) : "");
+    setStaffId(filters.staffId ? String(filters.staffId) : "");
+    setAction(filters.action ?? "");
+    setResult(filters.result ?? "");
+    setFrom(filters.from ?? "");
+    setTo(filters.to ?? "");
+  }
 
   /** รักษา URL state เพื่อให้ refresh/back/deep link คงบริบทเดิม */
   function baseParams(tab = activeTab) {
@@ -198,12 +218,11 @@ export function SecurityConsole({ data, branches, filters }: {
         : "/api/security/rate-limits/" + target.id + "/clear";
     try {
       const response = await fetch(endpoint, { method: "POST" });
-      const message = await readMutationMessage(response);
       if (!response.ok) {
-        setDialogError(message);
+        setDialogError(mutationErrorMessage(response.status));
         return;
       }
-      setNotice(message);
+      setNotice(mutationSuccessMessage(target.kind));
       setTarget(null);
       router.refresh();
     } catch {
@@ -319,9 +338,9 @@ export function SecurityConsole({ data, branches, filters }: {
 function SessionsContent({ rows, openAction }: { rows: SessionRow[]; openAction: (target: ActionTarget, trigger: HTMLButtonElement) => void }) {
   if (!rows.length) return <p className="p-8 text-center text-muted-foreground">ยังไม่มีเซสชันตามตัวกรองนี้</p>;
   return <><div className="hidden sm:block"><Table className="min-w-[920px]">
-    <TableHeader><TableRow><TableHead>พนักงาน</TableHead><TableHead>บทบาท/สาขา</TableHead><TableHead>สถานะ</TableHead><TableHead>Login / ล่าสุด</TableHead><TableHead>หมดอายุ</TableHead><TableHead>อุปกรณ์</TableHead><TableHead className="text-right">จัดการ</TableHead></TableRow></TableHeader>
-    <TableBody>{rows.map((row) => <TableRow key={row.id}><TableCell className="font-medium">{row.staffName}</TableCell><TableCell>{row.role}<span className="block text-xs text-muted-foreground">{row.branchName}</span></TableCell><TableCell><Badge variant={statusVariant(row.status)}>{row.status}</Badge></TableCell><TableCell>{formatDate(row.createdAt)}<span className="block text-xs">ล่าสุด {formatDate(row.lastSeenAt)}</span></TableCell><TableCell>{formatDate(row.absoluteExpiresAt)}</TableCell><TableCell>{row.userAgentCategory}<span className="block font-mono text-xs">{row.ipFingerprint ?? "ไม่มี fingerprint"}</span></TableCell><TableCell><SessionActions row={row} openAction={openAction} /></TableCell></TableRow>)}</TableBody>
-  </Table></div><div className="space-y-3 p-3 sm:hidden">{rows.map((row) => <article key={row.id} className="space-y-3 rounded-xl border p-4"><div className="flex justify-between gap-3"><div><h3 className="font-semibold">{row.staffName}</h3><p className="text-sm text-muted-foreground">{row.role} · {row.branchName}</p></div><Badge variant={statusVariant(row.status)}>{row.status}</Badge></div><dl className="grid gap-2 text-sm"><div><dt className="text-muted-foreground">Login / ล่าสุด</dt><dd>{formatDate(row.createdAt)} / {formatDate(row.lastSeenAt)}</dd></div><div><dt className="text-muted-foreground">อุปกรณ์ / fingerprint ย่อ</dt><dd>{row.userAgentCategory} · <span className="font-mono">{row.ipFingerprint ?? "—"}</span></dd></div></dl><SessionActions row={row} openAction={openAction} /></article>)}</div></>;
+    <TableHeader><TableRow><TableHead>พนักงาน</TableHead><TableHead>บทบาท/สาขา</TableHead><TableHead>สถานะ</TableHead><TableHead>Login / ล่าสุด</TableHead><TableHead>Absolute / Idle</TableHead><TableHead>อุปกรณ์</TableHead><TableHead className="text-right">จัดการ</TableHead></TableRow></TableHeader>
+    <TableBody>{rows.map((row) => <TableRow key={row.id}><TableCell className="font-medium">{row.staffName}</TableCell><TableCell>{row.role}<span className="block text-xs text-muted-foreground">{row.branchName}</span></TableCell><TableCell><Badge variant={statusVariant(row.status)}>{row.status}</Badge></TableCell><TableCell>{formatDate(row.createdAt)}<span className="block text-xs">ล่าสุด {formatDate(row.lastSeenAt)}</span></TableCell><TableCell>{formatDate(row.absoluteExpiresAt)}<span className="block text-xs text-muted-foreground">Idle {formatDate(row.idleExpiresAt)}</span></TableCell><TableCell>{row.userAgentCategory}<span className="block font-mono text-xs">{displayFingerprint(row.ipFingerprint)}</span></TableCell><TableCell><SessionActions row={row} openAction={openAction} /></TableCell></TableRow>)}</TableBody>
+  </Table></div><div className="space-y-3 p-3 sm:hidden">{rows.map((row) => <article key={row.id} className="space-y-3 rounded-xl border p-4"><div className="flex justify-between gap-3"><div><h3 className="font-semibold">{row.staffName}</h3><p className="text-sm text-muted-foreground">{row.role} · {row.branchName}</p></div><Badge variant={statusVariant(row.status)}>{row.status}</Badge></div><dl className="grid gap-2 text-sm"><div><dt className="text-muted-foreground">Login / ล่าสุด</dt><dd>{formatDate(row.createdAt)} / {formatDate(row.lastSeenAt)}</dd></div><div><dt className="text-muted-foreground">Absolute / Idle</dt><dd>{formatDate(row.absoluteExpiresAt)} / Idle {formatDate(row.idleExpiresAt)}</dd></div><div><dt className="text-muted-foreground">อุปกรณ์ / fingerprint ย่อ</dt><dd>{row.userAgentCategory} · <span className="font-mono">{displayFingerprint(row.ipFingerprint)}</span></dd></div></dl><SessionActions row={row} openAction={openAction} /></article>)}</div></>;
 }
 
 function SessionActions({ row, openAction }: { row: SessionRow; openAction: (target: ActionTarget, trigger: HTMLButtonElement) => void }) {
@@ -331,7 +350,11 @@ function SessionActions({ row, openAction }: { row: SessionRow; openAction: (tar
 
 function LimitsContent({ rows, openAction }: { rows: LimitRow[]; openAction: (target: ActionTarget, trigger: HTMLButtonElement) => void }) {
   if (!rows.length) return <p className="p-8 text-center text-muted-foreground">ยังไม่มี rate limit ตามขอบเขตที่มีสิทธิ์</p>;
-  return <div className="space-y-3 p-3">{rows.map((row) => <article key={row.id} className="grid gap-3 rounded-xl border p-4 sm:grid-cols-[1.2fr_1fr_1fr_auto] sm:items-center"><div><h3 className="font-semibold">{row.staff?.name ?? "ไม่ทราบบัญชี"}</h3><p className="text-sm text-muted-foreground">{row.scope}{row.staff ? " · " + row.staff.branchName : ""}</p></div><div><p className="text-xs text-muted-foreground">Fingerprint ย่อ / จำนวนครั้ง</p><p className="font-mono text-sm">{row.fingerprint ?? "—"} · {row.attemptCount}</p></div><div><Badge variant={row.locked ? "destructive" : "outline"}>{row.locked ? "LOCKED" : "ไม่ล็อก"}</Badge><p className="mt-1 text-xs text-muted-foreground">ถึง {formatDate(row.lockedUntil)}</p></div>{row.manageable && (row.attemptCount > 0 || row.locked) ? <Button type="button" variant="outline" className="min-h-11" aria-label={"ปลดล็อก " + (row.staff?.name ?? row.fingerprint ?? "ไม่ทราบบัญชี")} onClick={(event) => openAction({ kind: "limit", id: row.id, target: row.staff?.name ?? "fingerprint " + (row.fingerprint ?? "ไม่ทราบ") }, event.currentTarget)}>ปลดล็อก</Button> : null}</article>)}</div>;
+  return <div className="space-y-3 p-3">{rows.map((row) => {
+    const fingerprint = displayFingerprint(row.fingerprint);
+    const target = row.staff?.name ?? fingerprint;
+    return <article key={row.id} className="grid gap-3 rounded-xl border p-4 sm:grid-cols-[1.2fr_1fr_1fr_1fr_auto] sm:items-center"><div><h3 className="font-semibold">{row.staff?.name ?? "ไม่ทราบบัญชี"}</h3><p className="text-sm text-muted-foreground">{row.scope}{row.staff ? " · " + row.staff.branchName : ""}</p></div><div><p className="text-xs text-muted-foreground">Fingerprint ย่อ / จำนวนครั้ง</p><p className="font-mono text-sm">{fingerprint} · {row.attemptCount}</p></div><div><p className="text-xs text-muted-foreground">เริ่ม window</p><p className="text-sm tabular-nums">{formatDate(row.windowStartedAt)}</p></div><div><Badge variant={row.locked ? "destructive" : "outline"}>{row.locked ? "LOCKED" : "ไม่ล็อก"}</Badge><p className="mt-1 text-xs text-muted-foreground">ล็อกถึง</p><p className="text-xs text-muted-foreground">{formatDate(row.lockedUntil)}</p></div>{row.manageable && (row.attemptCount > 0 || row.locked) ? <Button type="button" variant="outline" className="min-h-11" aria-label={"ปลดล็อก " + target} onClick={(event) => openAction({ kind: "limit", id: row.id, target }, event.currentTarget)}>ปลดล็อก</Button> : null}</article>;
+  })}</div>;
 }
 
 function EventsContent({ rows }: { rows: EventRow[] }) {

@@ -39,3 +39,12 @@
 
 - Browser QA และ full-suite/build ที่มี network พร้อมทำใน final verification Task 11
 - ไม่เพิ่ม Task 10 development switcher หรือ backend/migration ใด ๆ
+
+## Fix round 1
+
+- เพิ่ม display helper ที่รับเฉพาะ fingerprint hex 1–12 ตัว, normalize เป็น lowercase และใช้ “ไม่ทราบ fingerprint” กับ full hash/raw IP/arbitrary value ทั้งข้อความ, accessible name และ dialog target
+- mutation UI ไม่อ่านข้อความ response body อีกต่อไป: success copy เป็น client-owned และ error map จาก HTTP 401/403/404/other เท่านั้น; HTML, internal detail และ network error ใช้ข้อความกลาง
+- sync tab/filter drafts จาก primitive filter key เมื่อ server props เปลี่ยนจาก Back/Forward โดยไม่ใช้ effect cascade และยัง reset page เมื่อ tab/filter เปลี่ยน
+- แสดง session absolute/idle expiry ครบใน desktop table/mobile cards และแสดง rate-limit window start/locked-until
+- เพิ่ม regression tests malicious props/responses, endpoint+method ทั้ง session/staff/rate-limit, prop rerender alignment และ timestamp completeness
+- Focused verification หลังแก้: 3 files, 22 tests passed; `tsc --noEmit`, focused ESLint และ diff/secret checks ผ่าน; ไม่รัน build/full/browser ตามขอบเขต fix

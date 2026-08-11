@@ -187,23 +187,52 @@ describe("SecurityConsole", () => {
     await user.click(confirm);
     expect(confirm).toBeDisabled();
     expect(screen.getByRole("dialog")).toHaveAttribute("aria-busy", "true");
-    resolveRequest?.(new Response(JSON.stringify({ message: "ยกเลิก session แล้ว" }), { status: 200 }));
+    resolveRequest?.(new Response(JSON.stringify({ message: "raw-session-token-must-never-render" }), { status: 200 }));
     await waitFor(() => expect(navigation.refresh).toHaveBeenCalledOnce());
-    expect(screen.getByRole("status")).toHaveTextContent("ยกเลิก session แล้ว");
+    expect(fetch).toHaveBeenCalledWith("/api/security/sessions/12/revoke", { method: "POST" });
+    expect(screen.getByRole("status")).toHaveTextContent("ยกเลิกเซสชันแล้ว");
+    expect(screen.queryByText("raw-session-token-must-never-render")).not.toBeInTheDocument();
   });
 
   it("revoke-all ใช้ staffId และคง dialog/error ไว้เมื่อ server ปฏิเสธ", async () => {
     vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify({ error: "ไม่มีสิทธิ์จัดการบัญชีเป้าหมายนี้" }), { status: 403 }),
+      new Response(JSON.stringify({ error: "token=raw-session-token-must-never-render 203.0.113.24" }), { status: 403 }),
     );
     const user = userEvent.setup();
     render(<SecurityConsole {...props} />);
     await user.click(screen.getAllByRole("button", { name: "ยกเลิกทุกเซสชันของ เคาน์เตอร์ หนึ่ง" })[0]);
     expect(screen.getByRole("dialog")).toHaveTextContent("ยกเลิกทุกเซสชัน");
     await user.click(screen.getByRole("button", { name: "ยืนยันยกเลิกทั้งหมด" }));
-    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("ไม่มีสิทธิ์จัดการบัญชีเป้าหมายนี้"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("คุณไม่มีสิทธิ์ดำเนินการนี้"));
+    expect(screen.queryByText(/raw-session-token-must-never-render|203\.0\.113\.24/)).not.toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith("/api/security/staff/3/revoke", { method: "POST" });
     expect(navigation.refresh).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [401, "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่"],
+    [404, "ไม่พบรายการที่ต้องการจัดการ"],
+    [500, "ไม่สามารถดำเนินการได้ กรุณาลองใหม่"],
+  ])("ใช้ข้อความคงที่สำหรับ HTTP %s โดยไม่ render HTML/internal response", async (status, expected) => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("<html>raw-session-token-must-never-render 203.0.113.24</html>", { status }),
+    );
+    const user = userEvent.setup();
+    render(<SecurityConsole {...props} />);
+    await user.click(screen.getAllByRole("button", { name: "ยกเลิกเซสชันของ เคาน์เตอร์ หนึ่ง" })[0]);
+    await user.click(screen.getByRole("button", { name: "ยืนยันยกเลิกเซสชัน" }));
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent(expected));
+    expect(screen.queryByText(/raw-session-token-must-never-render|203\.0\.113\.24/)).not.toBeInTheDocument();
+  });
+
+  it("network error ใช้ข้อความกลางและไม่สะท้อน error detail", async () => {
+    vi.mocked(fetch).mockRejectedValue(new Error("raw-session-token-must-never-render 203.0.113.24"));
+    const user = userEvent.setup();
+    render(<SecurityConsole {...props} />);
+    await user.click(screen.getAllByRole("button", { name: "ยกเลิกเซสชันของ เคาน์เตอร์ หนึ่ง" })[0]);
+    await user.click(screen.getByRole("button", { name: "ยืนยันยกเลิกเซสชัน" }));
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("ไม่สามารถเชื่อมต่อระบบได้ กรุณาลองใหม่"));
+    expect(screen.queryByText(/raw-session-token-must-never-render|203\.0\.113\.24/)).not.toBeInTheDocument();
   });
 
   it("แสดง rate limit/unknown event และซ่อน action ที่ server ระบุว่าจัดการไม่ได้", async () => {
@@ -218,6 +247,61 @@ describe("SecurityConsole", () => {
     expect(screen.getByText("INVALID_CREDENTIALS")).toBeVisible();
     expect(screen.queryByText("raw-session-token-must-never-render")).not.toBeInTheDocument();
     expect(screen.queryByText("203.0.113.24")).not.toBeInTheDocument();
+  });
+
+  it("แสดงเฉพาะ fingerprint hex ย่อและใช้ fallback ในข้อความ/accessible name", async () => {
+    const malicious = structuredClone(dashboard);
+    malicious.sessions.rows[0].ipFingerprint = "A1B2C3D4E5F6";
+    malicious.sessions.rows[1].ipFingerprint = "f".repeat(64);
+    malicious.limits.rows[1].fingerprint = "203.0.113.24";
+    malicious.limits.rows[1].manageable = true;
+    const user = userEvent.setup();
+    render(<SecurityConsole {...props} data={malicious} />);
+    expect(screen.getAllByText("a1b2c3d4e5f6")).toHaveLength(2);
+    expect(screen.getAllByText("ไม่ทราบ fingerprint")).toHaveLength(2);
+    expect(screen.queryByText("f".repeat(64))).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Rate limit" }));
+    expect(screen.getByRole("button", { name: "ปลดล็อก ไม่ทราบ fingerprint" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "ปลดล็อก ไม่ทราบ fingerprint" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("ไม่ทราบ fingerprint");
+    expect(screen.queryByText("203.0.113.24")).not.toBeInTheDocument();
+  });
+
+  it("sync tab และ filter drafts เมื่อ server props เปลี่ยนจาก Back/Forward", async () => {
+    const { rerender } = render(<SecurityConsole {...props} />);
+    rerender(
+      <SecurityConsole
+        {...props}
+        filters={{ tab: "events", branchId: 2, staffId: 3, action: "LOGIN_FAILED", result: "FAILED", from: "2026-08-01", to: "2026-08-10" }}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole("tab", { name: "เหตุการณ์ Login" })).toHaveAttribute("aria-selected", "true"));
+    expect(screen.getByLabelText("สาขา")).toHaveValue("2");
+    expect(screen.getByLabelText("Staff ID")).toHaveValue("3");
+    expect(screen.getByLabelText("Action")).toHaveValue("LOGIN_FAILED");
+    expect(screen.getByLabelText("ผลลัพธ์")).toHaveValue("FAILED");
+    expect(screen.getByText("ไม่ทราบบัญชี")).toBeVisible();
+  });
+
+  it("แสดง window/lockedUntil และ absolute/idle expiry ครบทั้ง desktop/mobile", async () => {
+    const user = userEvent.setup();
+    render(<SecurityConsole {...props} />);
+    expect(screen.getAllByText("Absolute / Idle")).toHaveLength(3);
+    expect(screen.getAllByText(/Idle/).length).toBeGreaterThanOrEqual(2);
+    await user.click(screen.getByRole("tab", { name: "Rate limit" }));
+    expect(screen.getAllByText("เริ่ม window")).toHaveLength(2);
+    expect(screen.getAllByText("ล็อกถึง")).toHaveLength(2);
+  });
+
+  it("clear rate limit ใช้ endpoint id และ method ที่กำหนด", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response("<html>internal</html>", { status: 200 }));
+    const user = userEvent.setup();
+    render(<SecurityConsole {...props} filters={{ tab: "limits" }} />);
+    await user.click(screen.getByRole("button", { name: "ปลดล็อก เคาน์เตอร์ หนึ่ง" }));
+    await user.click(screen.getByRole("button", { name: "ยืนยันปลดล็อก" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/security/rate-limits/21/clear", { method: "POST" }));
+    expect(screen.getByRole("status")).toHaveTextContent("ปลดล็อก Rate limit แล้ว");
+    expect(screen.queryByText("internal")).not.toBeInTheDocument();
   });
 
   it("แสดง empty state และเขียน filter/page ลง URL", async () => {
