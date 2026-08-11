@@ -101,6 +101,15 @@ function exportedMethods(source: string, fileName = "route.ts"): ExportedMethod[
     }
     if (
       ts.isExportDeclaration(statement) &&
+      statement.moduleSpecifier &&
+      !statement.exportClause
+    ) {
+      // export-star ระบุ HTTP method ที่ส่งออกไม่ได้ จึงต้อง fail inventory แบบอนุรักษนิยมแทนการข้ามไฟล์
+      methods.push({ method: "*", node: null });
+      continue;
+    }
+    if (
+      ts.isExportDeclaration(statement) &&
       statement.exportClause &&
       ts.isNamedExports(statement.exportClause)
     ) {
@@ -210,6 +219,12 @@ describe("protected API inventory", () => {
     `;
     const [handler] = exportedMethods(source);
     expect(callsGuard(handler.node, importProvenance(source, "route.ts"))).toBe(false);
+  });
+
+  it("flags export-star route handlers as unsupported instead of skipping them", () => {
+    const source = `export * from "./handler";`;
+
+    expect(exportedMethods(source)).toEqual([{ method: "*", node: null }]);
   });
 
   it("keeps every Route Handler behind an authoritative canonical guard or explicit public allowlist", () => {
