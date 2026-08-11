@@ -11,3 +11,8 @@ const pool = mysql.createPool({
 });
 
 export const db = drizzle(pool);
+
+/** ปิด pool หลังคำสั่ง CLI ทำงานเสร็จ เพื่อไม่ให้ process ค้างและไม่ตัด transaction กลางทาง */
+export async function closeDatabase() {
+  await pool.end();
+}

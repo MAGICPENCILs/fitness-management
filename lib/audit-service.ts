@@ -19,6 +19,10 @@ export type AuditEntry = {
   metadata?: Record<string, unknown>;
 };
 
+export type SystemAuditEntry = Omit<AuditEntry, "actorStaffId"> & {
+  actorStaffId: null;
+};
+
 export type AuditFilters = {
   branchId?: number;
   action?: string;
@@ -47,7 +51,10 @@ function getAuditErrorCode(error: unknown) {
 }
 
 /** เขียน audit ที่ผ่าน allowlist ด้วย executor เดียวกับข้อมูลธุรกิจ */
-export async function writeAudit(executor: DbExecutor, entry: AuditEntry) {
+export async function writeAudit(
+  executor: DbExecutor,
+  entry: AuditEntry | SystemAuditEntry,
+) {
   if (!AUDIT_NAME.test(entry.action) || !AUDIT_NAME.test(entry.entityType))
     throw new Error("audit action and entity type must be enum-like");
   await executor.insert(auditLogs).values({

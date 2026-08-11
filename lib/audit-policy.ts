@@ -9,6 +9,8 @@ const ALLOWED_KEYS = new Set([
   "method",
   "module",
   "errorCode",
+  "source",
+  "rotated",
 ]);
 
 const PROHIBITED_PII_KEYS = new Set([
