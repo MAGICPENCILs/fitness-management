@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
-import { and, eq, gt, isNull, lte, or } from "drizzle-orm";
+import { and, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 
 import { db } from "@/db";
@@ -288,7 +288,7 @@ class DrizzleSessionRepository implements SessionRepository {
     return row ?? null;
   }
 
-  /** เลื่อน idle expiry เฉพาะ row ที่ยัง active และยังไม่ถูก request อื่น touch ในช่วงเดียวกัน */
+  /** เลื่อน idle expiry เฉพาะ row ที่ยัง active ณ เวลา UPDATE ของฐานข้อมูล เพื่อไม่ให้ request ที่ล่าช้าชุบ session ที่หมดอายุแล้ว */
   async touchSession(input: TouchSessionInput): Promise<void> {
     const touchCutoff = new Date(
       input.lastSeenAt.getTime() - SESSION_TOUCH_INTERVAL_SECONDS * 1_000,
@@ -303,8 +303,8 @@ class DrizzleSessionRepository implements SessionRepository {
         and(
           eq(authSessions.id, input.authSessionId),
           isNull(authSessions.revokedAt),
-          gt(authSessions.absoluteExpiresAt, input.lastSeenAt),
-          gt(authSessions.idleExpiresAt, input.lastSeenAt),
+          gt(authSessions.absoluteExpiresAt, sql`CURRENT_TIMESTAMP`),
+          gt(authSessions.idleExpiresAt, sql`CURRENT_TIMESTAMP`),
           lte(authSessions.lastSeenAt, touchCutoff),
         ),
       );
