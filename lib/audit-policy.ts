@@ -11,6 +11,7 @@ const ALLOWED_KEYS = new Set([
   "errorCode",
   "source",
   "rotated",
+  "scope",
 ]);
 
 const PROHIBITED_PII_KEYS = new Set([

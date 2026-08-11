@@ -11,7 +11,7 @@ export type DbExecutor = typeof db | DbTransaction;
 
 export type AuditEntry = {
   actorStaffId: number;
-  branchId: number;
+  branchId: number | null;
   action: string;
   entityType: string;
   entityId?: number;
@@ -143,8 +143,8 @@ export async function getAuditDashboard(
         createdAt: auditLogs.createdAt,
       })
       .from(auditLogs)
-      .innerJoin(branches, eq(auditLogs.branchId, branches.id))
-      .innerJoin(staff, eq(auditLogs.actorStaffId, staff.id))
+      .leftJoin(branches, eq(auditLogs.branchId, branches.id))
+      .leftJoin(staff, eq(auditLogs.actorStaffId, staff.id))
       .where(where)
       .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
       .limit(filters.pageSize)
@@ -152,9 +152,13 @@ export async function getAuditDashboard(
     db.select({ count: sql<number>`count(*)` }).from(auditLogs).where(where),
   ]);
   return {
-    rows: rows.map(({ actorFirstName, actorLastName, ...row }) => ({
+    rows: rows.map(({ actorFirstName, actorLastName, branchName, ...row }) => ({
       ...row,
-      actorName: `${actorFirstName} ${actorLastName}`.trim(),
+      branchName: branchName ?? "ไม่ทราบสาขา",
+      actorName:
+        actorFirstName && actorLastName
+          ? `${actorFirstName} ${actorLastName}`.trim()
+          : "ไม่ทราบบัญชี",
       createdAt: row.createdAt?.toISOString() ?? null,
     })),
     pagination: {
