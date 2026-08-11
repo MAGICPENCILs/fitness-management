@@ -19,7 +19,8 @@ class FakeRepository implements DevStaffSwitchRepository {
   async rotate(input: Parameters<DevStaffSwitchRepository["rotate"]>[0]) {
     this.calls.push(input);
     if (this.fail) throw new Error("audit unavailable");
-    return { id: 3, role: "COUNTER" as const, homeBranchId: 2 };
+    const target = { id: 3, role: "COUNTER" as const, homeBranchId: 2 };
+    return { target, signed: await input.sign(target) };
   }
 }
 
@@ -86,5 +87,21 @@ describe("development Staff session rotation", () => {
       }),
     ).rejects.toThrow("audit unavailable");
     expect(signed).toEqual([]);
+  });
+
+  it("signs before repository writes and propagates signing failure", async () => {
+    const repository = new FakeRepository();
+    const service = createDevStaffSwitchService(repository, {
+      now: () => NOW,
+      createSessionId: () => "new-session",
+      hashSessionId: () => "stored-hash",
+      signSessionClaims: async () => { throw new Error("SESSION_SECRET unavailable"); },
+    });
+
+    await expect(service.rotate(CURRENT, 3, {
+      ipFingerprint: null,
+      userAgentCategory: "UNKNOWN",
+    })).rejects.toThrow("SESSION_SECRET unavailable");
+    expect(repository.calls).toHaveLength(1);
   });
 });

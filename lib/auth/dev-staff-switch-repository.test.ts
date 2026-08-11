@@ -10,6 +10,10 @@ const database = vi.hoisted(() => {
   };
   const baseCurrent = () => ({
     staffId: 1,
+    currentStaffId: 1,
+    currentStaffStatus: "ACTIVE" as "ACTIVE" | "INACTIVE",
+    currentHomeBranchId: 1,
+    currentBranchStatus: "ACTIVE" as "ACTIVE" | "INACTIVE",
     mode: "FULL" as const,
     revokedAt: null as Date | null,
     absoluteExpiresAt: new Date("2026-08-11T14:00:00.000Z"),
@@ -129,6 +133,17 @@ const input = {
     ipFingerprint: null,
     userAgentCategory: "UNKNOWN" as const,
   },
+  sign: vi.fn(async (target) => ({
+    claims: {
+      sessionId: "new-session",
+      staffId: target.id,
+      role: target.role,
+      homeBranchId: target.homeBranchId,
+      mode: "FULL" as const,
+      expiresAt: 1786456800,
+    },
+    sessionCookie: "signed-cookie",
+  })),
 };
 
 describe("Drizzle development Staff rotation boundary", () => {
@@ -156,6 +171,30 @@ describe("Drizzle development Staff rotation boundary", () => {
       }),
     ]);
     expect(JSON.stringify(database.state.audits)).not.toMatch(/stored-hash|OWNER001/);
+  });
+
+  it("rejects a current Staff deactivated after authentication before any write", async () => {
+    database.state.current.currentStaffStatus = "INACTIVE";
+    await expect(new DrizzleDevStaffSwitchRepository().rotate(input)).rejects.toMatchObject({ status: 401 });
+    expect(database.state.current.revokedAt).toBeNull();
+    expect(database.state.createdSessions).toEqual([]);
+    expect(database.state.audits).toEqual([]);
+  });
+
+  it("rejects a current Staff whose locked home branch changed after authentication", async () => {
+    database.state.current.currentHomeBranchId = 2;
+    await expect(new DrizzleDevStaffSwitchRepository().rotate(input)).rejects.toMatchObject({ status: 401 });
+    expect(database.state.current.revokedAt).toBeNull();
+    expect(database.state.createdSessions).toEqual([]);
+    expect(database.state.audits).toEqual([]);
+  });
+
+  it("does not revoke, insert, or audit when signing fails inside the transaction", async () => {
+    const sign = vi.fn(async () => { throw new Error("SESSION_SECRET unavailable"); });
+    await expect(new DrizzleDevStaffSwitchRepository().rotate({ ...input, sign })).rejects.toThrow("SESSION_SECRET unavailable");
+    expect(database.state.current.revokedAt).toBeNull();
+    expect(database.state.createdSessions).toEqual([]);
+    expect(database.state.audits).toEqual([]);
   });
 
   it.each(["staffStatus", "branchStatus"] as const)("rejects inactive target %s before revoke/create/audit", async (field) => {

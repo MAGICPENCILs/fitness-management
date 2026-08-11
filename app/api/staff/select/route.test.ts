@@ -105,4 +105,20 @@ describe("development Staff select route", () => {
     expect(mocks.setCurrentStaffCookie).not.toHaveBeenCalled();
     expect(mocks.cookieSet).not.toHaveBeenCalled();
   });
+
+  it("logs only a fixed label and safe error name for unexpected failures", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("ENABLE_DEV_STAFF_SWITCHER", "true");
+    const sentinel = new Error("token-hash-secret OWNER001 203.0.113.7");
+    sentinel.name = "DatabaseError";
+    mocks.setCurrentStaffCookie.mockRejectedValue(sentinel);
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await POST(request('{"staffId":3}'));
+
+    expect(response.status).toBe(500);
+    expect(log).toHaveBeenCalledWith("DEV_STAFF_SWITCH_FAILED", "UnknownError");
+    expect(JSON.stringify(log.mock.calls)).not.toMatch(/token-hash-secret|OWNER001|203\.0\.113\.7/);
+    expect(await response.text()).not.toMatch(/token-hash-secret|OWNER001|203\.0\.113\.7/);
+  });
 });

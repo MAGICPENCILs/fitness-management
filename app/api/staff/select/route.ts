@@ -46,7 +46,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "ไม่สามารถดำเนินการได้" }, { status: 403 });
     if (error instanceof StaffOperationError)
       return NextResponse.json({ error: error.message }, { status: error.status });
-    console.error(error);
+    // บันทึกเฉพาะชื่อชนิดที่อนุญาต เพื่อไม่ให้ token/hash/SQL params หลุดจาก Error object
+    const safeErrorName =
+      error instanceof Error && ["Error", "TypeError", "RangeError"].includes(error.name)
+        ? error.name
+        : "UnknownError";
+    console.error("DEV_STAFF_SWITCH_FAILED", safeErrorName);
     return NextResponse.json({ error: "ไม่สามารถเปลี่ยนบัญชีพนักงานได้" }, { status: 500 });
   }
 }

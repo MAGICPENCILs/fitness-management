@@ -46,10 +46,17 @@ type RotateInput = {
     absoluteExpiresAt: Date;
     idleExpiresAt: Date;
   };
+  sign: (target: TargetStaff) => Promise<{
+    claims: SessionClaims;
+    sessionCookie: string;
+  }>;
 };
 
 export interface DevStaffSwitchRepository {
-  rotate(input: RotateInput): Promise<TargetStaff>;
+  rotate(input: RotateInput): Promise<{
+    target: TargetStaff;
+    signed: { claims: SessionClaims; sessionCookie: string };
+  }>;
 }
 
 export class DevStaffSwitchError extends Error {
@@ -67,7 +74,7 @@ type DevStaffSwitchDependencies = {
   signSessionClaims: (claims: SessionClaims) => Promise<string>;
 };
 
-/** สร้าง service ที่หมุน credential หลัง transaction สำเร็จเท่านั้น เพื่อไม่คืน cookie เมื่อ revoke/create/audit rollback */
+/** เตรียม credential และส่งตัวเซ็นเข้า transaction เพื่อให้ signing failure เกิดก่อน revoke/create/audit ทุกครั้ง */
 export function createDevStaffSwitchService(
   repository: DevStaffSwitchRepository,
   dependencies: DevStaffSwitchDependencies,
@@ -85,7 +92,7 @@ export function createDevStaffSwitchService(
     const idleExpiresAt = new Date(
       occurredAt.getTime() + SESSION_IDLE_TIMEOUT_SECONDS * 1_000,
     );
-    const target = await repository.rotate({
+    const rotated = await repository.rotate({
       currentAuthSessionId: current.authSessionId,
       currentStaffId: current.staffId,
       currentBranchId: current.homeBranchId,
@@ -100,43 +107,56 @@ export function createDevStaffSwitchService(
         idleExpiresAt,
         ...request,
       },
+      sign: async (target) => {
+        const claims: SessionClaims = {
+          sessionId,
+          staffId: target.id,
+          role: target.role,
+          homeBranchId: target.homeBranchId,
+          mode: "FULL",
+          expiresAt: Math.floor(absoluteExpiresAt.getTime() / 1_000),
+        };
+        return {
+          claims,
+          sessionCookie: await dependencies.signSessionClaims(claims),
+        };
+      },
     });
-    const claims: SessionClaims = {
-      sessionId,
-      staffId: target.id,
-      role: target.role,
-      homeBranchId: target.homeBranchId,
-      mode: "FULL",
-      expiresAt: Math.floor(absoluteExpiresAt.getTime() / 1_000),
-    };
-    return {
-      claims,
-      sessionCookie: await dependencies.signSessionClaims(claims),
-    };
+    return rotated.signed;
   }
 
   return { rotate };
 }
 
 export class DrizzleDevStaffSwitchRepository implements DevStaffSwitchRepository {
-  /** ล็อก session และเป้าหมายก่อน CAS revoke แล้วสร้าง session/audit ใน transaction เดียว เพื่อปิด TOCTOU และ concurrent reuse */
-  async rotate(input: RotateInput): Promise<TargetStaff> {
+  /** ล็อก session พร้อมบัญชี/สาขาปัจจุบันและเป้าหมาย แล้วเซ็นก่อนเขียน เพื่อปิด race กับการระงับหรือย้ายพนักงาน */
+  async rotate(input: RotateInput) {
     return db.transaction(async (tx) => {
       const [current] = await tx
         .select({
           staffId: authSessions.staffId,
+          currentStaffId: staff.id,
+          currentStaffStatus: staff.status,
+          currentHomeBranchId: staff.homeBranchId,
+          currentBranchStatus: branches.status,
           mode: authSessions.mode,
           revokedAt: authSessions.revokedAt,
           absoluteExpiresAt: authSessions.absoluteExpiresAt,
           idleExpiresAt: authSessions.idleExpiresAt,
         })
         .from(authSessions)
+        .innerJoin(staff, eq(authSessions.staffId, staff.id))
+        .innerJoin(branches, eq(staff.homeBranchId, branches.id))
         .where(eq(authSessions.id, input.currentAuthSessionId))
         .limit(1)
         .for("update");
       if (
         !current ||
         current.staffId !== input.currentStaffId ||
+        current.currentStaffId !== input.currentStaffId ||
+        current.currentStaffStatus !== "ACTIVE" ||
+        current.currentBranchStatus !== "ACTIVE" ||
+        current.currentHomeBranchId !== input.currentBranchId ||
         current.mode !== "FULL" ||
         current.revokedAt ||
         current.absoluteExpiresAt.getTime() <= input.occurredAt.getTime() ||
@@ -161,6 +181,12 @@ export class DrizzleDevStaffSwitchRepository implements DevStaffSwitchRepository
       if (!target || target.staffStatus !== "ACTIVE" || target.branchStatus !== "ACTIVE") {
         throw new DevStaffSwitchError("ไม่พบบัญชีพนักงานที่เปิดใช้งาน", 404);
       }
+
+      const signed = await input.sign({
+        id: target.id,
+        role: target.role,
+        homeBranchId: target.homeBranchId,
+      });
 
       const revoked = await tx
         .update(authSessions)
@@ -187,7 +213,7 @@ export class DrizzleDevStaffSwitchRepository implements DevStaffSwitchRepository
       });
       await writeAudit(tx, {
         actorStaffId: input.currentStaffId,
-        branchId: input.currentBranchId,
+        branchId: current.currentHomeBranchId,
         action: "DEV_STAFF_CONTEXT_CHANGED",
         entityType: "STAFF",
         entityId: target.id,
@@ -198,9 +224,12 @@ export class DrizzleDevStaffSwitchRepository implements DevStaffSwitchRepository
         },
       });
       return {
-        id: target.id,
-        role: target.role,
-        homeBranchId: target.homeBranchId,
+        target: {
+          id: target.id,
+          role: target.role,
+          homeBranchId: target.homeBranchId,
+        },
+        signed,
       };
     });
   }

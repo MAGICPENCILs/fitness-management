@@ -26,7 +26,7 @@ const GUARDED_IMPORTS = new Set([
   "@/lib/staff-service:setCurrentStaffCookie",
 ]);
 
-type ExportedMethod = { method: string; node: ts.Node };
+type ExportedMethod = { method: string; node: ts.Node | null };
 
 /** เดินหา route.ts แบบ deterministic เพื่อให้ API ใหม่ทุกระดับถูกตรวจเสมอ */
 function listRouteFiles(directory: string): string[] {
@@ -49,7 +49,7 @@ function isExported(node: ts.Node) {
   );
 }
 
-/** ใช้ TypeScript AST แยก handler จริง จึงรองรับ sync/async declaration และ const arrow โดยไม่ให้ guard ของ method ข้างเคียงปนกัน */
+/** ใช้ AST แยก direct export/local specifier และทำให้ HTTP re-export ที่ตรวจตัว handler ไม่ได้ถูกปฏิเสธโดยปริยาย */
 function exportedMethods(source: string, fileName = "route.ts"): ExportedMethod[] {
   const file = ts.createSourceFile(
     fileName,
@@ -59,6 +59,24 @@ function exportedMethods(source: string, fileName = "route.ts"): ExportedMethod[
     ts.ScriptKind.TS,
   );
   const methods: ExportedMethod[] = [];
+  const localHandlers = new Map<string, ts.Node>();
+  for (const statement of file.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      localHandlers.set(statement.name.text, statement.body);
+    }
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        ts.isIdentifier(declaration.name) &&
+        declaration.initializer &&
+        (ts.isArrowFunction(declaration.initializer) ||
+          ts.isFunctionExpression(declaration.initializer)) &&
+        ts.isBlock(declaration.initializer.body)
+      ) {
+        localHandlers.set(declaration.name.text, declaration.initializer.body);
+      }
+    }
+  }
   for (const statement of file.statements) {
     if (
       ts.isFunctionDeclaration(statement) &&
@@ -70,17 +88,32 @@ function exportedMethods(source: string, fileName = "route.ts"): ExportedMethod[
       methods.push({ method: statement.name.text, node: statement.body });
       continue;
     }
-    if (!ts.isVariableStatement(statement) || !isExported(statement)) continue;
-    for (const declaration of statement.declarationList.declarations) {
-      if (
-        ts.isIdentifier(declaration.name) &&
-        HTTP_METHODS.has(declaration.name.text) &&
-        declaration.initializer &&
-        (ts.isArrowFunction(declaration.initializer) ||
-          ts.isFunctionExpression(declaration.initializer)) &&
-        ts.isBlock(declaration.initializer.body)
-      ) {
-        methods.push({ method: declaration.name.text, node: declaration.initializer.body });
+    if (ts.isVariableStatement(statement) && isExported(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && HTTP_METHODS.has(declaration.name.text)) {
+          methods.push({
+            method: declaration.name.text,
+            node: localHandlers.get(declaration.name.text) ?? null,
+          });
+        }
+      }
+      continue;
+    }
+    if (
+      ts.isExportDeclaration(statement) &&
+      statement.exportClause &&
+      ts.isNamedExports(statement.exportClause)
+    ) {
+      for (const specifier of statement.exportClause.elements) {
+        const method = specifier.name.text;
+        if (!HTTP_METHODS.has(method)) continue;
+        const localName = specifier.propertyName?.text ?? specifier.name.text;
+        methods.push({
+          method,
+          node: statement.moduleSpecifier
+            ? null
+            : (localHandlers.get(localName) ?? null),
+        });
       }
     }
   }
@@ -114,9 +147,18 @@ function importProvenance(source: string, fileName: string) {
   return imports;
 }
 
-function callsGuard(node: ts.Node, provenance: Map<string, string>) {
+function callsGuard(node: ts.Node | null, provenance: Map<string, string>) {
+  if (!node) return false;
   let guarded = false;
   function visit(current: ts.Node) {
+    // guard ใน callback หรือฟังก์ชันย่อยที่ handler ไม่ได้เรียก ไม่ถือว่าป้องกัน request path
+    if (
+      current !== node &&
+      (ts.isFunctionDeclaration(current) ||
+        ts.isFunctionExpression(current) ||
+        ts.isArrowFunction(current) ||
+        ts.isMethodDeclaration(current))
+    ) return;
     if (
       ts.isCallExpression(current) &&
       ts.isIdentifier(current.expression) &&
@@ -142,6 +184,32 @@ describe("protected API inventory", () => {
       "OPTIONS",
       "POST",
     ]);
+  });
+
+  it("resolves separately declared local export specifiers and flags HTTP re-exports as unsupported", () => {
+    const local = `
+      import { requireFullSession } from "@/lib/auth/session-service";
+      const GET = async () => { await requireFullSession(); };
+      export { GET };
+    `;
+    expect(exportedMethods(local).map(({ method }) => method)).toEqual(["GET"]);
+    expect(callsGuard(exportedMethods(local)[0].node, importProvenance(local, "route.ts"))).toBe(true);
+
+    const reexport = `export { handler as POST } from "./handler";`;
+    expect(exportedMethods(reexport).map(({ method }) => method)).toEqual(["POST"]);
+    expect(callsGuard(exportedMethods(reexport)[0].node, new Map())).toBe(false);
+  });
+
+  it("does not accept a canonical guard hidden inside an uninvoked nested function", () => {
+    const source = `
+      import { requireFullSession } from "@/lib/auth/session-service";
+      export async function GET() {
+        async function dead() { await requireFullSession(); }
+        return Response.json({ ok: true });
+      }
+    `;
+    const [handler] = exportedMethods(source);
+    expect(callsGuard(handler.node, importProvenance(source, "route.ts"))).toBe(false);
   });
 
   it("keeps every Route Handler behind an authoritative canonical guard or explicit public allowlist", () => {
