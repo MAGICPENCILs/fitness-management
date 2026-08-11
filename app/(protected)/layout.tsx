@@ -43,8 +43,9 @@ export default async function ProtectedLayout({
         <Sidebar
           branches={branchContext.branches}
           currentBranchId={branchContext.current.id}
-          staff={staffContext.availableStaff}
-          currentStaffId={staffContext.staff.id}
+          currentStaff={staffContext.staff}
+          availableStaff={staffContext.availableStaff}
+          devSwitcherEnabled={staffContext.devSwitcherEnabled}
           permissions={staffContext.permissions}
         />
         <main id="main-content" tabIndex={-1} className="min-w-0 md:pl-64">

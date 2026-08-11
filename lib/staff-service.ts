@@ -96,6 +96,7 @@ export async function getStaffContext() {
     role: current.role,
     homeBranchId: current.homeBranchId,
   };
+  const devSwitcherEnabled = isDevStaffSwitcherEnabled();
   const [branchRows, availableStaff] = await Promise.all([
     actor.role === "OWNER"
       ? db
@@ -103,7 +104,7 @@ export async function getStaffContext() {
           .from(branches)
           .where(eq(branches.status, "ACTIVE"))
       : Promise.resolve([{ id: actor.homeBranchId }]),
-    isDevStaffSwitcherEnabled()
+    devSwitcherEnabled
       ? getActiveStaffRows()
       : Promise.resolve([]),
   ]);
@@ -124,6 +125,7 @@ export async function getStaffContext() {
       role: row.role,
       branchName: row.branchName,
     })),
+    devSwitcherEnabled,
     branchesAllowed:
       actor.role === "OWNER"
         ? branchRows.map((branch) => branch.id)

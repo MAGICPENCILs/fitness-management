@@ -38,6 +38,10 @@ import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BranchSwitcher } from "@/components/branch-switcher";
 import { StaffSwitcher } from "@/components/staff-switcher";
+import {
+  CurrentStaffMenu,
+  type CurrentStaffSummary,
+} from "@/components/auth/current-staff-menu";
 import type { Permission } from "@/lib/rbac";
 
 const menuItems = [
@@ -128,20 +132,22 @@ function Navigation({
 export function Sidebar({
   branches,
   currentBranchId,
-  staff,
-  currentStaffId,
+  currentStaff,
+  availableStaff,
+  devSwitcherEnabled,
   permissions,
 }: {
   branches: Array<{ id: number; code: string; name: string }>;
   currentBranchId: number;
-  staff: Array<{
+  currentStaff: CurrentStaffSummary & { id: number };
+  availableStaff: Array<{
     id: number;
     staffCode: string;
     displayName: string;
     role: "OWNER" | "MANAGER" | "COUNTER" | "TRAINER";
     branchName: string;
   }>;
-  currentStaffId: number;
+  devSwitcherEnabled: boolean;
   permissions: Record<Permission, boolean>;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -165,7 +171,14 @@ export function Sidebar({
             </DialogHeader>
             <div className="mt-2 min-h-0 flex-1 overflow-y-auto border-t pt-4">
               <div className="mb-4 space-y-4 rounded-xl border bg-card p-3 shadow-sm">
-                <StaffSwitcher staff={staff} currentStaffId={currentStaffId} />
+                <CurrentStaffMenu staff={currentStaff} />
+                {devSwitcherEnabled ? (
+                  <StaffSwitcher
+                    id="mobile-dev-staff-context"
+                    staff={availableStaff}
+                    currentStaffId={currentStaff.id}
+                  />
+                ) : null}
                 <BranchSwitcher branches={branches} currentBranchId={currentBranchId} />
               </div>
               <Navigation permissions={permissions} onNavigate={() => setMobileOpen(false)} />
@@ -181,7 +194,14 @@ export function Sidebar({
         </div>
         <div className="flex-1 overflow-y-auto p-3">
           <div className="mb-4 space-y-4 rounded-xl border bg-card p-3 shadow-sm">
-            <StaffSwitcher staff={staff} currentStaffId={currentStaffId} />
+            <CurrentStaffMenu staff={currentStaff} />
+            {devSwitcherEnabled ? (
+              <StaffSwitcher
+                id="desktop-dev-staff-context"
+                staff={availableStaff}
+                currentStaffId={currentStaff.id}
+              />
+            ) : null}
             <BranchSwitcher branches={branches} currentBranchId={currentBranchId} />
           </div>
           <p className="px-3 pb-2 pt-1 text-xs font-semibold text-muted-foreground">เมนูหลัก</p>
