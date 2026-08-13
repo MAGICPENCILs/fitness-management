@@ -1,6 +1,6 @@
 # Login and session security verification report
 
-Date: 2026-08-11
+Date: 2026-08-13
 
 Branch: `codex/login-session-security`
 
@@ -66,22 +66,24 @@ Owner bootstrap was **not run** because no real `BOOTSTRAP_OWNER_PASSWORD` was a
 
 ## Browser QA
 
-Authenticated browser QA was **not run**. Without an identified database target, authentication secrets, a securely supplied Owner password, and completed bootstrap, the required role/session/rate-limit scenarios could not be exercised without bypassing authentication or inventing credentials.
+Public browser QA was run on port `3005`, after which the development server was stopped and the port was confirmed free. The unauthenticated `/settings/security` request redirected to Login with a safe local return path, `/change-password` redirected unauthenticated users to Login, and the forbidden page rendered correctly. Login was checked in light and dark mode and at a 375-by-812 mobile viewport without horizontal overflow. The browser console contained no warnings or errors.
+
+Authenticated browser QA was **not run**. Without an identified database target, authentication secrets, a securely supplied Owner password, and completed bootstrap, the role/session/rate-limit scenarios could not be exercised without bypassing authentication or inventing credentials.
 
 The following port `3005` checks remain pending:
 
-1. protected-route redirect with a safe return path;
-2. five wrong-password attempts, account limiting, and audit creation;
-3. temporary Staff forced-password-change flow;
-4. Login/Logout cookie flags and session revocation;
-5. Counter/Manager/Owner Security visibility boundaries;
-6. session revoke and rate-limit clear actions;
-7. default-absent development switcher and unavailable production endpoint;
-8. Login, Change Password, and Security in light/dark, desktop/mobile, and keyboard modes, with credential/token-free console and server logs.
+1. five wrong-password attempts, account limiting, and audit creation;
+2. temporary Staff forced-password-change flow;
+3. Login/Logout cookie flags and session revocation;
+4. Counter/Manager/Owner Security visibility boundaries;
+5. session revoke and rate-limit clear actions;
+6. default-absent development switcher and unavailable production endpoint;
+7. authenticated Login, Change Password, and Security flows in light/dark, desktop/mobile, and keyboard modes, with credential/token-free server logs.
 
 ## Warnings and unresolved risks
 
 - The initial full suite had one load-sensitive timeout; two focused runs and the fresh complete 285-test rerun passed without any code change.
 - Next.js warned that multiple lockfiles caused it to infer `D:\Project\nextjs\fitness-management` as the workspace root and also detected the worktree lockfile.
 - Production typography now uses the existing CSS `"Inter", sans-serif` stack without a build-time Google Fonts request. Environments without a locally installed Inter font render their system sans-serif fallback.
+- Local WAMP MariaDB/MySQL services were detected but both were stopped. They were not started because no approved target or secure credentials were available.
 - Migration, data invariants, Owner bootstrap, authenticated browser QA, cookie flags, and audit evidence remain blocked on secure environment context.
