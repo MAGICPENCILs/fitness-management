@@ -5,10 +5,13 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ replace: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  routerReplace: vi.fn(),
+  locationReplace: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mocks.replace }),
+  useRouter: () => ({ replace: mocks.routerReplace }),
 }));
 
 import { LoginForm } from "@/components/auth/login-form";
@@ -18,7 +21,9 @@ afterEach(cleanup);
 describe("LoginForm", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    mocks.replace.mockReset();
+    mocks.routerReplace.mockReset();
+    mocks.locationReplace.mockReset();
+    vi.stubGlobal("location", { replace: mocks.locationReplace });
   });
 
   it("มี label, autocomplete, focus target และสถานะที่ screen reader รับรู้ได้", () => {
@@ -104,8 +109,11 @@ describe("LoginForm", () => {
       );
     });
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/members?tab=active"),
+      expect(mocks.locationReplace).toHaveBeenCalledWith(
+        "/members?tab=active",
+      ),
     );
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
 
   it("แสดง inline error พร้อมแนวทางแก้และเปิดให้ลองใหม่", async () => {

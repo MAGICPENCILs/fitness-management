@@ -2,7 +2,6 @@
 
 import { useState, type FormEvent } from "react";
 import { Dumbbell, Eye, EyeOff, LogIn } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 import { readAuthClientResponse } from "@/components/auth/auth-client-response";
 import { Button } from "@/components/ui/button";
@@ -11,9 +10,8 @@ import { Label } from "@/components/ui/label";
 
 const LOGIN_UNAVAILABLE_MESSAGE = "ไม่สามารถเข้าสู่ระบบได้ชั่วคราว";
 
-/** ส่ง credential ไปยัง Route Handler เท่านั้น และล้างสถานะรหัสผ่านเมื่อ request จบเพื่อไม่เก็บไว้นานเกินจำเป็น */
+/** ส่ง credential ไปยัง Route Handler เท่านั้น ล้างสถานะรหัสผ่าน และ reload เอกสารหลังสำเร็จเพื่อให้ request ถัดไปอ่าน session cookie ใหม่แน่นอน */
 export function LoginForm({ returnTo }: { returnTo: string }) {
-  const router = useRouter();
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -45,7 +43,7 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
       }
 
       form.reset();
-      router.replace(result.returnTo ?? "/");
+      globalThis.location.replace(result.returnTo ?? "/");
     } catch {
       form.reset();
       setError(LOGIN_UNAVAILABLE_MESSAGE);
