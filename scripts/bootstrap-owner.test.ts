@@ -1,3 +1,6 @@
+import { spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const database = vi.hoisted(() => {
@@ -239,5 +242,35 @@ describe("Owner bootstrap", () => {
     expect(output).not.toContain(hashSentinel);
     expect(stderr).toHaveBeenCalledWith("Owner bootstrap failed.");
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("CLI entrypoint โหลด server-only dependency ได้และคืน error แบบไม่เผยข้อมูล", () => {
+    const environment = { ...process.env };
+    delete environment.DATABASE_URL;
+    delete environment.BOOTSTRAP_OWNER_PASSWORD;
+    delete environment.BOOTSTRAP_OWNER_ROTATE;
+
+    const npmCli = join(
+      dirname(process.execPath),
+      "node_modules",
+      "npm",
+      "bin",
+      "npm-cli.js",
+    );
+    const result = spawnSync(
+      process.platform === "win32" ? process.execPath : "npm",
+      process.platform === "win32"
+        ? [npmCli, "run", "--silent", "auth:bootstrap-owner"]
+        : ["run", "--silent", "auth:bootstrap-owner"],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: environment,
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr.trim()).toBe("Owner bootstrap failed.");
   });
 });
