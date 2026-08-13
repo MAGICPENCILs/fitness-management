@@ -29,6 +29,21 @@ Verification port: `3005`
 
 The initial 60-second lint and build attempts were terminated with exit 124 and no verdict. The table records the later single fresh runs with realistic hard caps.
 
+### Final HEAD verification
+
+The following commands were run sequentially from `148dffe` with only this report modified:
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `.\node_modules\.bin\vitest.cmd run` | 1 | The first run passed 49/50 files and 286/287 tests; only the bootstrap CLI subprocess test exceeded Vitest's 5-second timeout under full-suite load. |
+| `.\node_modules\.bin\vitest.cmd run scripts/bootstrap-owner.test.ts --reporter=verbose` | 0 | Focused bootstrap verification passed 10/10 tests; the subprocess test completed in 2.596 seconds. No code change was made. |
+| `.\node_modules\.bin\vitest.cmd run` | 0 | Fresh complete rerun passed 50/50 files and 287/287 tests in 59.04 seconds. |
+| `.\node_modules\.bin\tsc.cmd --noEmit` | 0 | TypeScript emitted no diagnostics. |
+| `.\node_modules\.bin\eslint.cmd .` | 0 | Full lint completed with 0 errors and the same 4 warnings recorded below. |
+| `.\node_modules\.bin\next.cmd build` | 0 | Next.js 16.2.11 compiled successfully, completed TypeScript, and generated 55/55 pages. |
+
+The one initial test timeout was load-sensitive: the focused reproduction and subsequent full rerun both passed without a production or test change.
+
 ### Warnings recorded verbatim
 
 ```text
@@ -58,23 +73,27 @@ Post-migration Staff/member/payment counts remained 1/3/2 and binary-exact `OWNE
 
 ## Owner bootstrap
 
-Owner bootstrap was **not run** because `BOOTSTRAP_OWNER_PASSWORD` was absent. No password or user was invented or created. Login verification and the read-only check that the stored value is an Argon2id hash therefore remain pending.
+Owner bootstrap completed successfully against the verified `OWNER001` record. Aggregate postconditions confirmed exactly one binary-exact Owner, an Argon2id password hash, `must_change_password = false`, no active unrevoked Owner session after rotation, and one successful latest `PASSWORD_RESET` bootstrap audit with a null actor and the Owner's branch. No password, hash, session identifier, or row data was printed or recorded.
+
+`BOOTSTRAP_OWNER_PASSWORD` was removed from the ignored runtime environment after bootstrap and is absent from the current process. The bootstrap implementation is covered by focused tests for missing/weak passwords, exact Owner matching, explicit rotation, transactional revocation/audit behavior, rollback, and CLI environment propagation.
 
 ## Browser QA
 
 Public browser QA was run on port `3005`, after which the development server was stopped and the port was confirmed free. The unauthenticated `/settings/security` request redirected to Login with a safe local return path, `/change-password` redirected unauthenticated users to Login, and the forbidden page rendered correctly. Login was checked in light and dark mode and at a 375-by-812 mobile viewport without horizontal overflow. The browser console contained no warnings or errors.
 
-Authenticated browser QA was **not run**. Without authentication secrets, a securely supplied Owner password, and completed bootstrap, the role/session/rate-limit scenarios could not be exercised without bypassing authentication or inventing credentials.
+Owner Login was exercised while diagnosing an observed first-login redirect back to Login. Database aggregate evidence showed that the successful request created a `FULL` session and a successful `LOGIN_SUCCESS` audit, and that the session was neither immediately revoked nor expired. The Login form now performs a full document navigation after the Route Handler rotates the cookie so the next protected request reads the new cookie. The focused regression suite passed after a verified RED/GREEN cycle, and review of `f278e2e..148dffe` found no remaining issue.
+
+The follow-up manual browser result was not clear enough to establish that the first-login bounce is fixed end to end. The user approved proceeding with the unit/integration/review evidence and revisiting the issue if it recurs. Browser E2E is therefore **not** recorded as passed.
 
 The following port `3005` checks remain pending:
 
-1. five wrong-password attempts, account limiting, and audit creation;
+1. five wrong-password attempts, account limiting, audit creation, and the destructive rate-limit-clear action;
 2. temporary Staff forced-password-change flow;
-3. Login/Logout cookie flags and session revocation;
-4. Counter/Manager/Owner Security visibility boundaries;
-5. session revoke and rate-limit clear actions;
-6. default-absent development switcher and unavailable production endpoint;
-7. authenticated Login, Change Password, and Security flows in light/dark, desktop/mobile, and keyboard modes, with credential/token-free server logs.
+3. Counter and Manager Security visibility boundaries and a complete Owner visibility pass;
+4. destructive session-revoke action;
+5. authenticated Change Password and Security flows in light/dark, desktop/mobile, and keyboard modes.
+
+Only the Owner account existed for this QA. No Counter, Manager, or temporary Staff account was provisioned, and destructive rate-limit/session tests were not executed. Public unauthenticated QA remains valid. The development server was stopped after QA and port `3005` was confirmed free again during finalization.
 
 ## Warnings and unresolved risks
 
@@ -82,4 +101,15 @@ The following port `3005` checks remain pending:
 - Next.js warned that multiple lockfiles caused it to infer `D:\Project\nextjs\fitness-management` as the workspace root and also detected the worktree lockfile.
 - Production typography now uses the existing CSS `"Inter", sans-serif` stack without a build-time Google Fonts request. Environments without a locally installed Inter font render their system sans-serif fallback.
 - The Drizzle migration CLI did not exit on its own and had to be terminated after 180 seconds, although aggregate read-only post-state verification proved that `0010_auth_sessions` was fully applied. Operators should investigate why the CLI retained the process after successful migration.
-- Owner bootstrap, authenticated browser QA, cookie flags, and audit evidence remain blocked on secure bootstrap/authentication context.
+- The login-bounce change has unit/integration and clean review evidence, but its manual browser result remains inconclusive; revisit it if the symptom recurs.
+- Counter, Manager, temporary Staff, rate-limit, and destructive session scenarios remain unexecuted because only the Owner account existed for QA.
+
+## Task 11: first-login bounce diagnosis and fix
+
+The first Login request returned HTTP 200 and created a `FULL` session plus a successful `LOGIN_SUCCESS` audit. The session remained active and was not revoked. The immediately following protected render nevertheless raised an unauthenticated authorization error and returned the browser to Login. Later Login attempts remained active or were revoked by a normal Logout. These aggregate results rule out failed session persistence, immediate revocation, expiry, and duplicate-login invalidation as causes of the observed bounce.
+
+The Login form used App Router `router.replace()` immediately after the Route Handler set the session cookie. The protected transition could therefore consume client-router/RSC state that did not reliably observe the newly rotated cookie. The fix replaces that soft navigation with `globalThis.location.replace()` using the same server-sanitized relative return path. A full document request carries the new cookie while preserving replace-history behavior.
+
+The regression was developed with a verified RED/GREEN cycle. Before the production edit, the focused Login form suite failed 1/7 because hard navigation was never called. After the edit, the focused suite passed 7/7. Unit/integration evidence, the aggregate session/audit evidence above, and a clean review support the change. The manual browser result remains inconclusive and is not claimed as passing E2E evidence.
+
+No browser cookies, browser storage, passwords, token values, session IDs, hashes, staff data, database connection details, or raw IP addresses were inspected or recorded. Database diagnostics reported aggregate booleans and counts only.
