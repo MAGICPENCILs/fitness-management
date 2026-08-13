@@ -24,7 +24,7 @@ Verification port: `3005`
 | `npx.cmd tsc --noEmit` | 0 | TypeScript emitted no diagnostics. |
 | `.\node_modules\.bin\vitest.cmd run` | 0 | Fresh complete rerun passed 49/49 files and 285/285 tests in 59.17 seconds. |
 | `.\node_modules\.bin\eslint.cmd` | 0 | Fresh extended-cap run completed with 0 errors and 4 warnings. |
-| `.\node_modules\.bin\next.cmd build` | 1 | Turbopack failed because the restricted environment could not establish a connection to fetch Geist from Google Fonts. |
+| `.\node_modules\.bin\next.cmd build` | 0 | After replacing the build-time Google font loader with the existing CSS sans-serif stack, the production build compiled in 35.1 seconds, completed TypeScript in 58 seconds, and generated 55/55 pages in 109.6 seconds. |
 | `git diff --check` | 0 | No whitespace errors. Git warned that README LF will be replaced by CRLF in the working tree. |
 
 The initial 60-second lint and build attempts were terminated with exit 124 and no verdict. The table records the later single fresh runs with realistic hard caps.
@@ -38,14 +38,15 @@ db/schema/member-packages.ts:1:33  warning  'datetime' is defined but never used
 db/schema/members.ts:1:43  warning  'datetime' is defined but never used  @typescript-eslint/no-unused-vars
 ```
 
-Next.js build warning and error:
+Next.js build warning:
 
 ```text
 Warning: Next.js inferred your workspace root, but it may not be correct.
 We detected multiple lockfiles and selected D:\Project\nextjs\fitness-management\package-lock.json as the root directory.
 Detected additional lockfile: D:\Project\nextjs\fitness-management\.worktrees\login-session-security\package-lock.json
-Failed to fetch `Geist` from Google Fonts.
 ```
+
+The deterministic font regression `app/layout.test.ts` was developed with a verified RED/GREEN cycle. Before the layout edit it failed because `app/layout.tsx` imported `next/font/google`; after the surgical edit it passed 1/1 tests. The existing CSS semantic stack remains `"Inter", sans-serif`, so the build no longer needs a Google Fonts network request.
 
 ## Migration and database verification
 
@@ -82,5 +83,5 @@ The following port `3005` checks remain pending:
 
 - The initial full suite had one load-sensitive timeout; two focused runs and the fresh complete 285-test rerun passed without any code change.
 - Next.js warned that multiple lockfiles caused it to infer `D:\Project\nextjs\fitness-management` as the workspace root and also detected the worktree lockfile.
-- The production build remains unsuccessful because the restricted environment could not fetch Geist from Google Fonts.
+- Production typography now uses the existing CSS `"Inter", sans-serif` stack without a build-time Google Fonts request. Environments without a locally installed Inter font render their system sans-serif fallback.
 - Migration, data invariants, Owner bootstrap, authenticated browser QA, cookie flags, and audit evidence remain blocked on secure environment context.
