@@ -3,7 +3,10 @@ import "server-only";
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLogs, branches, staff } from "@/db/schema";
-import { sanitizeAuditMetadata } from "@/lib/audit-policy";
+import {
+  sanitizeAuditMetadata,
+  sanitizeAuditMetadataForRead,
+} from "@/lib/audit-policy";
 import type { ActorContext } from "@/lib/rbac";
 
 export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -11,12 +14,16 @@ export type DbExecutor = typeof db | DbTransaction;
 
 export type AuditEntry = {
   actorStaffId: number;
-  branchId: number;
+  branchId: number | null;
   action: string;
   entityType: string;
   entityId?: number;
   result: "SUCCESS" | "DENIED" | "FAILED";
   metadata?: Record<string, unknown>;
+};
+
+export type SystemAuditEntry = Omit<AuditEntry, "actorStaffId"> & {
+  actorStaffId: null;
 };
 
 export type AuditFilters = {
@@ -27,6 +34,21 @@ export type AuditFilters = {
   to?: Date;
   page: number;
   pageSize: number;
+};
+
+export type AuditDashboardSourceRow = {
+  id: number;
+  branchId: number | null;
+  branchName: string | null;
+  actorStaffId: number | null;
+  actorFirstName: string | null;
+  actorLastName: string | null;
+  action: string;
+  entityType: string;
+  entityId: number | null;
+  result: "SUCCESS" | "DENIED" | "FAILED";
+  metadata: Record<string, unknown> | null;
+  createdAt: Date | null;
 };
 
 type MutationAuditContext<T> = Omit<AuditEntry, "result"> & {
@@ -47,7 +69,10 @@ function getAuditErrorCode(error: unknown) {
 }
 
 /** เขียน audit ที่ผ่าน allowlist ด้วย executor เดียวกับข้อมูลธุรกิจ */
-export async function writeAudit(executor: DbExecutor, entry: AuditEntry) {
+export async function writeAudit(
+  executor: DbExecutor,
+  entry: AuditEntry | SystemAuditEntry,
+) {
   if (!AUDIT_NAME.test(entry.action) || !AUDIT_NAME.test(entry.entityType))
     throw new Error("audit action and entity type must be enum-like");
   await executor.insert(auditLogs).values({
@@ -104,13 +129,35 @@ export async function runAuditedMutation<T>(
   }
 }
 
+/** แปลง nullable audit join เป็น DTO ที่มีข้อความ unknown และ metadata ผ่าน read-time redaction */
+export function mapAuditDashboardRow(row: AuditDashboardSourceRow) {
+  const { actorFirstName, actorLastName, branchName, ...safeRow } = row;
+  return {
+    ...safeRow,
+    branchName: branchName ?? "ไม่ทราบสาขา",
+    actorName:
+      actorFirstName && actorLastName
+        ? `${actorFirstName} ${actorLastName}`.trim()
+        : "ไม่ทราบบัญชี",
+    metadata: sanitizeAuditMetadataForRead(row.metadata),
+    createdAt: row.createdAt?.toISOString() ?? null,
+  };
+}
+
+/** ให้ Owner เลือกสาขาหรืออ่าน global/null rows ได้ แต่บังคับ Manager อยู่สาขาหลักเพื่อกันข้ามขอบเขต */
+export function resolveAuditBranchScope(
+  actor: ActorContext,
+  requestedBranchId: number | undefined,
+) {
+  return actor.role === "OWNER" ? requestedBranchId : actor.homeBranchId;
+}
+
 /** คืน audit log แบบแบ่งหน้า โดยบังคับผู้ใช้ที่ไม่ใช่ Owner ให้เห็นเฉพาะสาขาหลักของตน */
 export async function getAuditDashboard(
   actor: ActorContext,
   filters: AuditFilters,
 ) {
-  const branchId =
-    actor.role === "OWNER" ? filters.branchId : actor.homeBranchId;
+  const branchId = resolveAuditBranchScope(actor, filters.branchId);
   const conditions = [
     branchId ? eq(auditLogs.branchId, branchId) : undefined,
     filters.action ? eq(auditLogs.action, filters.action) : undefined,
@@ -136,8 +183,8 @@ export async function getAuditDashboard(
         createdAt: auditLogs.createdAt,
       })
       .from(auditLogs)
-      .innerJoin(branches, eq(auditLogs.branchId, branches.id))
-      .innerJoin(staff, eq(auditLogs.actorStaffId, staff.id))
+      .leftJoin(branches, eq(auditLogs.branchId, branches.id))
+      .leftJoin(staff, eq(auditLogs.actorStaffId, staff.id))
       .where(where)
       .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
       .limit(filters.pageSize)
@@ -145,11 +192,7 @@ export async function getAuditDashboard(
     db.select({ count: sql<number>`count(*)` }).from(auditLogs).where(where),
   ]);
   return {
-    rows: rows.map(({ actorFirstName, actorLastName, ...row }) => ({
-      ...row,
-      actorName: `${actorFirstName} ${actorLastName}`.trim(),
-      createdAt: row.createdAt?.toISOString() ?? null,
-    })),
+    rows: rows.map(mapAuditDashboardRow),
     pagination: {
       page: filters.page,
       pageSize: filters.pageSize,

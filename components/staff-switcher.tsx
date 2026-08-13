@@ -32,9 +32,11 @@ type StaffOption = {
 export function StaffSwitcher({
   staff,
   currentStaffId,
+  id = "dev-staff-context",
 }: {
   staff: StaffOption[];
   currentStaffId: number;
+  id?: string;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -50,16 +52,10 @@ export function StaffSwitcher({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ staffId: Number(value) }),
       });
-      const result = (await response.json()) as { error?: string };
-      if (!response.ok)
-        throw new Error(result.error ?? "ไม่สามารถเปลี่ยนบัญชีพนักงานได้");
+      if (!response.ok) throw new Error("STAFF_SWITCH_FAILED");
       router.refresh();
-    } catch (changeError) {
-      setError(
-        changeError instanceof Error
-          ? `${changeError.message} กรุณาลองอีกครั้ง`
-          : "ไม่สามารถเปลี่ยนบัญชีพนักงานได้ กรุณาลองอีกครั้ง",
-      );
+    } catch {
+      setError("ไม่สามารถเปลี่ยนบัญชีพนักงานได้ กรุณาลองอีกครั้ง");
     } finally {
       setPending(false);
     }
@@ -67,8 +63,11 @@ export function StaffSwitcher({
 
   return (
     <div className="flex flex-col gap-2">
-      <label className="text-xs font-semibold text-muted-foreground" htmlFor="staff-context">
-        บัญชีพนักงานปัจจุบัน
+      <p className="rounded-lg border border-warning/40 bg-warning-surface px-3 py-2 text-xs font-semibold text-warning-foreground">
+        โหมดจำลอง Development
+      </p>
+      <label className="text-xs font-semibold text-muted-foreground" htmlFor={id}>
+        เปลี่ยนบัญชีจำลอง
       </label>
       <Select
         value={String(currentStaffId)}
@@ -76,9 +75,9 @@ export function StaffSwitcher({
         disabled={pending}
       >
         <SelectTrigger
-          id="staff-context"
+          id={id}
           className="w-full bg-background"
-          aria-label="เลือกบัญชีพนักงานปัจจุบัน"
+          aria-label="เลือกบัญชีพนักงานจำลอง"
         >
           <ShieldCheck aria-hidden="true" />
           <SelectValue />
@@ -105,8 +104,8 @@ export function StaffSwitcher({
         className={error ? "text-xs text-destructive" : "text-xs text-muted-foreground"}
       >
         {pending
-          ? "กำลังเปลี่ยนบัญชีพนักงาน..."
-          : error || "ใช้สำหรับทดสอบสิทธิ์ชั่วคราวก่อนมีหน้าเข้าสู่ระบบ"}
+          ? "กำลังเปลี่ยนบัญชีจำลอง..."
+          : error || "การเปลี่ยนบัญชีนี้ใช้สำหรับทดสอบใน Development เท่านั้น"}
       </p>
     </div>
   );

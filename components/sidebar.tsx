@@ -19,6 +19,7 @@ import {
   Menu,
   ScrollText,
   Settings,
+  ShieldAlert,
   ShieldCheck,
   Tag,
   UserCog,
@@ -38,6 +39,10 @@ import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BranchSwitcher } from "@/components/branch-switcher";
 import { StaffSwitcher } from "@/components/staff-switcher";
+import {
+  CurrentStaffMenu,
+  type CurrentStaffSummary,
+} from "@/components/auth/current-staff-menu";
 import type { Permission } from "@/lib/rbac";
 
 const menuItems = [
@@ -58,6 +63,7 @@ const menuItems = [
   { href: "/settings/staff", label: "บัญชีพนักงาน", icon: UserCog, requiredPermission: "staff.manage" },
   { href: "/settings/privacy", label: "PDPA และคำขอ", icon: ShieldCheck, requiredPermission: "privacy.request.create" },
   { href: "/settings/audit", label: "Audit log", icon: ScrollText, requiredPermission: "audit.read" },
+  { href: "/settings/security", label: "ความปลอดภัย", icon: ShieldAlert, requiredPermission: "auth.security.read" },
   { href: "/settings", label: "ตั้งค่าระบบ", icon: Settings, requiredPermission: "settings.manage" },
 ] satisfies Array<{
   href: string;
@@ -125,23 +131,26 @@ function Navigation({
   );
 }
 
+/** แสดง Staff ที่ยืนยันตัวตนแล้วเสมอ และเปิดตัวสลับ Staff เฉพาะ flag จาก server เพื่อไม่เผยรายชื่อหรือจำลองตัวตนในโหมดปกติ */
 export function Sidebar({
   branches,
   currentBranchId,
-  staff,
-  currentStaffId,
+  currentStaff,
+  availableStaff,
+  devSwitcherEnabled,
   permissions,
 }: {
   branches: Array<{ id: number; code: string; name: string }>;
   currentBranchId: number;
-  staff: Array<{
+  currentStaff: CurrentStaffSummary & { id: number };
+  availableStaff: Array<{
     id: number;
     staffCode: string;
     displayName: string;
     role: "OWNER" | "MANAGER" | "COUNTER" | "TRAINER";
     branchName: string;
   }>;
-  currentStaffId: number;
+  devSwitcherEnabled: boolean;
   permissions: Record<Permission, boolean>;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -165,7 +174,14 @@ export function Sidebar({
             </DialogHeader>
             <div className="mt-2 min-h-0 flex-1 overflow-y-auto border-t pt-4">
               <div className="mb-4 space-y-4 rounded-xl border bg-card p-3 shadow-sm">
-                <StaffSwitcher staff={staff} currentStaffId={currentStaffId} />
+                <CurrentStaffMenu staff={currentStaff} />
+                {devSwitcherEnabled ? (
+                  <StaffSwitcher
+                    id="mobile-dev-staff-context"
+                    staff={availableStaff}
+                    currentStaffId={currentStaff.id}
+                  />
+                ) : null}
                 <BranchSwitcher branches={branches} currentBranchId={currentBranchId} />
               </div>
               <Navigation permissions={permissions} onNavigate={() => setMobileOpen(false)} />
@@ -181,7 +197,14 @@ export function Sidebar({
         </div>
         <div className="flex-1 overflow-y-auto p-3">
           <div className="mb-4 space-y-4 rounded-xl border bg-card p-3 shadow-sm">
-            <StaffSwitcher staff={staff} currentStaffId={currentStaffId} />
+            <CurrentStaffMenu staff={currentStaff} />
+            {devSwitcherEnabled ? (
+              <StaffSwitcher
+                id="desktop-dev-staff-context"
+                staff={availableStaff}
+                currentStaffId={currentStaff.id}
+              />
+            ) : null}
             <BranchSwitcher branches={branches} currentBranchId={currentBranchId} />
           </div>
           <p className="px-3 pb-2 pt-1 text-xs font-semibold text-muted-foreground">เมนูหลัก</p>

@@ -10,6 +10,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL(".", import.meta.url)),
+      // Vitest อยู่นอก React Server Components จึงต้อง resolve marker แบบ server เพื่อทดสอบโมดูลฝั่ง server.
+      "server-only": fileURLToPath(
+        new URL("./node_modules/server-only/empty.js", import.meta.url),
+      ),
     },
   },
 });

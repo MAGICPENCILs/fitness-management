@@ -35,4 +35,14 @@ describe("audit metadata policy", () => {
       "metadata",
     );
   });
+
+  it("อนุญาต metadata แบบ enum-like สำหรับคำสั่ง security", () => {
+    expect(
+      sanitizeAuditMetadata({
+        source: "SECURITY_ADMIN",
+        scope: "ACCOUNT",
+        count: 2,
+      }),
+    ).toEqual({ source: "SECURITY_ADMIN", scope: "ACCOUNT", count: 2 });
+  });
 });

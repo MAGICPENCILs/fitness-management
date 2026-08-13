@@ -1,55 +1,27 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
-import { getBranchContext } from "@/lib/branch-service";
-import { getStaffContext } from "@/lib/staff-service";
-
-const geist = Geist({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Fitness Pro",
   description: "ระบบบริหารจัดการฟิตเนส",
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [branchContext, staffContext] = await Promise.all([
-    getBranchContext(),
-    getStaffContext(),
-  ]);
-
   return (
     <html lang="th" suppressHydrationWarning>
-      <body className={geist.className}>
+      <body>
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
         >
-          <a
-            href="#main-content"
-            className="fixed left-4 top-4 z-50 -translate-y-24 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground focus:translate-y-0"
-          >
-            ข้ามไปยังเนื้อหาหลัก
-          </a>
-          <div className="min-h-dvh bg-background">
-            <Sidebar
-              branches={branchContext.branches}
-              currentBranchId={branchContext.current.id}
-              staff={staffContext.availableStaff}
-              currentStaffId={staffContext.staff.id}
-              permissions={staffContext.permissions}
-            />
-            <main id="main-content" tabIndex={-1} className="min-w-0 md:pl-64">
-              {children}
-            </main>
-          </div>
+          {children}
         </ThemeProvider>
       </body>
     </html>

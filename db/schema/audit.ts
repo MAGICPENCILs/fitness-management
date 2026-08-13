@@ -14,11 +14,10 @@ export const auditLogs = mysqlTable(
   "audit_logs",
   {
     id: int("id").autoincrement().primaryKey(),
+    // อนุญาตให้ไม่ทราบ Staff และสาขาเฉพาะเหตุการณ์ก่อนยืนยันตัวตน ผู้ใช้ข้อมูลปลายทางจึงต้องรองรับ actor/branch ที่เป็น null
     branchId: int("branch_id")
-      .notNull()
       .references(() => branches.id),
     actorStaffId: int("actor_staff_id")
-      .notNull()
       .references(() => staff.id),
     action: varchar("action", { length: 100 }).notNull(),
     entityType: varchar("entity_type", { length: 60 }).notNull(),

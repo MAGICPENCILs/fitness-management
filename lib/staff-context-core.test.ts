@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   resolveStaffSelection,
   StaffContextError,
@@ -30,8 +31,10 @@ const rows: StaffSelectionRow[] = [
 ];
 
 describe("staff context selection", () => {
-  it("bootstrap ด้วย active Owner เมื่อยังไม่มี cookie", () => {
-    expect(resolveStaffSelection(rows, undefined).id).toBe(1);
+  it("ไม่ fallback เป็น Owner เมื่อไม่มี staff cookie", () => {
+    expect(() => resolveStaffSelection(rows, undefined)).toThrowError(
+      expect.objectContaining<Partial<StaffContextError>>({ status: 401 }),
+    );
   });
 
   it("เลือก active staff ตาม cookie", () => {
@@ -47,12 +50,6 @@ describe("staff context selection", () => {
   it("ไม่ fallback เป็น Owner เมื่อ cookie ไม่ใช่ staff id", () => {
     expect(() => resolveStaffSelection(rows, "abc")).toThrowError(
       expect.objectContaining<Partial<StaffContextError>>({ status: 401 }),
-    );
-  });
-
-  it("แจ้งระบบไม่พร้อมเมื่อไม่มี active Owner สำหรับ bootstrap", () => {
-    expect(() => resolveStaffSelection(rows.slice(1), undefined)).toThrowError(
-      expect.objectContaining<Partial<StaffContextError>>({ status: 503 }),
     );
   });
 });

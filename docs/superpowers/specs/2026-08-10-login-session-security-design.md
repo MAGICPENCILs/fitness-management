@@ -16,7 +16,7 @@
 - Function และ business rule ที่เพิ่มหรือแก้ต้องมี comment ภาษาไทยซึ่งอธิบายเหตุผล เงื่อนไขสำคัญ และผลข้างเคียง
 - ระบบ production ต้องทำงานหลัง trusted reverse proxy หากเปิด rate limit ตาม IP; application จะเชื่อ header ของ proxy เฉพาะเมื่อ configuration ระบุชัดเจน
 - ต้องกำหนด `AUTH_SESSION_SECRET`, `AUTH_FINGERPRINT_SECRET` และ `APP_ORIGIN` ใน production; ระบบ auth ต้อง fail closed หากค่าขาดหรือไม่ผ่านเกณฑ์ความยาว โดยห้าม fallback เป็นค่าใน source code
-- `TRUST_PROXY=true` ใช้ได้เฉพาะ deployment ที่ reverse proxy เป็นผู้เขียนและล้าง forwarded IP header ให้เชื่อถือได้
+- `TRUST_PROXY=true` ใช้ได้เฉพาะ deployment ที่ reverse proxy เป็นผู้เขียนและล้าง forwarded IP header ให้เชื่อถือได้; หากไม่ใช่ `true` ระบบต้องไม่สร้าง IP fingerprint หรือ IP rate-limit bucket และใช้เฉพาะ ACCOUNT limit
 - ไม่รวม self-registration, forgot-password ผ่านอีเมล, MFA, SSO, social login, cron cleanup และ device trust ในรอบนี้
 
 ## 3. แนวทางที่เลือก
@@ -133,7 +133,7 @@
 - Login สำเร็จล้าง ACCOUNT bucket แต่ไม่ล้าง IP bucket ทั้งหมด
 - เมื่อพ้น window โดยไม่ locked ให้เริ่ม counter ใหม่
 - เมื่อพ้น `locked_until` ให้ operation ถัดไปเริ่ม window ใหม่
-- หากไม่มี trusted proxy ให้ใช้ account limit ตามปกติและรวม request ใน origin fallback bucket; deployment checklist ต้องเตือนว่า IP protection ยังไม่แยก client
+- หากไม่มี trusted proxy ให้ใช้เฉพาะ ACCOUNT limit และต้องไม่สร้าง origin/global fallback bucket; deployment ที่ต้องการ IP protection ต้องเปิด `TRUST_PROXY=true` หลัง trusted reverse proxy เท่านั้น
 
 ### 6.3 Session validation
 

@@ -2,6 +2,8 @@ export type StaffRole = "OWNER" | "MANAGER" | "COUNTER" | "TRAINER";
 
 export type Permission =
   | "staff.manage"
+  | "auth.security.read"
+  | "auth.security.manage"
   | "privacy.consent.manage"
   | "privacy.request.create"
   | "privacy.request.approve"
@@ -22,6 +24,8 @@ export type ActorContext = {
 
 export const ALL_PERMISSIONS = [
   "staff.manage",
+  "auth.security.read",
+  "auth.security.manage",
   "privacy.consent.manage",
   "privacy.request.create",
   "privacy.request.approve",
@@ -39,6 +43,8 @@ const ROLE_PERMISSIONS: Record<StaffRole, readonly Permission[]> = {
   OWNER: ALL_PERMISSIONS,
   MANAGER: [
     "staff.manage",
+    "auth.security.read",
+    "auth.security.manage",
     "privacy.consent.manage",
     "privacy.request.create",
     "privacy.request.approve",

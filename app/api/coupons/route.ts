@@ -18,6 +18,8 @@ const couponSchema = z.object({
 /** โหลดรายการคูปองพร้อมข้อมูลโปรโมชันสำหรับหน้าจัดการคูปอง */
 export async function GET() {
   try {
+    const branchId = await getCurrentBranchId();
+    await requirePermission("payments.manage", branchId);
     const result = await db
       .select({
         id: couponCodes.id,
@@ -38,6 +40,8 @@ export async function GET() {
       .orderBy(desc(couponCodes.createdAt));
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     console.error(error);
     return NextResponse.json({ error: "ไม่สามารถโหลดคูปองได้" }, { status: 500 });
   }

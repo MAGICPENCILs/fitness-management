@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   int,
   mysqlEnum,
@@ -22,6 +23,12 @@ export const staff = mysqlTable(
       .notNull(),
     phone: varchar("phone", { length: 20 }),
     email: varchar("email", { length: 100 }),
+    // คง hash และเวลาที่เปลี่ยนรหัสผ่านเป็น nullable เพื่อให้ migration รองรับบัญชีเดิมที่ยัง bootstrap ไม่เสร็จ
+    passwordHash: varchar("password_hash", { length: 255 }),
+    passwordChangedAt: timestamp("password_changed_at"),
+    mustChangePassword: boolean("must_change_password")
+      .notNull()
+      .default(true),
     status: mysqlEnum("status", ["ACTIVE", "INACTIVE"])
       .notNull()
       .default("ACTIVE"),

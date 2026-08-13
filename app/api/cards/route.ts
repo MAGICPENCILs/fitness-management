@@ -15,9 +15,12 @@ const createCardSchema = z.object({
 export async function GET() {
   try {
     const branchId = await getCurrentBranchId();
+    await requirePermission("members.manage", branchId);
     const result = await db.select().from(cardPool).where(eq(cardPool.branchId, branchId));
     return NextResponse.json(result);
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: "Failed" }, { status: 500 });
   }
 }

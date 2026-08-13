@@ -13,12 +13,19 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const branchId = await getCurrentBranchId();
+    await requirePermission("members.manage", branchId);
 
     // ดึงข้อมูลสมาชิก
     const member = await db
       .select()
       .from(members)
-      .where(eq(members.id, Number(id)))
+      .where(
+        and(
+          eq(members.id, Number(id)),
+          eq(members.homeBranchId, branchId),
+        ),
+      )
       .limit(1);
 
     if (member.length === 0) {
@@ -44,7 +51,9 @@ export async function GET(
       ...member[0],
       packages: memberPkgs,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: "Failed to fetch member" }, { status: 500 });
   }
 }
