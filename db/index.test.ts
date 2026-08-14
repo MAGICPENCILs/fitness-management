@@ -35,13 +35,14 @@ describe("database adapter", () => {
     else process.env.DATABASE_URL = originalDatabaseUrl;
   });
 
-  it("uses a pool so concurrent Drizzle transactions lease independent connections", async () => {
+  it("uses UTC so Session TIMESTAMP values retain the same instant in every runtime", async () => {
     const { db } = await import("@/db");
 
     expect(adapter.createConnection).not.toHaveBeenCalled();
     expect(adapter.createPool).toHaveBeenCalledWith({
       uri: "mysql://user:secret@db.example/fitness",
       charset: "utf8mb4_unicode_ci",
+      timezone: "Z",
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0,
