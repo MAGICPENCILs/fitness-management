@@ -1,19 +1,20 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import {
   createEquipment,
-  EquipmentOperationError,
 } from "@/lib/equipment-service";
 import { createEquipmentSchema } from "@/lib/equipment-core";
 import { getCurrentBranchId } from "@/lib/branch-service";
 import { runAuditedMutation } from "@/lib/audit-service";
-import { AuthorizationError, requirePermission } from "@/lib/staff-service";
+import { requirePermission } from "@/lib/staff-service";
+import { assertTrustedOrigin } from "@/lib/auth/request-security";
+import { equipmentErrorResponse } from "@/lib/equipment-http";
 
-/** ตรวจข้อมูลทะเบียนอุปกรณ์และส่งให้ service คำนวณรอบบำรุงครั้งแรก */
+/** ตรวจ Origin และสิทธิ์ตามสาขาก่อนสร้างอุปกรณ์กับ Audit ใน transaction เดียวกัน */
 export async function POST(request: Request) {
   try {
+    assertTrustedOrigin(request);
     const branchId = await getCurrentBranchId();
-    const actor = await requirePermission("settings.manage", branchId, {
+    const actor = await requirePermission("equipment.manage", branchId, {
       action: "EQUIPMENT_CREATED",
       entityType: "EQUIPMENT",
     });
@@ -33,26 +34,10 @@ export async function POST(request: Request) {
       }, tx),
     );
     return NextResponse.json(
-      { message: "เพิ่มอุปกรณ์แล้ว", id },
+      { message: "เพิ่มอุปกรณ์แล้ว", id, version: 1 },
       { status: 201 },
     );
   } catch (error) {
-    if (error instanceof z.ZodError)
-      return NextResponse.json(
-        { error: error.issues[0]?.message ?? "ข้อมูลอุปกรณ์ไม่ถูกต้อง" },
-        { status: 400 },
-      );
-    if (error instanceof EquipmentOperationError)
-      return NextResponse.json(
-        { error: error.message },
-        { status: error.status },
-      );
-    if (error instanceof AuthorizationError)
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    console.error(error);
-    return NextResponse.json(
-      { error: "ไม่สามารถเพิ่มอุปกรณ์ได้" },
-      { status: 500 },
-    );
+    return equipmentErrorResponse(error);
   }
 }

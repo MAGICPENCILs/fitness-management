@@ -1,27 +1,28 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  EquipmentOperationError,
-  recordMaintenance,
-} from "@/lib/equipment-service";
+import { recordMaintenance } from "@/lib/equipment-service";
 import { maintenanceSchema } from "@/lib/equipment-core";
 import { getCurrentBranchId } from "@/lib/branch-service";
 import { runAuditedMutation } from "@/lib/audit-service";
-import { AuthorizationError, requirePermission } from "@/lib/staff-service";
+import { requirePermission } from "@/lib/staff-service";
+import { assertTrustedOrigin } from "@/lib/auth/request-security";
+import { equipmentErrorResponse } from "@/lib/equipment-http";
 
-/** บันทึกงานซ่อมหรือตรวจเช็ก และให้ service เปลี่ยนสถานะกับรอบถัดไปใน transaction เดียว */
+const idSchema = z.coerce.number().int().positive().max(2_147_483_647);
+
+/** บันทึกงานซ่อมพร้อม equipment version และใช้ maintenance id เป็น Audit entity ใน transaction เดียว */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    assertTrustedOrigin(request);
     const branchId = await getCurrentBranchId();
-    const actor = await requirePermission("settings.manage", branchId, {
+    const actor = await requirePermission("equipment.manage", branchId, {
       action: "MAINTENANCE_RECORDED",
       entityType: "MAINTENANCE",
     });
-    const { id } = await params;
-    const equipmentId = z.coerce.number().int().positive().parse(id);
+    const equipmentId = idSchema.parse((await params).id);
     const validated = maintenanceSchema.parse(await request.json());
     const result = await runAuditedMutation<{
       maintenanceId: number;
@@ -32,7 +33,10 @@ export async function POST(
         branchId,
         action: "MAINTENANCE_RECORDED",
         entityType: "MAINTENANCE",
-        metadata: { entityId: equipmentId, status: validated.status },
+        metadata: {
+          maintenanceType: validated.type,
+          maintenanceStatus: validated.status,
+        },
         success: (value) => ({ entityId: value.maintenanceId }),
       },
       (tx) => recordMaintenance(equipmentId, branchId, {
@@ -41,26 +45,14 @@ export async function POST(
       }, tx),
     );
     return NextResponse.json(
-      { message: "บันทึกงานบำรุงรักษาแล้ว", maintenanceId: result.maintenanceId },
+      {
+        message: "บันทึกงานบำรุงรักษาแล้ว",
+        id: result.maintenanceId,
+        version: result.equipmentVersion,
+      },
       { status: 201 },
     );
   } catch (error) {
-    if (error instanceof z.ZodError)
-      return NextResponse.json(
-        { error: error.issues[0]?.message ?? "ข้อมูลงานบำรุงไม่ถูกต้อง" },
-        { status: 400 },
-      );
-    if (error instanceof EquipmentOperationError)
-      return NextResponse.json(
-        { error: error.message },
-        { status: error.status },
-      );
-    if (error instanceof AuthorizationError)
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    console.error(error);
-    return NextResponse.json(
-      { error: "ไม่สามารถบันทึกงานบำรุงรักษาได้" },
-      { status: 500 },
-    );
+    return equipmentErrorResponse(error);
   }
 }
