@@ -2,19 +2,13 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { equipment, maintenanceRecords } from "@/db/schema";
 import { withTransaction, type DbTransaction } from "@/lib/audit-service";
-
-export type EquipmentCategory =
-  | "CARDIO"
-  | "STRENGTH"
-  | "FREE_WEIGHT"
-  | "ACCESSORY"
-  | "OTHER";
-export type EquipmentStatus =
-  | "OPERATIONAL"
-  | "MAINTENANCE"
-  | "OUT_OF_SERVICE";
-export type MaintenanceType = "INSPECTION" | "PREVENTIVE" | "REPAIR";
-export type MaintenanceStatus = "SCHEDULED" | "IN_PROGRESS" | "COMPLETED";
+import {
+  getMaintenanceState,
+  type EquipmentCategory,
+  type MaintenanceStatus,
+  type MaintenanceType,
+  type MutableEquipmentStatus,
+} from "@/lib/equipment-core";
 
 export class EquipmentOperationError extends Error {
   constructor(
@@ -24,44 +18,6 @@ export class EquipmentOperationError extends Error {
     super(message);
     this.name = "EquipmentOperationError";
   }
-}
-
-/** แปลงวันที่แบบ YYYY-MM-DD เป็นจำนวนวัน UTC เพื่อเทียบกำหนดโดยไม่ให้เขตเวลาของเครื่องทำให้วันเลื่อน */
-function dateToDayNumber(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000);
-}
-
-/** จัดระดับการแจ้งเตือนจากทั้งชั่วโมงและวันที่ โดยถือว่าเงื่อนไขที่เร่งด่วนกว่ามีลำดับสูงกว่า */
-function getMaintenanceState(
-  item: {
-    currentUsageHours: number;
-    nextMaintenanceHours: number | null;
-    nextMaintenanceDate: string | null;
-  },
-  today: string,
-) {
-  const remainingHours =
-    item.nextMaintenanceHours === null
-      ? null
-      : item.nextMaintenanceHours - item.currentUsageHours;
-  const remainingDays = item.nextMaintenanceDate
-    ? dateToDayNumber(item.nextMaintenanceDate) - dateToDayNumber(today)
-    : null;
-
-  if (
-    (remainingHours !== null && remainingHours < 0) ||
-    (remainingDays !== null && remainingDays < 0)
-  )
-    return { maintenanceState: "OVERDUE" as const, remainingHours, remainingDays };
-  if (
-    (remainingHours !== null && remainingHours <= 50) ||
-    (remainingDays !== null && remainingDays <= 7)
-  )
-    return { maintenanceState: "DUE_SOON" as const, remainingHours, remainingDays };
-  if (remainingHours !== null || remainingDays !== null)
-    return { maintenanceState: "SCHEDULED" as const, remainingHours, remainingDays };
-  return { maintenanceState: "NONE" as const, remainingHours, remainingDays };
 }
 
 /** โหลดทะเบียนพร้อมระดับแจ้งเตือนและประวัติล่าสุด เพื่อให้หน้าอุปกรณ์เปิดได้ด้วยข้อมูลจาก Server Component รอบเดียว */
@@ -153,16 +109,22 @@ export async function createEquipment(input: {
 export async function updateEquipmentOperation(
   equipmentId: number,
   branchId: number,
-  input: { currentUsageHours: number; status: EquipmentStatus },
+  input: { currentUsageHours: number; status: MutableEquipmentStatus },
   executor?: DbTransaction,
 ) {
   const database = executor ?? db;
   const [current] = await database
-    .select({ id: equipment.id, currentUsageHours: equipment.currentUsageHours })
+    .select({
+      id: equipment.id,
+      currentUsageHours: equipment.currentUsageHours,
+      status: equipment.status,
+    })
     .from(equipment)
     .where(and(eq(equipment.id, equipmentId), eq(equipment.branchId, branchId)))
     .limit(1);
   if (!current) throw new EquipmentOperationError("ไม่พบอุปกรณ์", 404);
+  if (current.status === "RETIRED")
+    throw new EquipmentOperationError("อุปกรณ์นี้เลิกใช้งานแล้ว", 409);
   if (input.currentUsageHours < current.currentUsageHours)
     throw new EquipmentOperationError(
       "ชั่วโมงใช้งานใหม่ต้องไม่น้อยกว่าค่าปัจจุบัน",

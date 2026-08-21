@@ -4,14 +4,10 @@ import {
   EquipmentOperationError,
   updateEquipmentOperation,
 } from "@/lib/equipment-service";
+import { updateEquipmentOperationSchema } from "@/lib/equipment-core";
 import { getCurrentBranchId } from "@/lib/branch-service";
 import { runAuditedMutation } from "@/lib/audit-service";
 import { AuthorizationError, requirePermission } from "@/lib/staff-service";
-
-const updateEquipmentSchema = z.object({
-  currentUsageHours: z.coerce.number().int().min(0).max(10_000_000),
-  status: z.enum(["OPERATIONAL", "MAINTENANCE", "OUT_OF_SERVICE"]),
-});
 
 /** อัปเดตชั่วโมงและสถานะจากการตรวจหน้างาน โดยให้ service ป้องกันค่ามิเตอร์ย้อนหลัง */
 export async function PATCH(
@@ -26,7 +22,7 @@ export async function PATCH(
     });
     const { id } = await params;
     const equipmentId = z.coerce.number().int().positive().parse(id);
-    const validated = updateEquipmentSchema.parse(await request.json());
+    const validated = updateEquipmentOperationSchema.parse(await request.json());
     await runAuditedMutation(
       {
         actorStaffId: actor.staffId,
