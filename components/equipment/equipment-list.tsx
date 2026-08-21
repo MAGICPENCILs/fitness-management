@@ -80,20 +80,44 @@ function MaintenanceBadge({ state }: { state: MaintenanceState }) {
   );
 }
 
-/** สรุปรอบบำรุงจากค่าที่ service คำนวณแล้ว โดยไม่คำนวณ threshold ซ้ำใน UI */
+/** ปิดการสื่อความเร่งด่วนเมื่อเลิกใช้งานแล้ว เพราะสถานะรอบเดิมไม่ใช่งานที่ต้องติดตามต่อ */
+function MaintenancePresentation({ item }: { item: EquipmentDto }) {
+  if (item.status === "RETIRED") {
+    return (
+      <Badge variant="outline">
+        <Archive aria-hidden="true" />
+        สิ้นสุดการใช้งาน
+      </Badge>
+    );
+  }
+  return <MaintenanceBadge state={item.maintenanceState} />;
+}
+
+/** แสดงทั้งมิติชั่วโมงและวันเพื่อไม่ให้ลำดับการ render บังเงื่อนไขที่เร่งด่วนกว่าซึ่ง service เลือกเป็นสถานะ */
 function getScheduleText(item: EquipmentDto) {
-  if (item.status === "RETIRED") return "สิ้นสุดการใช้งาน";
+  if (item.status === "RETIRED") return "ไม่มีรอบบำรุงเพิ่มเติม";
+  const dimensions: string[] = [];
   if (item.remainingHours !== null) {
     if (item.remainingHours < 0)
-      return `เกิน ${Math.abs(item.remainingHours).toLocaleString("th-TH")} ชม.`;
-    return `เหลือ ${item.remainingHours.toLocaleString("th-TH")} ชม.`;
+      dimensions.push(
+        `ชั่วโมง: เกิน ${Math.abs(item.remainingHours).toLocaleString("th-TH")} ชม.`,
+      );
+    else
+      dimensions.push(
+        `ชั่วโมง: เหลือ ${item.remainingHours.toLocaleString("th-TH")} ชม.`,
+      );
   }
   if (item.remainingDays !== null) {
     if (item.remainingDays < 0)
-      return `เกิน ${Math.abs(item.remainingDays).toLocaleString("th-TH")} วัน`;
-    return `เหลือ ${item.remainingDays.toLocaleString("th-TH")} วัน`;
+      dimensions.push(
+        `วันที่: เกิน ${Math.abs(item.remainingDays).toLocaleString("th-TH")} วัน`,
+      );
+    else
+      dimensions.push(
+        `วันที่: เหลือ ${item.remainingDays.toLocaleString("th-TH")} วัน`,
+      );
   }
-  return "ยังไม่กำหนดรอบ";
+  return dimensions.join(" · ") || "ยังไม่กำหนดรอบ";
 }
 
 function EquipmentEmptyState({
@@ -171,7 +195,7 @@ function EquipmentCard({ item }: { item: EquipmentDto }) {
           <div>
             <dt className="text-muted-foreground">สถานะรอบบำรุง</dt>
             <dd className="mt-1">
-              <MaintenanceBadge state={item.maintenanceState} />
+              <MaintenancePresentation item={item} />
             </dd>
           </div>
           <div>
@@ -248,7 +272,7 @@ export function EquipmentList({
                       {item.currentUsageHours.toLocaleString("th-TH")} ชม.
                     </TableCell>
                     <TableCell className="whitespace-normal">
-                      <MaintenanceBadge state={item.maintenanceState} />
+                      <MaintenancePresentation item={item} />
                       <p className="mt-2 text-xs text-muted-foreground">
                         {getScheduleText(item)}
                       </p>

@@ -70,9 +70,9 @@ const equipment: EquipmentDto[] = [
     nextMaintenanceDate: null,
     lastMaintenanceDate: "2026-07-01",
     note: "SECRET-BRANCH-METADATA",
-    maintenanceState: "NONE",
-    remainingHours: null,
-    remainingDays: null,
+    maintenanceState: "OVERDUE",
+    remainingHours: -10,
+    remainingDays: -1,
     createdAt: null,
     updatedAt: null,
   },
@@ -184,7 +184,30 @@ describe("equipment dashboard", () => {
     expect(container.querySelectorAll("svg[aria-hidden='true']").length).toBeGreaterThan(0);
   });
 
-  it("แสดง RETIRED อย่างปลอดภัยและไม่เปิด mutation controls แม้มีสิทธิ์จัดการ", () => {
+  it("แสดงทั้งมิติชั่วโมงและวันเมื่อวันที่เกินกำหนดแต่ชั่วโมงยังเหลือ", () => {
+    const mixedThresholdItem = {
+      ...equipment[0],
+      maintenanceState: "OVERDUE" as const,
+      remainingHours: 100,
+      remainingDays: -1,
+    };
+    render(
+      <EquipmentDashboard
+        {...dashboard}
+        equipment={[mixedThresholdItem]}
+        equipmentPagination={{ page: 1, pageSize: 20, total: 1, totalPages: 1 }}
+        filters={filters}
+        today="2026-08-21"
+        canManage={false}
+      />,
+    );
+
+    expect(
+      screen.getAllByText("ชั่วโมง: เหลือ 100 ชม. · วันที่: เกิน 1 วัน"),
+    ).toHaveLength(2);
+  });
+
+  it("แสดง RETIRED โดยไม่แสดงความเร่งด่วนบำรุงทั้ง table และ mobile card", () => {
     render(
       <EquipmentDashboard
         {...dashboard}
@@ -195,6 +218,26 @@ describe("equipment dashboard", () => {
     );
 
     expect(screen.getAllByText("เลิกใช้งาน")).not.toHaveLength(0);
+    const retiredTableRow = within(
+      screen.getByRole("table", { name: "ทะเบียนอุปกรณ์ในหน้าปัจจุบัน" }),
+    )
+      .getByText("RET-008")
+      .closest("tr");
+    const retiredMobileCard = within(
+      screen.getByRole("list", { name: "ทะเบียนอุปกรณ์สำหรับมือถือ" }),
+    )
+      .getByText("RET-008")
+      .closest("article");
+    expect(retiredTableRow).not.toBeNull();
+    expect(retiredMobileCard).not.toBeNull();
+    expect(
+      within(retiredTableRow!).queryByText("เกินกำหนด"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(retiredMobileCard!).queryByText("เกินกำหนด"),
+    ).not.toBeInTheDocument();
+    expect(within(retiredTableRow!).getByText("สิ้นสุดการใช้งาน")).toBeVisible();
+    expect(within(retiredMobileCard!).getByText("สิ้นสุดการใช้งาน")).toBeVisible();
     expect(screen.queryByText("PRIVATE-RETIREMENT-REASON")).not.toBeInTheDocument();
     expect(screen.queryByText("INTERNAL-NOTE-DO-NOT-RENDER")).not.toBeInTheDocument();
     expect(screen.queryByText("SECRET-BRANCH-METADATA")).not.toBeInTheDocument();
