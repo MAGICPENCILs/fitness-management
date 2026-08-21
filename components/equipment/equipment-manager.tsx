@@ -49,7 +49,16 @@ type EquipmentCategory =
   | "FREE_WEIGHT"
   | "ACCESSORY"
   | "OTHER";
-type EquipmentStatus = "OPERATIONAL" | "MAINTENANCE" | "OUT_OF_SERVICE";
+type EquipmentReadStatus =
+  | "OPERATIONAL"
+  | "MAINTENANCE"
+  | "OUT_OF_SERVICE"
+  | "RETIRED";
+// แยกสถานะที่อ่านได้ออกจากสถานะปฏิบัติการ เพื่อไม่ให้การแสดงข้อมูลเปิดทางเลิกใช้หรือคืนสถานะโดยไม่มีขั้นตอน retirement.
+type EquipmentOperationStatus =
+  | "OPERATIONAL"
+  | "MAINTENANCE"
+  | "OUT_OF_SERVICE";
 type MaintenanceState = "OVERDUE" | "DUE_SOON" | "SCHEDULED" | "NONE";
 type MaintenanceType = "INSPECTION" | "PREVENTIVE" | "REPAIR";
 type MaintenanceStatus = "SCHEDULED" | "IN_PROGRESS" | "COMPLETED";
@@ -61,7 +70,7 @@ type EquipmentItem = {
   category: EquipmentCategory;
   location: string;
   serialNumber: string | null;
-  status: EquipmentStatus;
+  status: EquipmentReadStatus;
   purchaseDate: string | null;
   warrantyEndDate: string | null;
   currentUsageHours: number;
@@ -100,10 +109,11 @@ const categoryLabels: Record<EquipmentCategory, string> = {
   ACCESSORY: "อุปกรณ์เสริม",
   OTHER: "อื่น ๆ",
 };
-const statusLabels: Record<EquipmentStatus, string> = {
+const statusLabels: Record<EquipmentReadStatus, string> = {
   OPERATIONAL: "พร้อมใช้งาน",
   MAINTENANCE: "กำลังบำรุง",
   OUT_OF_SERVICE: "งดใช้งาน",
+  RETIRED: "เลิกใช้งาน",
 };
 const maintenanceTypeLabels: Record<MaintenanceType, string> = {
   INSPECTION: "ตรวจสภาพ",
@@ -191,7 +201,7 @@ export function EquipmentManager({
   });
   const [operationForm, setOperationForm] = useState({
     currentUsageHours: "0",
-    status: "OPERATIONAL" as EquipmentStatus,
+    status: "OPERATIONAL" as EquipmentOperationStatus,
   });
   const [maintenanceForm, setMaintenanceForm] = useState({
     type: "PREVENTIVE" as MaintenanceType,
@@ -228,8 +238,9 @@ export function EquipmentManager({
     });
   }, [equipment, search, statusFilter]);
 
-  /** เปิดฟอร์มอัปเดตพร้อมเติมค่าล่าสุดจากอุปกรณ์ที่เลือก */
+  /** เปิดฟอร์มอัปเดตเฉพาะอุปกรณ์ที่ยังปฏิบัติการได้ เพื่อไม่ให้เปลี่ยนสถานะเลิกใช้งานโดยข้ามขั้นตอน retirement */
   const openOperation = (item: EquipmentItem) => {
+    if (item.status === "RETIRED") return;
     setOperationItem(item);
     setOperationForm({
       currentUsageHours: String(item.currentUsageHours),
@@ -466,8 +477,10 @@ export function EquipmentManager({
                   <div><p className="text-muted-foreground">รอบถัดไป</p><p className="mt-1 font-semibold">{getScheduleText(item)}</p></div>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" onClick={() => openOperation(item)}><Gauge data-icon="inline-start" aria-hidden="true" />อัปเดตมิเตอร์</Button>
-                  <Button size="sm" onClick={() => openMaintenance(item)}><Wrench data-icon="inline-start" aria-hidden="true" />บันทึกงานบำรุง</Button>
+                  {item.status !== "RETIRED" && <>
+                    <Button variant="outline" size="sm" onClick={() => openOperation(item)}><Gauge data-icon="inline-start" aria-hidden="true" />อัปเดตมิเตอร์</Button>
+                    <Button size="sm" onClick={() => openMaintenance(item)}><Wrench data-icon="inline-start" aria-hidden="true" />บันทึกงานบำรุง</Button>
+                  </>}
                 </div>
               </article>
             ))}
@@ -526,7 +539,7 @@ export function EquipmentManager({
           <DialogHeader><DialogTitle>อัปเดตมิเตอร์และสถานะ</DialogTitle><DialogDescription>{operationItem?.code} · {operationItem?.name}</DialogDescription></DialogHeader>
           <form onSubmit={handleOperation} className="space-y-4">
             <div className="space-y-2"><Label htmlFor="operation-hours">ชั่วโมงใช้งานสะสม</Label><Input id="operation-hours" type="number" min={operationItem?.currentUsageHours ?? 0} step="1" required value={operationForm.currentUsageHours} onChange={(event) => setOperationForm((current) => ({ ...current, currentUsageHours: event.target.value }))} /><p className="text-xs text-muted-foreground">ค่าต้องไม่น้อยกว่า {(operationItem?.currentUsageHours ?? 0).toLocaleString("th-TH")} ชั่วโมง</p></div>
-            <div className="space-y-2"><Label>สถานะหน้างาน</Label><Select value={operationForm.status} onValueChange={(value: EquipmentStatus) => setOperationForm((current) => ({ ...current, status: value }))}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{Object.entries(statusLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select></div>
+            <div className="space-y-2"><Label>สถานะหน้างาน</Label><Select value={operationForm.status} onValueChange={(value: EquipmentOperationStatus) => setOperationForm((current) => ({ ...current, status: value }))}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{Object.entries(statusLabels).filter(([value]) => value !== "RETIRED").map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent></Select></div>
             <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setOperationItem(null)} disabled={busy}>ยกเลิก</Button><Button type="submit" disabled={busy}>{busy ? "กำลังบันทึก..." : "บันทึกการเปลี่ยนแปลง"}</Button></div>
           </form>
         </DialogContent>
