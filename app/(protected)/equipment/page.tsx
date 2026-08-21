@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { EquipmentManager } from "@/components/equipment/equipment-manager";
-import { getEquipmentDashboard } from "@/lib/equipment-service";
+import {
+  getEquipmentDashboard,
+  parseEquipmentDashboardFilters,
+  type EquipmentSearchParams,
+} from "@/lib/equipment-service";
 import { getCurrentBranchId } from "@/lib/branch-service";
 import { hasPermission } from "@/lib/rbac";
 import { requirePermission } from "@/lib/staff-service";
@@ -23,13 +27,18 @@ function getBangkokToday() {
   }).format(new Date());
 }
 
-/** ตรวจสิทธิ์อ่านจากสาขาที่เลือกก่อนโหลดข้อมูล และส่งสิทธิ์จัดการให้ UI ซ่อน mutation ของผู้มีสิทธิ์อ่านอย่างเดียว */
-export default async function EquipmentPage() {
+/** ตรวจสิทธิ์อ่านจากสาขาที่เลือก แล้ว parse async searchParams เป็น allowlist ก่อนโหลดข้อมูลแบบแบ่งหน้าจาก server */
+export default async function EquipmentPage({
+  searchParams,
+}: {
+  searchParams: Promise<EquipmentSearchParams>;
+}) {
   const today = getBangkokToday();
   const branchId = await getCurrentBranchId();
   const actor = await requirePermission("equipment.read", branchId);
   const canManage = hasPermission(actor, "equipment.manage", branchId);
-  const dashboard = await getEquipmentDashboard(today, branchId);
+  const filters = parseEquipmentDashboardFilters(await searchParams);
+  const dashboard = await getEquipmentDashboard(today, branchId, filters);
 
   return (
     <div className="w-full max-w-7xl space-y-8 p-4 sm:p-6 lg:p-8">
