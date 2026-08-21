@@ -31,9 +31,15 @@ export const equipment = mysqlTable(
       "OPERATIONAL",
       "MAINTENANCE",
       "OUT_OF_SERVICE",
+      "RETIRED",
     ])
       .notNull()
       .default("OPERATIONAL"),
+    // เก็บเวลาและเหตุผลเพื่อคงประวัติเมื่อเลิกใช้อุปกรณ์ แทนการลบแถวข้อมูลเดิม.
+    retiredAt: timestamp("retired_at"),
+    retiredReason: varchar("retired_reason", { length: 500 }),
+    // ใช้ตรวจจับการแก้ไขข้อมูลชนกันในขั้นตอนจัดการอุปกรณ์ถัดไป.
+    version: int("version").notNull().default(1),
     purchaseDate: date("purchase_date", { mode: "string" }),
     warrantyEndDate: date("warranty_end_date", { mode: "string" }),
     currentUsageHours: int("current_usage_hours").notNull().default(0),
@@ -49,6 +55,12 @@ export const equipment = mysqlTable(
     index("equipment_status_idx").on(table.status),
     index("equipment_category_idx").on(table.category),
     index("equipment_next_maintenance_date_idx").on(table.nextMaintenanceDate),
+    index("equipment_branch_status_idx").on(table.branchId, table.status),
+    index("equipment_branch_category_idx").on(table.branchId, table.category),
+    index("equipment_branch_next_maintenance_date_idx").on(
+      table.branchId,
+      table.nextMaintenanceDate,
+    ),
   ],
 );
 

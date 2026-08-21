@@ -78,6 +78,13 @@
       "when": 1786344623116,
       "tag": "0010_auth_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1787285590155,
+      "tag": "0011_equipment_production_ready",
+      "breakpoints": true
     }
   ]
 }
