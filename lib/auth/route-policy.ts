@@ -20,7 +20,7 @@ const PAGE_POLICIES = [
   ["/settings", "settings.manage"],
   ["/personal-training", "pt.manage"],
   ["/accounting", "accounting.manage"],
-  ["/equipment", "settings.manage"],
+  ["/equipment", "equipment.read"],
   ["/payments", "payments.manage"],
   ["/lockers", "access.manage"],
   ["/reports", "audit.read"],

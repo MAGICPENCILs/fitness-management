@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { EquipmentManager } from "@/components/equipment/equipment-manager";
 import { getEquipmentDashboard } from "@/lib/equipment-service";
 import { getCurrentBranchId } from "@/lib/branch-service";
+import { hasPermission } from "@/lib/rbac";
+import { requirePermission } from "@/lib/staff-service";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +23,13 @@ function getBangkokToday() {
   }).format(new Date());
 }
 
-/** โหลดทะเบียนและประวัติจากฝั่งเซิร์ฟเวอร์ก่อนส่งข้อมูลที่ serializable ให้หน้าจอจัดการ */
+/** ตรวจสิทธิ์อ่านจากสาขาที่เลือกก่อนโหลดข้อมูล และส่งสิทธิ์จัดการให้ UI ซ่อน mutation ของผู้มีสิทธิ์อ่านอย่างเดียว */
 export default async function EquipmentPage() {
   const today = getBangkokToday();
-  const dashboard = await getEquipmentDashboard(today, await getCurrentBranchId());
+  const branchId = await getCurrentBranchId();
+  const actor = await requirePermission("equipment.read", branchId);
+  const canManage = hasPermission(actor, "equipment.manage", branchId);
+  const dashboard = await getEquipmentDashboard(today, branchId);
 
   return (
     <div className="w-full max-w-7xl space-y-8 p-4 sm:p-6 lg:p-8">
@@ -40,7 +45,7 @@ export default async function EquipmentPage() {
           พร้อมประวัติงานที่ตรวจสอบย้อนหลังได้
         </p>
       </header>
-      <EquipmentManager {...dashboard} today={today} />
+      <EquipmentManager {...dashboard} today={today} canManage={canManage} />
     </div>
   );
 }

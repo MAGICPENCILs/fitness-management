@@ -64,6 +64,12 @@ describe("auth route policy", () => {
     });
   });
 
+  it("allows Counter to open the equipment page", () => {
+    expect(decideRouteAccess("/equipment", claims("COUNTER"))).toEqual({
+      type: "ALLOW",
+    });
+  });
+
   it.each([
     ["/settings/promotions", "COUNTER", "ALLOW"],
     ["/settings/privacy", "COUNTER", "ALLOW"],

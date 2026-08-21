@@ -13,6 +13,7 @@ afterEach(() => cleanup());
 it("แสดงอุปกรณ์ที่เลิกใช้งานโดยไม่เปิดให้ทำรายการปฏิบัติการ", () => {
   render(
     <EquipmentManager
+      canManage={false}
       today="2026-08-21"
       history={[]}
       equipment={[
@@ -46,4 +47,80 @@ it("แสดงอุปกรณ์ที่เลิกใช้งานโ�
   expect(
     screen.queryByRole("button", { name: "อัปเดตมิเตอร์" }),
   ).not.toBeInTheDocument();
+});
+
+it("ซ่อนทุกปุ่มเปลี่ยนข้อมูลเมื่อผู้ใช้มีสิทธิ์อ่านอย่างเดียว", () => {
+  render(
+    <EquipmentManager
+      canManage={false}
+      today="2026-08-21"
+      history={[]}
+      equipment={[
+        {
+          id: 1,
+          code: "EQ-001",
+          name: "ลู่วิ่ง",
+          category: "CARDIO",
+          location: "ชั้น 1",
+          serialNumber: null,
+          status: "OPERATIONAL",
+          purchaseDate: null,
+          warrantyEndDate: null,
+          currentUsageHours: 0,
+          maintenanceIntervalHours: null,
+          nextMaintenanceHours: null,
+          nextMaintenanceDate: null,
+          lastMaintenanceDate: null,
+          note: null,
+          maintenanceState: "NONE",
+          remainingHours: null,
+          remainingDays: null,
+          createdAt: null,
+          updatedAt: null,
+        },
+      ]}
+    />,
+  );
+
+  expect(screen.queryByRole("button", { name: "เพิ่มอุปกรณ์" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "อัปเดตมิเตอร์" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "บันทึกงานบำรุง" })).not.toBeInTheDocument();
+});
+
+it("คงปุ่มเปลี่ยนข้อมูลไว้เมื่อผู้ใช้มีสิทธิ์จัดการ", () => {
+  render(
+    <EquipmentManager
+      canManage
+      today="2026-08-21"
+      history={[]}
+      equipment={[
+        {
+          id: 1,
+          code: "EQ-001",
+          name: "ลู่วิ่ง",
+          category: "CARDIO",
+          location: "ชั้น 1",
+          serialNumber: null,
+          status: "OPERATIONAL",
+          purchaseDate: null,
+          warrantyEndDate: null,
+          currentUsageHours: 0,
+          maintenanceIntervalHours: null,
+          nextMaintenanceHours: null,
+          nextMaintenanceDate: null,
+          lastMaintenanceDate: null,
+          note: null,
+          maintenanceState: "NONE",
+          remainingHours: null,
+          remainingDays: null,
+          createdAt: null,
+          updatedAt: null,
+        },
+      ]}
+    />,
+  );
+
+  expect(screen.getByRole("button", { name: "เพิ่มอุปกรณ์" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "อัปเดตมิเตอร์" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "บันทึกงานบำรุง" })).toBeInTheDocument();
 });

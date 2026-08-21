@@ -14,7 +14,9 @@ export type Permission =
   | "classes.manage"
   | "pt.manage"
   | "accounting.manage"
-  | "settings.manage";
+  | "settings.manage"
+  | "equipment.read"
+  | "equipment.manage";
 
 export type ActorContext = {
   staffId: number;
@@ -37,6 +39,8 @@ export const ALL_PERMISSIONS = [
   "pt.manage",
   "accounting.manage",
   "settings.manage",
+  "equipment.read",
+  "equipment.manage",
 ] as const satisfies readonly Permission[];
 
 const ROLE_PERMISSIONS: Record<StaffRole, readonly Permission[]> = {
@@ -56,6 +60,8 @@ const ROLE_PERMISSIONS: Record<StaffRole, readonly Permission[]> = {
     "pt.manage",
     "accounting.manage",
     "settings.manage",
+    "equipment.read",
+    "equipment.manage",
   ],
   COUNTER: [
     "privacy.consent.manage",
@@ -65,8 +71,9 @@ const ROLE_PERMISSIONS: Record<StaffRole, readonly Permission[]> = {
     "access.manage",
     "classes.manage",
     "pt.manage",
+    "equipment.read",
   ],
-  TRAINER: ["classes.manage", "pt.manage"],
+  TRAINER: ["classes.manage", "pt.manage", "equipment.read"],
 };
 
 /** ตรวจสิทธิ์ตามบทบาทและจำกัดสาขาสำหรับพนักงานที่ไม่ใช่ Owner */

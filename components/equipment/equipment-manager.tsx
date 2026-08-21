@@ -165,12 +165,14 @@ function getScheduleText(item: EquipmentItem) {
   return details.join(" · ") || "ยังไม่กำหนดรอบ";
 }
 
-/** รวมทะเบียน มิเตอร์ งานซ่อม และประวัติไว้ในหน้าปฏิบัติการเดียว */
+/** รวมทะเบียน มิเตอร์ งานซ่อม และประวัติไว้ในหน้าปฏิบัติการเดียว โดยซ่อนจุดเปลี่ยนข้อมูลเมื่อ server ยืนยันว่าอ่านได้อย่างเดียว */
 export function EquipmentManager({
+  canManage,
   equipment,
   history,
   today,
 }: {
+  canManage: boolean;
   equipment: EquipmentItem[];
   history: MaintenanceHistory[];
   today: string;
@@ -439,10 +441,10 @@ export function EquipmentManager({
             <h2 className="text-lg font-semibold">ทะเบียนอุปกรณ์</h2>
             <p className="text-sm text-muted-foreground">ค้นหา อัปเดตมิเตอร์ และเปิดงานบำรุงจากรายการด้านล่าง</p>
           </div>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus data-icon="inline-start" aria-hidden="true" />
-            เพิ่มอุปกรณ์
-          </Button>
+          {canManage && <Button onClick={() => setCreateOpen(true)}>
+              <Plus data-icon="inline-start" aria-hidden="true" />
+              เพิ่มอุปกรณ์
+            </Button>}
         </div>
         <div className="grid gap-3 border-b p-4 sm:grid-cols-[minmax(0,1fr)_13rem]">
           <div className="relative">
@@ -477,7 +479,7 @@ export function EquipmentManager({
                   <div><p className="text-muted-foreground">รอบถัดไป</p><p className="mt-1 font-semibold">{getScheduleText(item)}</p></div>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {item.status !== "RETIRED" && <>
+                  {canManage && item.status !== "RETIRED" && <>
                     <Button variant="outline" size="sm" onClick={() => openOperation(item)}><Gauge data-icon="inline-start" aria-hidden="true" />อัปเดตมิเตอร์</Button>
                     <Button size="sm" onClick={() => openMaintenance(item)}><Wrench data-icon="inline-start" aria-hidden="true" />บันทึกงานบำรุง</Button>
                   </>}
