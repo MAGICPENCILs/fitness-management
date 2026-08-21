@@ -513,6 +513,92 @@ describe("equipment API routes", () => {
     for (const sentinel of sentinels) expect(observable).not.toContain(sentinel);
   });
 
+  it("unknown error name ที่มี newline/secret ถูกลดเป็น UNKNOWN_ERROR ก่อนเขียน log", async () => {
+    const sentinels = [
+      "TOKEN-NAME-SECRET",
+      "HASH-NAME-SECRET",
+      "203.0.113.88",
+    ];
+    const error = new Error("รายละเอียดภายใน");
+    error.name = `DrizzleQueryError\n${sentinels.join("|")}`;
+    mocks.getEquipmentDetail.mockRejectedValueOnce(error);
+
+    const response = await callRoute(
+      loadDetailRoute,
+      "GET",
+      new Request(`${APP_ORIGIN}/api/equipment/7?historyPage=1`),
+      params("7"),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body).toEqual({ error: "ไม่สามารถดำเนินการกับอุปกรณ์ได้" });
+    expect(console.error).toHaveBeenCalledWith(
+      "Equipment route unavailable",
+      "UNKNOWN_ERROR",
+    );
+    const observable = JSON.stringify({
+      body,
+      logs: vi.mocked(console.error).mock.calls,
+    });
+    for (const sentinel of sentinels) expect(observable).not.toContain(sentinel);
+  });
+
+  it("unknown Error ที่ name getter โยน error ยังตอบ generic 500 โดยไม่สะท้อน getter", async () => {
+    const error = new Error("รายละเอียดภายใน");
+    Object.defineProperty(error, "name", {
+      get() {
+        throw new Error("NAME-GETTER-TOKEN-SECRET");
+      },
+    });
+    mocks.getEquipmentDetail.mockRejectedValueOnce(error);
+
+    let response: Response | undefined;
+    let thrown: unknown;
+    try {
+      response = await callRoute(
+        loadDetailRoute,
+        "GET",
+        new Request(`${APP_ORIGIN}/api/equipment/7?historyPage=1`),
+        params("7"),
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeUndefined();
+    expect(response?.status).toBe(500);
+    expect(await response?.json()).toEqual({
+      error: "ไม่สามารถดำเนินการกับอุปกรณ์ได้",
+    });
+    expect(console.error).toHaveBeenCalledWith(
+      "Equipment route unavailable",
+      "UNKNOWN_ERROR",
+    );
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(
+      "NAME-GETTER-TOKEN-SECRET",
+    );
+  });
+
+  it("GET detail ใช้วันปฏิทินกรุงเทพเมื่อ UTC ยังเป็นวันก่อนหน้า", async () => {
+    vi.setSystemTime(new Date("2026-08-20T18:30:00.000Z"));
+
+    const response = await callRoute(
+      loadDetailRoute,
+      "GET",
+      new Request(`${APP_ORIGIN}/api/equipment/7?historyPage=1`),
+      params("7"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.getEquipmentDetail).toHaveBeenCalledWith(
+      "2026-08-21",
+      10,
+      7,
+      1,
+    );
+  });
+
   it.each(["OWNER", "MANAGER", "COUNTER", "TRAINER"] as const)(
     "GET detail เปิดให้ %s ผ่าน equipment.read โดยไม่ตรวจ Origin",
     async (role) => {

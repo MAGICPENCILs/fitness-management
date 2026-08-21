@@ -13,7 +13,10 @@ import { getCurrentBranchId } from "@/lib/branch-service";
 import { runAuditedMutation } from "@/lib/audit-service";
 import { requirePermission } from "@/lib/staff-service";
 import { assertTrustedOrigin } from "@/lib/auth/request-security";
-import { equipmentErrorResponse } from "@/lib/equipment-http";
+import {
+  equipmentErrorResponse,
+  getBangkokCalendarDate,
+} from "@/lib/equipment-http";
 
 const idSchema = z.coerce.number().int().positive().max(2_147_483_647);
 const historyPageSchema = z.coerce
@@ -38,7 +41,7 @@ export async function GET(
     const historyPage = historyPageSchema.parse(
       new URL(request.url).searchParams.get("historyPage") ?? undefined,
     );
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getBangkokCalendarDate();
     return NextResponse.json(
       await getEquipmentDetail(today, branchId, equipmentId, historyPage),
     );
