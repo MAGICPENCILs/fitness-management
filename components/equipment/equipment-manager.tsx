@@ -223,8 +223,9 @@ export function EquipmentManager({
   const unavailableCount = equipment.length - operationalCount;
   const alertItems = equipment.filter(
     (item) =>
-      item.maintenanceState === "OVERDUE" ||
-      item.maintenanceState === "DUE_SOON",
+      item.status !== "RETIRED" &&
+      (item.maintenanceState === "OVERDUE" ||
+        item.maintenanceState === "DUE_SOON"),
   );
   const visibleEquipment = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("th-TH");
@@ -250,8 +251,9 @@ export function EquipmentManager({
     });
   };
 
-  /** เปิดฟอร์มบำรุงพร้อมใช้มิเตอร์ปัจจุบันเป็นค่าเริ่มต้น */
+  /** เปิดฟอร์มบำรุงเฉพาะผู้มีสิทธิ์จัดการและรายการที่ไม่เลิกใช้ เพื่อกัน alert card เปิด mutation ที่ถูกซ่อนไว้ */
   const openMaintenance = (item: EquipmentItem) => {
+    if (!canManage || item.status === "RETIRED") return;
     setMaintenanceItem(item);
     setMaintenanceForm({
       type: "PREVENTIVE",
@@ -415,22 +417,37 @@ export function EquipmentManager({
             </div>
           </div>
           <div className="grid gap-3 p-4 lg:grid-cols-2">
-            {alertItems.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => openMaintenance(item)}
-                className="flex min-h-16 items-center justify-between gap-4 rounded-lg border bg-card px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{item.code} · {item.name}</span>
-                  <span className="block text-sm text-muted-foreground">{getScheduleText(item)}</span>
-                </span>
-                <Badge variant={item.maintenanceState === "OVERDUE" ? "destructive" : "secondary"}>
-                  {item.maintenanceState === "OVERDUE" ? "เกินกำหนด" : "ใกล้ถึงกำหนด"}
-                </Badge>
-              </button>
-            ))}
+            {alertItems.map((item) =>
+              canManage ? (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => openMaintenance(item)}
+                  className="flex min-h-16 items-center justify-between gap-4 rounded-lg border bg-card px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{item.code} · {item.name}</span>
+                    <span className="block text-sm text-muted-foreground">{getScheduleText(item)}</span>
+                  </span>
+                  <Badge variant={item.maintenanceState === "OVERDUE" ? "destructive" : "secondary"}>
+                    {item.maintenanceState === "OVERDUE" ? "เกินกำหนด" : "ใกล้ถึงกำหนด"}
+                  </Badge>
+                </button>
+              ) : (
+                <div
+                  key={item.id}
+                  className="flex min-h-16 items-center justify-between gap-4 rounded-lg border bg-card px-4 py-3 text-left"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{item.code} · {item.name}</span>
+                    <span className="block text-sm text-muted-foreground">{getScheduleText(item)}</span>
+                  </span>
+                  <Badge variant={item.maintenanceState === "OVERDUE" ? "destructive" : "secondary"}>
+                    {item.maintenanceState === "OVERDUE" ? "เกินกำหนด" : "ใกล้ถึงกำหนด"}
+                  </Badge>
+                </div>
+              ),
+            )}
           </div>
         </section>
       )}

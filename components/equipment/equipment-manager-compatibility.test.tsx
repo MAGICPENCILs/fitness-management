@@ -13,7 +13,7 @@ afterEach(() => cleanup());
 it("แสดงอุปกรณ์ที่เลิกใช้งานโดยไม่เปิดให้ทำรายการปฏิบัติการ", () => {
   render(
     <EquipmentManager
-      canManage={false}
+      canManage
       today="2026-08-21"
       history={[]}
       equipment={[
@@ -33,7 +33,7 @@ it("แสดงอุปกรณ์ที่เลิกใช้งานโ�
           nextMaintenanceDate: null,
           lastMaintenanceDate: null,
           note: null,
-          maintenanceState: "NONE",
+          maintenanceState: "OVERDUE",
           remainingHours: null,
           remainingDays: null,
           createdAt: null,
@@ -46,6 +46,9 @@ it("แสดงอุปกรณ์ที่เลิกใช้งานโ�
   expect(screen.getByText("เลิกใช้งาน")).toBeInTheDocument();
   expect(
     screen.queryByRole("button", { name: "อัปเดตมิเตอร์" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: /RET-001/ }),
   ).not.toBeInTheDocument();
 });
 
@@ -72,7 +75,7 @@ it("ซ่อนทุกปุ่มเปลี่ยนข้อมูลเ�
           nextMaintenanceDate: null,
           lastMaintenanceDate: null,
           note: null,
-          maintenanceState: "NONE",
+          maintenanceState: "DUE_SOON",
           remainingHours: null,
           remainingDays: null,
           createdAt: null,
@@ -85,6 +88,8 @@ it("ซ่อนทุกปุ่มเปลี่ยนข้อมูลเ�
   expect(screen.queryByRole("button", { name: "เพิ่มอุปกรณ์" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "อัปเดตมิเตอร์" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "บันทึกงานบำรุง" })).not.toBeInTheDocument();
+  expect(screen.getByText("EQ-001 · ลู่วิ่ง")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /EQ-001/ })).not.toBeInTheDocument();
 });
 
 it("คงปุ่มเปลี่ยนข้อมูลไว้เมื่อผู้ใช้มีสิทธิ์จัดการ", () => {
@@ -110,7 +115,7 @@ it("คงปุ่มเปลี่ยนข้อมูลไว้เมื�
           nextMaintenanceDate: null,
           lastMaintenanceDate: null,
           note: null,
-          maintenanceState: "NONE",
+          maintenanceState: "DUE_SOON",
           remainingHours: null,
           remainingDays: null,
           createdAt: null,
@@ -123,4 +128,5 @@ it("คงปุ่มเปลี่ยนข้อมูลไว้เมื�
   expect(screen.getByRole("button", { name: "เพิ่มอุปกรณ์" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "อัปเดตมิเตอร์" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "บันทึกงานบำรุง" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /EQ-001/ })).toBeInTheDocument();
 });
