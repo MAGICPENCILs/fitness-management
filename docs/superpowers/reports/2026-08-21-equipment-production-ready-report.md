@@ -34,6 +34,7 @@ HEAD ก่อนรายงาน: `9bd6ff70cda1d78aca6cb2c3c42410b5651c3da8`
 16. `0b31875` — `fix: correct equipment maintenance presentation`
 17. `b8e18c8` — `feat: add equipment management workflows`
 18. `9bd6ff7` — `fix: align equipment edit and table contracts`
+19. `f499eee` — `fix: close equipment review findings`
 
 ## Contracts ที่ส่งมอบจาก Tasks 1–9
 
@@ -45,6 +46,30 @@ HEAD ก่อนรายงาน: `9bd6ff70cda1d78aca6cb2c3c42410b5651c3da8`
 - Route Handlers ตรวจ trusted Origin, authoritative session/RBAC, fixed safe errors และ Bangkok calendar date
 - UI แยก responsive desktop/mobile dashboard, semantic light/dark tokens, URL state, accessible dialogs และ fixed client error copy
 - UI management รองรับ create/edit/operation/maintenance/retire; stale 409 refresh โดยไม่ retry และซ่อน mutation controls จาก read-only roles
+
+## Final review fix wave
+
+แก้ 4 Important findings จาก independent whole-branch review ด้วย RED→GREEN:
+
+- 409 แยก `EQUIPMENT_CODE_CONFLICT` ออกจาก `STALE_VERSION` ด้วย machine-readable allowlist; duplicate create/edit คง dialog เพื่อแก้รหัส ส่วน stale ปิด dialog และ refresh ครั้งเดียว ขณะที่ unknown/malformed 409 ใช้ fixed generic conflict copy
+- master update ตรวจ purchase/warranty invariant จาก effective values หลัง lock และก่อน CAS รองรับ partial update กับ explicit empty-string clear โดยกรณีผิดไม่มี equipment write หรือ SUCCESS Audit
+- shared Drizzle maintenance predicate ตัด `RETIRED` ออกจาก OVERDUE, DUE_SOON, SCHEDULED และ NOT_SCHEDULED จึงไม่ทำให้ schedule เก่าของอุปกรณ์เลิกใช้กลายเป็น actionable count/filter
+- audited-mutation fallback log เฉพาะ fixed label และไม่ส่ง raw Error, SQL, params, message, stack หรือข้อมูลอ่อนไหวเข้า logger พร้อมคง original mutation error semantics
+
+Fresh evidence หลัง fix commit:
+
+| Check | ผลลัพธ์ |
+|---|---|
+| RED focused wave | 5 files, 13 expected failures จาก 117 tests ตรงกับ 4 findings |
+| GREEN focused wave | PASS, 5 files, 117/117 tests |
+| Focused equipment + audit regression | PASS, 10 files, 159/159 tests |
+| Related security + audit regressions | PASS, 7 files, 61/61 tests |
+| TypeScript | PASS, `tsc --noEmit --pretty false`, exit 0 |
+| Targeted ESLint | PASS, exit 0, ไม่มี output |
+| Scoped `git diff --check` | PASS, exit 0; มีเฉพาะคำเตือน LF/CRLF จาก Git |
+| Scoped secret review | พบเฉพาะ machine-code identifiers, test sentinels/assertions และคอมเมนต์นโยบาย; ไม่พบ credential/secret value ใน production changes |
+
+ตามขอบเขต final fix wave ไม่ได้ rerun full global suite, build, DB, browser หรือ port 3005 และไม่ได้ apply migration, merge หรือ push; ผล Task 10 เดิมด้านล่างยังคงเป็นหลักฐานล่าสุดของ checks เหล่านั้น
 
 ## Migration และ schema
 
