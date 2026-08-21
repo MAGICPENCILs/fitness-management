@@ -206,6 +206,7 @@ export const maintenanceSchema = z
     technician: z.string().trim().max(120).optional(),
     nextMaintenanceDate: optionalDateSchema,
     note: z.string().trim().max(1000).optional(),
+    expectedVersion: expectedVersionSchema,
   })
   .strict()
   .refine(

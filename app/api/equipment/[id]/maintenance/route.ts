@@ -23,14 +23,17 @@ export async function POST(
     const { id } = await params;
     const equipmentId = z.coerce.number().int().positive().parse(id);
     const validated = maintenanceSchema.parse(await request.json());
-    const maintenanceId = await runAuditedMutation<number>(
+    const result = await runAuditedMutation<{
+      maintenanceId: number;
+      equipmentVersion: number;
+    }>(
       {
         actorStaffId: actor.staffId,
         branchId,
         action: "MAINTENANCE_RECORDED",
         entityType: "MAINTENANCE",
         metadata: { entityId: equipmentId, status: validated.status },
-        success: (entityId) => ({ entityId }),
+        success: (value) => ({ entityId: value.maintenanceId }),
       },
       (tx) => recordMaintenance(equipmentId, branchId, {
         ...validated,
@@ -38,7 +41,7 @@ export async function POST(
       }, tx),
     );
     return NextResponse.json(
-      { message: "บันทึกงานบำรุงรักษาแล้ว", maintenanceId },
+      { message: "บันทึกงานบำรุงรักษาแล้ว", maintenanceId: result.maintenanceId },
       { status: 201 },
     );
   } catch (error) {

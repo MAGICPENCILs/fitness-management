@@ -51,9 +51,24 @@ export type EquipmentMutationChanges = Partial<
     | "note"
     | "currentUsageHours"
     | "status"
+    | "lastMaintenanceDate"
+    | "nextMaintenanceHours"
     | "retiredAt"
     | "retiredReason"
   >
+>;
+
+export type MaintenanceMutationInput = Pick<
+  typeof maintenanceRecords.$inferInsert,
+  | "equipmentId"
+  | "type"
+  | "status"
+  | "scheduledDate"
+  | "completedDate"
+  | "usageHoursAtService"
+  | "cost"
+  | "technician"
+  | "note"
 >;
 
 export interface EquipmentMutationRepository {
@@ -69,6 +84,10 @@ export interface EquipmentMutationRepository {
     changes: EquipmentMutationChanges,
     tx: DbTransaction,
   ): Promise<void>;
+  insertMaintenance(
+    input: MaintenanceMutationInput,
+    tx: DbTransaction,
+  ): Promise<number>;
 }
 
 export type EquipmentSummaryRow = {
@@ -418,5 +437,11 @@ export const equipmentMutationRepository: EquipmentMutationRepository = {
     } catch (error) {
       throw normalizeEquipmentWriteError(error);
     }
+  },
+
+  /** เพิ่มประวัติงานแบบ append-only ด้วย transaction ของ caller เพื่อให้ CAS หรือ Audit ที่ล้มย้อน insert นี้ได้ */
+  async insertMaintenance(input, tx) {
+    const result = await tx.insert(maintenanceRecords).values(input);
+    return result[0].insertId;
   },
 };

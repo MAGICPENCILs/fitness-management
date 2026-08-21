@@ -1,7 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { equipment, maintenanceRecords } from "@/db/schema";
-import { withTransaction, type DbTransaction } from "@/lib/audit-service";
+import { equipment } from "@/db/schema";
+import type { DbTransaction } from "@/lib/audit-service";
 import {
   dashboardFiltersSchema,
   getMaintenanceState,
@@ -389,6 +389,19 @@ export type RetireEquipmentInput = {
   expectedVersion: number;
 };
 
+export type MaintenanceInput = {
+  type: MaintenanceType;
+  status: MaintenanceStatus;
+  scheduledDate: string;
+  completedDate?: string;
+  usageHoursAtService?: number;
+  cost: number;
+  technician?: string;
+  nextMaintenanceDate?: string;
+  note?: string;
+  expectedVersion: number;
+};
+
 const masterInputKeys = new Set([
   "code",
   "name",
@@ -403,11 +416,13 @@ const masterInputKeys = new Set([
   "expectedVersion",
 ]);
 
+/** กันทุก mutation หลัง RETIRED เพราะสถานะปลายทางต้องไม่ถูกฟื้นหรือเปลี่ยนข้อมูลย้อนหลัง */
 function assertMutableLifecycle(status: EquipmentStatus) {
   if (status === "RETIRED")
     throw new EquipmentOperationError("อุปกรณ์นี้เลิกใช้งานแล้ว", 409);
 }
 
+/** เทียบ version จากแถวที่ล็อกเพื่อหยุดคำขอเก่าก่อนเกิด insert หรือ CAS ใด ๆ */
 function assertExpectedVersion(currentVersion: number, expectedVersion: number) {
   if (currentVersion !== expectedVersion)
     throw new EquipmentOperationError(
@@ -524,6 +539,67 @@ export function createEquipmentMutationService(
       );
       return { equipmentId, version: input.expectedVersion + 1 };
     },
+
+    /** ล็อกและตรวจ lifecycle/version/meter ก่อน append แล้ว CAS เพื่อให้ประวัติ สถานะ และ version สำเร็จหรือ rollback พร้อมกัน */
+    async recordMaintenance(
+      equipmentId: number,
+      branchId: number,
+      input: MaintenanceInput,
+      tx: DbTransaction,
+    ) {
+      const current = await repository.lockEquipment(equipmentId, branchId, tx);
+      assertMutableLifecycle(current.status);
+      assertExpectedVersion(current.version, input.expectedVersion);
+
+      const serviceHours = input.usageHoursAtService ?? current.currentUsageHours;
+      if (serviceHours < current.currentUsageHours)
+        throw new EquipmentOperationError(
+          "ชั่วโมง ณ วันที่บำรุงต้องไม่น้อยกว่าค่าปัจจุบัน",
+        );
+      if (input.status === "COMPLETED" && !input.completedDate)
+        throw new EquipmentOperationError("งานที่เสร็จแล้วต้องระบุวันที่เสร็จ");
+
+      const maintenanceId = await repository.insertMaintenance(
+        {
+          equipmentId,
+          type: input.type,
+          status: input.status,
+          scheduledDate: input.scheduledDate,
+          completedDate: input.completedDate || null,
+          usageHoursAtService: serviceHours,
+          cost: String(input.cost),
+          technician: input.technician || null,
+          note: input.note || null,
+        },
+        tx,
+      );
+
+      const changes: EquipmentMutationChanges =
+        input.status === "SCHEDULED"
+          ? {}
+          : input.status === "IN_PROGRESS"
+            ? { status: "MAINTENANCE" }
+            : {
+                status: "OPERATIONAL",
+                currentUsageHours: serviceHours,
+                lastMaintenanceDate: input.completedDate!,
+                nextMaintenanceHours: current.maintenanceIntervalHours
+                  ? serviceHours + current.maintenanceIntervalHours
+                  : null,
+                nextMaintenanceDate: input.nextMaintenanceDate || null,
+              };
+      await repository.compareAndSetEquipment(
+        equipmentId,
+        branchId,
+        input.expectedVersion,
+        changes,
+        tx,
+      );
+      return {
+        maintenanceId,
+        equipmentVersion: input.expectedVersion + 1,
+      };
+    },
   };
 }
 
@@ -575,75 +651,17 @@ export async function retireEquipment(
   );
 }
 
-/** บันทึกงานบำรุงใน transaction และตั้งรอบถัดไปอัตโนมัติเมื่อปิดงานเรียบร้อย */
+/** ใช้ transaction ของ caller เท่านั้น เพื่อให้ maintenance, equipment CAS และ Audit commit หรือ rollback เป็นชุดเดียว */
 export async function recordMaintenance(
   equipmentId: number,
   branchId: number,
-  input: {
-    type: MaintenanceType;
-    status: MaintenanceStatus;
-    scheduledDate: string;
-    completedDate?: string;
-    usageHoursAtService?: number;
-    cost: number;
-    technician?: string;
-    nextMaintenanceDate?: string;
-    note?: string;
-  },
-  executor?: DbTransaction,
+  input: MaintenanceInput,
+  tx: DbTransaction,
 ) {
-  return withTransaction(executor, async (tx) => {
-    const [current] = await tx
-      .select({
-        id: equipment.id,
-        currentUsageHours: equipment.currentUsageHours,
-        maintenanceIntervalHours: equipment.maintenanceIntervalHours,
-      })
-      .from(equipment)
-      .where(and(eq(equipment.id, equipmentId), eq(equipment.branchId, branchId)))
-      .limit(1);
-    if (!current) throw new EquipmentOperationError("ไม่พบอุปกรณ์", 404);
-
-    const serviceHours = input.usageHoursAtService ?? current.currentUsageHours;
-    if (serviceHours < current.currentUsageHours)
-      throw new EquipmentOperationError(
-        "ชั่วโมง ณ วันที่บำรุงต้องไม่น้อยกว่าค่าปัจจุบัน",
-      );
-
-    const result = await tx.insert(maintenanceRecords).values({
-      equipmentId,
-      type: input.type,
-      status: input.status,
-      scheduledDate: input.scheduledDate,
-      completedDate: input.completedDate || null,
-      usageHoursAtService: serviceHours,
-      cost: String(input.cost),
-      technician: input.technician || null,
-      note: input.note || null,
-    });
-
-    if (input.status === "IN_PROGRESS") {
-      await tx
-        .update(equipment)
-        .set({ status: "MAINTENANCE" })
-        .where(eq(equipment.id, equipmentId));
-    }
-
-    if (input.status === "COMPLETED") {
-      await tx
-        .update(equipment)
-        .set({
-          status: "OPERATIONAL",
-          currentUsageHours: serviceHours,
-          lastMaintenanceDate: input.completedDate!,
-          nextMaintenanceHours: current.maintenanceIntervalHours
-            ? serviceHours + current.maintenanceIntervalHours
-            : null,
-          nextMaintenanceDate: input.nextMaintenanceDate || null,
-        })
-        .where(eq(equipment.id, equipmentId));
-    }
-
-    return result[0].insertId;
-  });
+  return equipmentMutationService.recordMaintenance(
+    equipmentId,
+    branchId,
+    input,
+    tx,
+  );
 }

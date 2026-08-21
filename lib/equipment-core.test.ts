@@ -109,6 +109,26 @@ describe("equipment core", () => {
     ).toBe(false);
   });
 
+  it("บังคับ expectedVersion สำหรับงานบำรุงโดยไม่มีค่า fallback", () => {
+    expect(
+      maintenanceSchema.safeParse({
+        type: "REPAIR",
+        status: "SCHEDULED",
+        scheduledDate: "2026-08-21",
+        cost: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      maintenanceSchema.parse({
+        type: "REPAIR",
+        status: "SCHEDULED",
+        scheduledDate: "2026-08-21",
+        cost: 0,
+        expectedVersion: 4,
+      }),
+    ).toMatchObject({ expectedVersion: 4 });
+  });
+
   it("บังคับตัวกรองหน้าที่ถูกต้องและตรึงขนาดหน้าไว้ที่ 20", () => {
     expect(dashboardFiltersSchema.safeParse({ page: 0 }).success).toBe(false);
     expect(
