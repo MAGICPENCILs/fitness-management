@@ -28,6 +28,11 @@ import {
   maintenanceStateLabels,
 } from "@/components/equipment/equipment-types";
 import { EquipmentPagination } from "@/components/equipment/equipment-pagination";
+import { EquipmentDetailDialog } from "@/components/equipment/equipment-detail-dialog";
+import { EquipmentFormDialog } from "@/components/equipment/equipment-form-dialog";
+import { EquipmentMaintenanceDialog } from "@/components/equipment/equipment-maintenance-dialog";
+import { EquipmentOperationDialog } from "@/components/equipment/equipment-operation-dialog";
+import { EquipmentRetireDialog } from "@/components/equipment/equipment-retire-dialog";
 import type {
   EquipmentDashboardFilters,
   EquipmentDto,
@@ -162,7 +167,22 @@ function EquipmentEmptyState({
   );
 }
 
-function EquipmentCard({ item }: { item: EquipmentDto }) {
+/** แสดง detail แก่ทุกบทบาท แต่ render mutation เฉพาะผู้มีสิทธิ์และรายการที่ยังไม่ RETIRED */
+function EquipmentActions({ item, canManage, today, onNotice }: { item: EquipmentDto; canManage: boolean; today: string; onNotice: (message: string) => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2" aria-label={`การทำงานสำหรับ ${item.code}`}>
+      <EquipmentDetailDialog item={item} />
+      {canManage && item.status !== "RETIRED" ? <>
+        <EquipmentFormDialog item={item} onSuccess={onNotice} />
+        <EquipmentOperationDialog item={item} onSuccess={onNotice} />
+        <EquipmentMaintenanceDialog item={item} today={today} onSuccess={onNotice} />
+        <EquipmentRetireDialog item={item} onSuccess={onNotice} />
+      </> : null}
+    </div>
+  );
+}
+
+function EquipmentCard({ item, canManage, today, onNotice }: { item: EquipmentDto; canManage: boolean; today: string; onNotice: (message: string) => void }) {
   return (
     <li>
       <article className="space-y-4 rounded-xl border bg-background p-4">
@@ -203,6 +223,7 @@ function EquipmentCard({ item }: { item: EquipmentDto }) {
             <dd className="mt-1 font-medium">{getScheduleText(item)}</dd>
           </div>
         </dl>
+        <EquipmentActions item={item} canManage={canManage} today={today} onNotice={onNotice} />
       </article>
     </li>
   );
@@ -213,11 +234,17 @@ export function EquipmentList({
   pagination,
   filters,
   branchIsEmpty,
+  canManage,
+  today,
+  onNotice,
 }: {
   equipment: EquipmentDto[];
   pagination: PaginationDto;
   filters: EquipmentDashboardFilters;
   branchIsEmpty: boolean;
+  canManage: boolean;
+  today: string;
+  onNotice: (message: string) => void;
 }) {
   return (
     <section
@@ -247,7 +274,8 @@ export function EquipmentList({
                   <TableHead className="w-[16%]">สถานะ</TableHead>
                   <TableHead className="w-[18%]">ตำแหน่ง</TableHead>
                   <TableHead className="w-[13%]">ชั่วโมงใช้งาน</TableHead>
-                  <TableHead className="w-[27%]">กำหนดบำรุง</TableHead>
+                  <TableHead className="w-[20%]">กำหนดบำรุง</TableHead>
+                  <TableHead className="w-[7%] text-right">จัดการ</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -262,6 +290,7 @@ export function EquipmentList({
                         {categoryLabels[item.category]} · Serial {item.serialNumber ?? "—"}
                       </p>
                     </TableCell>
+                    <TableCell className="whitespace-normal"><EquipmentActions item={item} canManage={canManage} today={today} onNotice={onNotice} /></TableCell>
                     <TableCell className="whitespace-normal">
                       <EquipmentStatusBadge status={item.status} />
                     </TableCell>
@@ -287,7 +316,7 @@ export function EquipmentList({
             className="space-y-3 p-3 md:hidden"
           >
             {equipment.map((item) => (
-              <EquipmentCard key={item.id} item={item} />
+              <EquipmentCard key={item.id} item={item} canManage={canManage} today={today} onNotice={onNotice} />
             ))}
           </ul>
         </>

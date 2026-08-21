@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EquipmentDashboard } from "@/components/equipment/equipment-dashboard";
 import type {
   EquipmentDashboardDto,
   EquipmentDashboardFilters,
   EquipmentDto,
 } from "@/lib/equipment-service";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 afterEach(() => cleanup());
 
@@ -241,9 +243,9 @@ describe("equipment dashboard", () => {
     expect(screen.queryByText("PRIVATE-RETIREMENT-REASON")).not.toBeInTheDocument();
     expect(screen.queryByText("INTERNAL-NOTE-DO-NOT-RENDER")).not.toBeInTheDocument();
     expect(screen.queryByText("SECRET-BRANCH-METADATA")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "เพิ่มอุปกรณ์" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "อัปเดตมิเตอร์" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "บันทึกงานบำรุง" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "เพิ่มอุปกรณ์" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /อัปเดตมิเตอร์และสถานะ RET-008/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /บันทึกงานบำรุง RET-008/ })).not.toBeInTheDocument();
   });
 
   it("แบ่ง empty branch และ filtered-empty พร้อมลิงก์กู้คืนที่ไม่ล้าง filter อีก tab", () => {

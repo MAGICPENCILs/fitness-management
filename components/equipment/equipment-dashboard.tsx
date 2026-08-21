@@ -1,9 +1,13 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 import { ClipboardList, History } from "lucide-react";
 import { EquipmentFilters, MaintenanceHistoryFilters } from "@/components/equipment/equipment-filters";
 import { EquipmentList } from "@/components/equipment/equipment-list";
 import { EquipmentSummary } from "@/components/equipment/equipment-summary";
 import { MaintenanceHistory } from "@/components/equipment/maintenance-history";
+import { EquipmentFormDialog } from "@/components/equipment/equipment-form-dialog";
 import {
   buildEquipmentHref,
   type EquipmentDashboardProps,
@@ -28,17 +32,22 @@ export function EquipmentDashboard(props: EquipmentDashboardProps) {
     historyPagination,
     filters,
     today,
+    canManage,
   } = props;
   const equipmentActive = filters.tab === "equipment";
+  const [notice, setNotice] = useState("");
 
   return (
     <div className="min-w-0 space-y-6 overflow-x-clip">
-      <div className="flex flex-col gap-2 rounded-xl border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm font-medium">มุมมองแบบอ่านอย่างเดียว</p>
-        <p className="text-sm text-muted-foreground">
-          ข้อมูลรอบบำรุง ณ {formatToday(today)}
-        </p>
+      <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-medium">{canManage ? "จัดการทะเบียนและงานบำรุง" : "มุมมองแบบอ่านอย่างเดียว"}</p>
+          <p className="text-sm text-muted-foreground">ข้อมูลรอบบำรุง ณ {formatToday(today)}</p>
+        </div>
+        {canManage ? <EquipmentFormDialog onSuccess={setNotice} /> : null}
       </div>
+
+      <p role="status" aria-live="polite" className="min-h-5 text-sm font-medium text-primary">{notice}</p>
 
       <EquipmentSummary summary={summary} />
 
@@ -75,6 +84,9 @@ export function EquipmentDashboard(props: EquipmentDashboardProps) {
             pagination={equipmentPagination}
             filters={filters}
             branchIsEmpty={summary.total === 0}
+            canManage={canManage}
+            today={today}
+            onNotice={setNotice}
           />
         </>
       ) : (
