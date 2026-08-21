@@ -1,4 +1,5 @@
 import type { SQL } from "drizzle-orm";
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -219,6 +220,25 @@ function renderCondition(condition: unknown) {
   return new MySqlDialect().sqlToQuery((condition as { getSQL(): SQL }).getSQL());
 }
 
+function makeDriverDuplicateError(constraint: string) {
+  return Object.assign(
+    new Error(`Duplicate entry 'BIKE-02' for key \`${constraint}\``),
+    {
+      code: "ER_DUP_ENTRY",
+      errno: 1062,
+      sqlMessage: `Duplicate entry 'BIKE-02' for key 'fitness.${constraint}'`,
+    },
+  );
+}
+
+function makeWrappedDuplicateError(constraint: string) {
+  return new DrizzleQueryError(
+    "update `equipment` set `code` = ? where `id` = ?",
+    ["BIKE-02", 7],
+    makeDriverDuplicateError(constraint),
+  );
+}
+
 describe("production equipment mutation repository", () => {
   beforeEach(() => database.reset());
 
@@ -376,11 +396,9 @@ describe("production equipment mutation repository", () => {
   );
 
   it("แปลง unique code collision เป็น 409 โดยไม่เผย driver error", async () => {
-    database.setUpdateFailure({
-      code: "ER_DUP_ENTRY",
-      errno: 1062,
-      sqlMessage: "Duplicate entry 'BIKE-02' for key equipment.code",
-    });
+    database.setUpdateFailure(
+      makeWrappedDuplicateError("equipment_code_unique"),
+    );
     const service = createEquipmentMutationService(equipmentMutationRepository);
 
     const promise = service.updateEquipmentMaster(
@@ -397,13 +415,46 @@ describe("production equipment mutation repository", () => {
     });
   });
 
+  it("ไม่แปลง duplicate จาก constraint อื่นเป็น equipment code conflict", async () => {
+    const unrelatedDuplicate = makeDriverDuplicateError(
+      "archived_equipment_code_unique_backup",
+    );
+    database.setUpdateFailure(unrelatedDuplicate);
+    const service = createEquipmentMutationService(equipmentMutationRepository);
+
+    await expect(
+      service.updateEquipmentMaster(
+        7,
+        10,
+        { code: "BIKE-02", expectedVersion: 3 },
+        database.directExecutor() as unknown as DbTransaction,
+      ),
+    ).rejects.toBe(unrelatedDuplicate);
+    expect(database.state.equipment).toMatchObject({
+      code: "BIKE-01",
+      version: 3,
+    });
+  });
+
+  it("cause ที่วนซ้ำและ getter ที่ throw ไม่ทำให้ classifier กลบ error เดิม", () => {
+    const hostileError: Record<string, unknown> = {};
+    Object.defineProperty(hostileError, "code", {
+      get() {
+        throw new Error("HOSTILE_GETTER");
+      },
+    });
+    hostileError.cause = hostileError;
+
+    expect(repositoryModule.normalizeEquipmentWriteError(hostileError)).toBe(
+      hostileError,
+    );
+  });
+
   it("create ทำ code normalization และแปลง insert race collision เป็น 409", async () => {
     database.setRowVisible(false);
-    database.setInsertFailure({
-      code: "ER_DUP_ENTRY",
-      errno: 1062,
-      sqlMessage: "Duplicate entry 'BIKE-02' for key equipment.code",
-    });
+    database.setInsertFailure(
+      makeWrappedDuplicateError("equipment_code_unique"),
+    );
 
     const promise = serviceModule.createEquipment(
       {

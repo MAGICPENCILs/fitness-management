@@ -313,10 +313,39 @@ export const equipmentReadRepository: EquipmentReadRepository = {
   },
 };
 
+const EQUIPMENT_CODE_CONSTRAINT =
+  /(?:^|[^A-Za-z0-9_])equipment_code_unique(?:$|[^A-Za-z0-9_])/;
+
+/** อ่าน property จาก error ภายนอกแบบไม่เชื่อ getter เพื่อไม่ให้ classifier กลบ error ต้นฉบับด้วย exception ใหม่ */
+function readErrorProperty(error: object, key: string) {
+  try {
+    return Reflect.get(error, key) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/** ตรวจ cause chain แบบมีขอบเขต และยอมรับเฉพาะ duplicate ของ constraint รหัสอุปกรณ์เพื่อไม่แปลง DB error อื่นเป็น 409 ผิดประเภท */
 function isUniqueCodeCollision(error: unknown) {
-  if (!error || typeof error !== "object") return false;
-  const candidate = error as { code?: unknown; errno?: unknown };
-  return candidate.code === "ER_DUP_ENTRY" || candidate.errno === 1062;
+  let candidate = error;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (!candidate || typeof candidate !== "object") return false;
+    const code = readErrorProperty(candidate, "code");
+    const errno = readErrorProperty(candidate, "errno");
+    const message = readErrorProperty(candidate, "message");
+    const sqlMessage = readErrorProperty(candidate, "sqlMessage");
+    const hasDuplicateCode = code === "ER_DUP_ENTRY" || errno === 1062;
+    const hasEquipmentConstraint = [message, sqlMessage].some(
+      (value) =>
+        typeof value === "string" && EQUIPMENT_CODE_CONSTRAINT.test(value),
+    );
+    if (hasDuplicateCode && hasEquipmentConstraint) return true;
+
+    const cause = readErrorProperty(candidate, "cause");
+    if (cause === candidate) return false;
+    candidate = cause;
+  }
+  return false;
 }
 
 /** แปลงเฉพาะ unique collision เป็น domain error โดยไม่ส่งรายละเอียด SQL/driver ออกไปยัง route */
