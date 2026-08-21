@@ -290,7 +290,6 @@ export function EquipmentList({
                         {categoryLabels[item.category]} · Serial {item.serialNumber ?? "—"}
                       </p>
                     </TableCell>
-                    <TableCell className="whitespace-normal"><EquipmentActions item={item} canManage={canManage} today={today} onNotice={onNotice} /></TableCell>
                     <TableCell className="whitespace-normal">
                       <EquipmentStatusBadge status={item.status} />
                     </TableCell>
@@ -306,6 +305,7 @@ export function EquipmentList({
                         {getScheduleText(item)}
                       </p>
                     </TableCell>
+                    <TableCell className="whitespace-normal"><EquipmentActions item={item} canManage={canManage} today={today} onNotice={onNotice} /></TableCell>
                   </TableRow>
                 ))}
               </TableBody>

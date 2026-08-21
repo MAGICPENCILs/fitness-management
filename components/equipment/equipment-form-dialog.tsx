@@ -14,22 +14,26 @@ import { Label } from "@/components/ui/label";
 
 type FieldErrors = Partial<Record<string, string>>;
 
-/** แปลงค่าว่างเป็น undefined เฉพาะช่อง optional เพื่อให้ client ใช้กฎเดียวกับ schema ฝั่ง server */
+/** คงค่าว่างของ field ที่แก้เป็น null ได้เมื่อ edit เพื่อให้ service ล้างค่าเดิม แต่อย่าส่ง field ว่างเกินจำเป็นตอน create */
 function masterPayload(form: HTMLFormElement, item?: EquipmentDto) {
   const data = new FormData(form);
   const optional = (name: string) => String(data.get(name) ?? "").trim() || undefined;
+  const clearable = (name: string) => {
+    const value = String(data.get(name) ?? "").trim();
+    return item ? value : value || undefined;
+  };
   return {
     code: String(data.get("code") ?? ""),
     name: String(data.get("name") ?? ""),
     category: String(data.get("category") ?? "CARDIO") as EquipmentCategory,
     location: String(data.get("location") ?? ""),
-    serialNumber: optional("serialNumber"),
-    purchaseDate: optional("purchaseDate"),
-    warrantyEndDate: optional("warrantyEndDate"),
+    serialNumber: clearable("serialNumber"),
+    purchaseDate: clearable("purchaseDate"),
+    warrantyEndDate: clearable("warrantyEndDate"),
     ...(item ? {} : { currentUsageHours: data.get("currentUsageHours") }),
     maintenanceIntervalHours: optional("maintenanceIntervalHours"),
-    nextMaintenanceDate: optional("nextMaintenanceDate"),
-    note: optional("note"),
+    nextMaintenanceDate: clearable("nextMaintenanceDate"),
+    note: clearable("note"),
     ...(item ? { expectedVersion: item.version } : {}),
   };
 }

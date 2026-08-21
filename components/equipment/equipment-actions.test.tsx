@@ -136,7 +136,13 @@ describe("create and edit equipment", () => {
     await user.click(submit);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith("/api/equipment", expect.objectContaining({ method: "POST" }));
-    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toMatchObject({ code: "BIKE-009", name: "จักรยานใหม่", currentUsageHours: 0 });
+    const createBody = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+    expect(createBody).toMatchObject({ code: "BIKE-009", name: "จักรยานใหม่", currentUsageHours: 0 });
+    expect(createBody).not.toHaveProperty("serialNumber");
+    expect(createBody).not.toHaveProperty("purchaseDate");
+    expect(createBody).not.toHaveProperty("warrantyEndDate");
+    expect(createBody).not.toHaveProperty("nextMaintenanceDate");
+    expect(createBody).not.toHaveProperty("note");
     deferred.resolve(jsonResponse({ message: "SERVER-RAW-DO-NOT-RENDER", id: 9, version: 1 }, 201));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(success).toHaveBeenCalledWith("เพิ่มอุปกรณ์เรียบร้อยแล้ว");
@@ -161,6 +167,35 @@ describe("create and edit equipment", () => {
     await user.click(trigger);
     await user.keyboard("{Escape}");
     expect(trigger).toHaveFocus();
+  });
+
+  it("PUT edit ส่งค่าว่างชัดเจนเพื่อ clear nullable master fields", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ version: 5 }));
+    render(<EquipmentFormDialog item={item} onSuccess={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "แก้ไขทะเบียน BIKE-007" }));
+    await user.clear(screen.getByLabelText("Serial number"));
+    fireEvent.change(screen.getByLabelText("วันที่ซื้อ"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("วันสิ้นสุดประกัน"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("กำหนดบำรุงครั้งถัดไป"), { target: { value: "" } });
+    await user.clear(screen.getByLabelText("หมายเหตุ"));
+    await user.click(screen.getByRole("button", { name: "บันทึกการแก้ไข" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+    expect(body).toMatchObject({ serialNumber: "", purchaseDate: "", warrantyEndDate: "", nextMaintenanceDate: "", note: "", expectedVersion: 4 });
+  });
+
+  it("PUT edit ตรวจ date pair จากค่าที่ submit และไม่ fetch เมื่อ warranty ก่อน purchase", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    render(<EquipmentFormDialog item={item} onSuccess={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "แก้ไขทะเบียน BIKE-007" }));
+    fireEvent.change(screen.getByLabelText("วันที่ซื้อ"), { target: { value: "2026-08-20" } });
+    fireEvent.change(screen.getByLabelText("วันสิ้นสุดประกัน"), { target: { value: "2026-08-19" } });
+    await user.click(screen.getByRole("button", { name: "บันทึกการแก้ไข" }));
+    expect(screen.getByLabelText("วันสิ้นสุดประกัน")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("วันสิ้นสุดประกันต้องไม่ก่อนวันที่ซื้อ")).toBeVisible();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

@@ -186,6 +186,26 @@ describe("equipment dashboard", () => {
     expect(container.querySelectorAll("svg[aria-hidden='true']").length).toBeGreaterThan(0);
   });
 
+  it("เรียง desktop data cells ให้ตรงกับ headers และวาง actions ในคอลัมน์สุดท้าย", () => {
+    render(
+      <EquipmentDashboard
+        {...dashboard}
+        filters={filters}
+        today="2026-08-21"
+        canManage={false}
+      />,
+    );
+
+    const table = screen.getByRole("table", { name: "ทะเบียนอุปกรณ์ในหน้าปัจจุบัน" }) as HTMLTableElement;
+    expect(Array.from(table.tHead!.rows[0].cells, (cell) => cell.textContent?.trim())).toEqual([
+      "อุปกรณ์", "สถานะ", "ตำแหน่ง", "ชั่วโมงใช้งาน", "กำหนดบำรุง", "จัดการ",
+    ]);
+    const cells = table.tBodies[0].rows[0].cells;
+    expect(cells[1]).toHaveTextContent("พร้อมใช้งาน");
+    expect(cells[4]).toHaveTextContent("ใกล้ถึงกำหนด");
+    expect(within(cells[5]).getByRole("button", { name: "ดูรายละเอียด BIKE-007" })).toBeVisible();
+  });
+
   it("แสดงทั้งมิติชั่วโมงและวันเมื่อวันที่เกินกำหนดแต่ชั่วโมงยังเหลือ", () => {
     const mixedThresholdItem = {
       ...equipment[0],
