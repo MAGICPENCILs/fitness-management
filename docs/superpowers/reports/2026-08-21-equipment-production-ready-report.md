@@ -103,7 +103,14 @@ Fresh evidence หลัง fix commit:
 | Elevated build retry | TIMEOUT/UNRESOLVED | ถูกยกเลิกหลัง 900s; ไม่มี captured build verdict และไม่ rerun ต่อ |
 | `git diff --check main...HEAD` | FAIL, exit 1 | pre-existing trailing whitespace ใน tracked spec บรรทัด 3, 4 และ blank line ที่ EOF บรรทัด 450 |
 
-Full-suite failure ตรงกับ load-sensitive bootstrap baseline ที่บันทึกไว้ก่อนเริ่ม feature และ focused file ผ่านทันที แต่รายงานนี้ไม่ถือว่า full Vitest ผ่าน ส่วน production build ก็ไม่ถือว่าผ่านเพราะไม่มี successful exit 0
+ผลข้างต้นเป็นหลักฐาน ณ เวลาจบ Task 10: full-suite failure ตรงกับ load-sensitive bootstrap baseline ที่บันทึกไว้ก่อนเริ่ม feature และ focused file ผ่านทันที ส่วน production build ก็ไม่ถือว่าผ่านเพราะไม่มี successful exit 0
+
+### Post-final verification: bootstrap process isolation
+
+- วัดภายใต้ environment เดียวกันโดยลบ `DATABASE_URL`, `BOOTSTRAP_OWNER_PASSWORD` และ `BOOTSTRAP_OWNER_ROTATE` ก่อน spawn: npm entry ใช้ 2.07–2.28 วินาที ขณะที่ local `tsx/cli` ใช้ 1.60–1.79 วินาที; ทั้งสองทางคืน exit 1, stdout ว่าง และ stderr เป็น `Owner bootstrap failed.` เหมือนกัน
+- แก้เฉพาะ test ให้ยืนยันว่า package script ยังคงเป็น `tsx --conditions=react-server scripts/bootstrap-owner.ts` แล้ว execute local `tsx/cli` ที่ package export โดยตรง จึงตัด npm process wrapper ออกจากเวลาของ test โดยไม่เพิ่ม timeout และไม่เปลี่ยน production code
+- focused bootstrap หลังแก้: PASS, exit 0, 1 file / 10 tests; CLI case 1.644 วินาที, รวม 3.36 วินาที
+- full Vitest หลังแก้หนึ่งรอบ: PASS, exit 0, 61 files / 470 tests, 70.16 วินาที
 
 ## Database preflight
 
@@ -131,7 +138,7 @@ Full-suite failure ตรงกับ load-sensitive bootstrap baseline ที�
 - operation `expectedVersion` เป็น required แบบ fail-closed ไม่มี fallback
 - retirement ไม่มี restore และไม่มี branch transfer ในรอบนี้
 - responsive/light/dark/keyboard/focus ผ่าน DOM/static review เท่านั้น ยังไม่มี authenticated live browser evidence
-- full Vitest ยังมี baseline load-sensitive timeout และ build ยังถูก SWC environment block จึงเป็น acceptance blockers ที่ต้องตัดสินใจก่อน merge
+- baseline load-sensitive timeout ถูกแก้ด้วย test process isolation และ full Vitest ผ่านแล้ว; build ยังถูก SWC environment block จึงยังเป็น acceptance blocker ก่อน merge
 
 ## Post-integration browser QA matrix สำหรับ port 3005
 
@@ -153,15 +160,14 @@ Full-suite failure ตรงกับ load-sensitive bootstrap baseline ที�
 ## Safe integration sequence
 
 1. แก้หรือจัดเตรียม SWC runtime ให้ `next build` ได้ exit 0 โดยไม่แก้ feature code
-2. ตัดสินใจว่าจะยอมรับ baseline full-suite timeout หรือแก้ที่ test/process isolation แล้วรัน full suite ใหม่
-3. Review และแก้ trailing whitespace ใน spec ด้วย commit เอกสารแยก หากต้องการให้ branch-wide diff check ผ่าน
-4. ทำ independent whole-branch specification/code review
-5. หลัง review ผ่าน จึง merge branch โดย authorization แยก; ยังไม่ migrate
-6. ทำ backup/restore plan และ read-only DB preflight aggregates โดยไม่แสดงข้อมูลอ่อนไหว
-7. ขออนุมัติ migration แยก ตรวจ schema/index/journal และ invariants หลัง migrate
-8. ขออนุมัติ restart dev server port 3005 โดยรักษา auth secrets
-9. ทำ authenticated browser QA ตาม matrix ทุก role/viewport/theme ก่อน acceptance
-10. push/deploy เฉพาะเมื่อ automated, DB และ browser acceptance ได้ข้อสรุปชัดเจน
+2. Review และแก้ trailing whitespace ใน spec ด้วย commit เอกสารแยก หากต้องการให้ branch-wide diff check ผ่าน
+3. ทำ independent whole-branch specification/code review
+4. หลัง review ผ่าน จึง merge branch โดย authorization แยก; ยังไม่ migrate
+5. ทำ backup/restore plan และ read-only DB preflight aggregates โดยไม่แสดงข้อมูลอ่อนไหว
+6. ขออนุมัติ migration แยก ตรวจ schema/index/journal และ invariants หลัง migrate
+7. ขออนุมัติ restart dev server port 3005 โดยรักษา auth secrets
+8. ทำ authenticated browser QA ตาม matrix ทุก role/viewport/theme ก่อน acceptance
+9. push/deploy เฉพาะเมื่อ automated, DB และ browser acceptance ได้ข้อสรุปชัดเจน
 
 ## Explicit non-actions
 

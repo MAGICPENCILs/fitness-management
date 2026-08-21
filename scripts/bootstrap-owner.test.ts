@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { join } from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -250,18 +252,18 @@ describe("Owner bootstrap", () => {
     delete environment.BOOTSTRAP_OWNER_PASSWORD;
     delete environment.BOOTSTRAP_OWNER_ROTATE;
 
-    const npmCli = join(
-      dirname(process.execPath),
-      "node_modules",
-      "npm",
-      "bin",
-      "npm-cli.js",
+    const packageJson = JSON.parse(
+      readFileSync(join(process.cwd(), "package.json"), "utf8"),
+    ) as { scripts?: Record<string, string> };
+    expect(packageJson.scripts?.["auth:bootstrap-owner"]).toBe(
+      "tsx --conditions=react-server scripts/bootstrap-owner.ts",
     );
+
+    // เรียก CLI ของ tsx โดยตรงเพื่อตรวจ entrypoint จริง โดยไม่รวมเวลาเริ่มต้นของ npm ที่ผันผวนตามโหลดของ test suite
+    const tsxCli = createRequire(import.meta.url).resolve("tsx/cli");
     const result = spawnSync(
-      process.platform === "win32" ? process.execPath : "npm",
-      process.platform === "win32"
-        ? [npmCli, "run", "--silent", "auth:bootstrap-owner"]
-        : ["run", "--silent", "auth:bootstrap-owner"],
+      process.execPath,
+      [tsxCli, "--conditions=react-server", "scripts/bootstrap-owner.ts"],
       {
         cwd: process.cwd(),
         encoding: "utf8",
