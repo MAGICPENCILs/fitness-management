@@ -22,8 +22,54 @@ import type {
   MaintenanceStatus,
   MaintenanceType,
 } from "@/lib/equipment-core";
+import type { DbTransaction } from "@/lib/audit-service";
 
 export type EquipmentRow = typeof equipment.$inferSelect;
+
+export class EquipmentOperationError extends Error {
+  constructor(
+    message: string,
+    public status = 400,
+  ) {
+    super(message);
+    this.name = "EquipmentOperationError";
+  }
+}
+
+export type EquipmentMutationChanges = Partial<
+  Pick<
+    EquipmentRow,
+    | "code"
+    | "name"
+    | "category"
+    | "location"
+    | "serialNumber"
+    | "purchaseDate"
+    | "warrantyEndDate"
+    | "maintenanceIntervalHours"
+    | "nextMaintenanceDate"
+    | "note"
+    | "currentUsageHours"
+    | "status"
+    | "retiredAt"
+    | "retiredReason"
+  >
+>;
+
+export interface EquipmentMutationRepository {
+  lockEquipment(
+    equipmentId: number,
+    branchId: number,
+    tx: DbTransaction,
+  ): Promise<EquipmentRow>;
+  compareAndSetEquipment(
+    equipmentId: number,
+    branchId: number,
+    expectedVersion: number,
+    changes: EquipmentMutationChanges,
+    tx: DbTransaction,
+  ): Promise<void>;
+}
 
 export type EquipmentSummaryRow = {
   total: number;
@@ -264,5 +310,76 @@ export const equipmentReadRepository: EquipmentReadRepository = {
       )
       .limit(1);
     return row ?? null;
+  },
+};
+
+function isUniqueCodeCollision(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; errno?: unknown };
+  return candidate.code === "ER_DUP_ENTRY" || candidate.errno === 1062;
+}
+
+/** แปลงเฉพาะ unique collision เป็น domain error โดยไม่ส่งรายละเอียด SQL/driver ออกไปยัง route */
+export function normalizeEquipmentWriteError(error: unknown) {
+  return isUniqueCodeCollision(error)
+    ? new EquipmentOperationError("รหัสอุปกรณ์นี้มีอยู่แล้ว", 409)
+    : error;
+}
+
+/** ล็อกแถวด้วย id และสาขาใน transaction ของ caller เพื่อให้การตรวจ lifecycle/version อ้างอิง state เดียวกับ UPDATE */
+async function lockEquipment(
+  tx: DbTransaction,
+  equipmentId: number,
+  branchId: number,
+) {
+  const [row] = await tx
+    .select()
+    .from(equipment)
+    .where(
+      and(eq(equipment.id, equipmentId), eq(equipment.branchId, branchId)),
+    )
+    .for("update")
+    .limit(1);
+  if (!row) throw new EquipmentOperationError("ไม่พบอุปกรณ์", 404);
+  return row;
+}
+
+export const equipmentMutationRepository: EquipmentMutationRepository = {
+  async lockEquipment(equipmentId, branchId, tx) {
+    return lockEquipment(tx, equipmentId, branchId);
+  },
+
+  /** ใช้ version เดิมใน WHERE และเพิ่มครั้งละหนึ่ง เพื่อให้ concurrent write ที่หลุดจาก lock ถูกปฏิเสธแทนการเขียนทับ */
+  async compareAndSetEquipment(
+    equipmentId,
+    branchId,
+    expectedVersion,
+    changes,
+    tx,
+  ) {
+    try {
+      const result = await tx
+        .update(equipment)
+        .set({
+          ...changes,
+          version: sql`${equipment.version} + ${1}`,
+        })
+        .where(
+          and(
+            eq(equipment.id, equipmentId),
+            eq(equipment.branchId, branchId),
+            eq(equipment.version, expectedVersion),
+          ),
+        );
+      const affectedRows = (result as unknown as [{ affectedRows?: number }])[0]
+        ?.affectedRows;
+      if (affectedRows !== 1)
+        throw new EquipmentOperationError(
+          "ข้อมูลอุปกรณ์มีการเปลี่ยนแปลง กรุณาโหลดใหม่",
+          409,
+        );
+    } catch (error) {
+      throw normalizeEquipmentWriteError(error);
+    }
   },
 };

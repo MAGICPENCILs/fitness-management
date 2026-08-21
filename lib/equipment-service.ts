@@ -13,22 +13,19 @@ import {
   type MutableEquipmentStatus,
 } from "@/lib/equipment-core";
 import {
+  equipmentMutationRepository,
   equipmentReadRepository,
+  EquipmentOperationError,
+  normalizeEquipmentWriteError,
+  type EquipmentMutationChanges,
+  type EquipmentMutationRepository,
   type EquipmentReadRepository,
   type EquipmentRow,
   type EquipmentSummaryRow,
   type MaintenanceRow,
 } from "@/lib/equipment-repository";
 
-export class EquipmentOperationError extends Error {
-  constructor(
-    message: string,
-    public status = 400,
-  ) {
-    super(message);
-    this.name = "EquipmentOperationError";
-  }
-}
+export { EquipmentOperationError } from "@/lib/equipment-repository";
 
 type CoreDashboardFilters = ReturnType<typeof dashboardFiltersSchema.parse>;
 
@@ -338,58 +335,244 @@ export async function createEquipment(input: {
   note?: string;
 }, executor?: DbTransaction) {
   const database = executor ?? db;
+  const normalizedCode = input.code.trim().toUpperCase();
   const [existing] = await database
     .select({ id: equipment.id })
     .from(equipment)
-    .where(eq(equipment.code, input.code))
+    .where(eq(equipment.code, normalizedCode))
     .limit(1);
   if (existing)
     throw new EquipmentOperationError("รหัสอุปกรณ์นี้มีอยู่แล้ว", 409);
 
-  const result = await database.insert(equipment).values({
-    ...input,
-    serialNumber: input.serialNumber || null,
-    purchaseDate: input.purchaseDate || null,
-    warrantyEndDate: input.warrantyEndDate || null,
-    maintenanceIntervalHours: input.maintenanceIntervalHours ?? null,
-    nextMaintenanceHours: input.maintenanceIntervalHours
-      ? input.currentUsageHours + input.maintenanceIntervalHours
-      : null,
-    nextMaintenanceDate: input.nextMaintenanceDate || null,
-    note: input.note || null,
-  });
-  return result[0].insertId;
+  try {
+    const result = await database.insert(equipment).values({
+      ...input,
+      code: normalizedCode,
+      serialNumber: input.serialNumber || null,
+      purchaseDate: input.purchaseDate || null,
+      warrantyEndDate: input.warrantyEndDate || null,
+      maintenanceIntervalHours: input.maintenanceIntervalHours ?? null,
+      nextMaintenanceHours: input.maintenanceIntervalHours
+        ? input.currentUsageHours + input.maintenanceIntervalHours
+        : null,
+      nextMaintenanceDate: input.nextMaintenanceDate || null,
+      note: input.note || null,
+    });
+    return result[0].insertId;
+  } catch (error) {
+    throw normalizeEquipmentWriteError(error);
+  }
 }
 
-/** อัปเดตมิเตอร์แบบเพิ่มขึ้นเท่านั้นเพื่อรักษาความน่าเชื่อถือของรอบบำรุง และเปลี่ยนสถานะตามการตรวจหน้างาน */
+export type UpdateEquipmentMasterInput = {
+  code?: string;
+  name?: string;
+  category?: EquipmentCategory;
+  location?: string;
+  serialNumber?: string;
+  purchaseDate?: string;
+  warrantyEndDate?: string;
+  maintenanceIntervalHours?: number;
+  nextMaintenanceDate?: string;
+  note?: string;
+  expectedVersion: number;
+};
+
+export type UpdateEquipmentOperationInput = {
+  currentUsageHours: number;
+  status: MutableEquipmentStatus;
+  expectedVersion: number;
+};
+
+export type RetireEquipmentInput = {
+  reason: string;
+  expectedVersion: number;
+};
+
+const masterInputKeys = new Set([
+  "code",
+  "name",
+  "category",
+  "location",
+  "serialNumber",
+  "purchaseDate",
+  "warrantyEndDate",
+  "maintenanceIntervalHours",
+  "nextMaintenanceDate",
+  "note",
+  "expectedVersion",
+]);
+
+function assertMutableLifecycle(status: EquipmentStatus) {
+  if (status === "RETIRED")
+    throw new EquipmentOperationError("อุปกรณ์นี้เลิกใช้งานแล้ว", 409);
+}
+
+function assertExpectedVersion(currentVersion: number, expectedVersion: number) {
+  if (currentVersion !== expectedVersion)
+    throw new EquipmentOperationError(
+      "ข้อมูลอุปกรณ์มีการเปลี่ยนแปลง กรุณาโหลดใหม่",
+      409,
+    );
+}
+
+/** เลือกเฉพาะ master fields ที่อนุญาตและแปลงค่าว่าง nullable โดยไม่เปิดทางแก้สาขา มิเตอร์ หรือ lifecycle */
+function getMasterChanges(input: UpdateEquipmentMasterInput) {
+  const prohibitedKey = Object.keys(input).find(
+    (key) => !masterInputKeys.has(key),
+  );
+  if (prohibitedKey)
+    throw new EquipmentOperationError(
+      `ฟิลด์ ${prohibitedKey} ไม่สามารถแก้ผ่านข้อมูลทะเบียนได้`,
+    );
+
+  const changes: EquipmentMutationChanges = {};
+  if (input.code !== undefined) changes.code = input.code.trim().toUpperCase();
+  if (input.name !== undefined) changes.name = input.name;
+  if (input.category !== undefined) changes.category = input.category;
+  if (input.location !== undefined) changes.location = input.location;
+  if (input.serialNumber !== undefined)
+    changes.serialNumber = input.serialNumber || null;
+  if (input.purchaseDate !== undefined)
+    changes.purchaseDate = input.purchaseDate || null;
+  if (input.warrantyEndDate !== undefined)
+    changes.warrantyEndDate = input.warrantyEndDate || null;
+  if (input.maintenanceIntervalHours !== undefined)
+    changes.maintenanceIntervalHours = input.maintenanceIntervalHours;
+  if (input.nextMaintenanceDate !== undefined)
+    changes.nextMaintenanceDate = input.nextMaintenanceDate || null;
+  if (input.note !== undefined) changes.note = input.note || null;
+  return changes;
+}
+
+/** แยกกฎ lifecycle ออกจาก Drizzle แต่ใช้ repository เดิมกับ transaction ของ caller ตลอด lock/CAS */
+export function createEquipmentMutationService(
+  repository: EquipmentMutationRepository,
+) {
+  return {
+    async updateEquipmentMaster(
+      equipmentId: number,
+      branchId: number,
+      input: UpdateEquipmentMasterInput,
+      tx: DbTransaction,
+    ) {
+      const changes = getMasterChanges(input);
+      const current = await repository.lockEquipment(equipmentId, branchId, tx);
+      assertMutableLifecycle(current.status);
+      assertExpectedVersion(current.version, input.expectedVersion);
+      await repository.compareAndSetEquipment(
+        equipmentId,
+        branchId,
+        input.expectedVersion,
+        changes,
+        tx,
+      );
+      return { equipmentId, version: input.expectedVersion + 1 };
+    },
+
+    /** ปฏิเสธมิเตอร์ย้อนหลังและ RETIRED จาก locked state ก่อน CAS เพื่อไม่ให้ค่าปัจจุบันถูกเขียนทับ */
+    async updateEquipmentOperation(
+      equipmentId: number,
+      branchId: number,
+      input: UpdateEquipmentOperationInput,
+      tx: DbTransaction,
+    ) {
+      const current = await repository.lockEquipment(equipmentId, branchId, tx);
+      assertMutableLifecycle(current.status);
+      if (input.currentUsageHours < current.currentUsageHours)
+        throw new EquipmentOperationError(
+          "ชั่วโมงใช้งานใหม่ต้องไม่น้อยกว่าค่าปัจจุบัน",
+        );
+      assertExpectedVersion(current.version, input.expectedVersion);
+      await repository.compareAndSetEquipment(
+        equipmentId,
+        branchId,
+        input.expectedVersion,
+        {
+          currentUsageHours: input.currentUsageHours,
+          status: input.status,
+        },
+        tx,
+      );
+      return { equipmentId, version: input.expectedVersion + 1 };
+    },
+
+    /** RETIRED เป็นปลายทางถาวร จึงล็อกและตรวจซ้ำก่อนเก็บเวลา/เหตุผลพร้อมเพิ่ม version ครั้งเดียว */
+    async retireEquipment(
+      equipmentId: number,
+      branchId: number,
+      input: RetireEquipmentInput,
+      retiredAt: Date,
+      tx: DbTransaction,
+    ) {
+      const current = await repository.lockEquipment(equipmentId, branchId, tx);
+      assertMutableLifecycle(current.status);
+      const reason = input.reason.trim();
+      if (reason.length < 2 || reason.length > 500)
+        throw new EquipmentOperationError("กรุณาระบุเหตุผลการเลิกใช้งาน");
+      assertExpectedVersion(current.version, input.expectedVersion);
+      await repository.compareAndSetEquipment(
+        equipmentId,
+        branchId,
+        input.expectedVersion,
+        {
+          status: "RETIRED",
+          retiredAt,
+          retiredReason: reason,
+        },
+        tx,
+      );
+      return { equipmentId, version: input.expectedVersion + 1 };
+    },
+  };
+}
+
+const equipmentMutationService = createEquipmentMutationService(
+  equipmentMutationRepository,
+);
+
+export async function updateEquipmentMaster(
+  equipmentId: number,
+  branchId: number,
+  input: UpdateEquipmentMasterInput,
+  tx: DbTransaction,
+) {
+  return equipmentMutationService.updateEquipmentMaster(
+    equipmentId,
+    branchId,
+    input,
+    tx,
+  );
+}
+
 export async function updateEquipmentOperation(
   equipmentId: number,
   branchId: number,
-  input: { currentUsageHours: number; status: MutableEquipmentStatus },
-  executor?: DbTransaction,
+  input: UpdateEquipmentOperationInput,
+  tx: DbTransaction,
 ) {
-  const database = executor ?? db;
-  const [current] = await database
-    .select({
-      id: equipment.id,
-      currentUsageHours: equipment.currentUsageHours,
-      status: equipment.status,
-    })
-    .from(equipment)
-    .where(and(eq(equipment.id, equipmentId), eq(equipment.branchId, branchId)))
-    .limit(1);
-  if (!current) throw new EquipmentOperationError("ไม่พบอุปกรณ์", 404);
-  if (current.status === "RETIRED")
-    throw new EquipmentOperationError("อุปกรณ์นี้เลิกใช้งานแล้ว", 409);
-  if (input.currentUsageHours < current.currentUsageHours)
-    throw new EquipmentOperationError(
-      "ชั่วโมงใช้งานใหม่ต้องไม่น้อยกว่าค่าปัจจุบัน",
-    );
+  return equipmentMutationService.updateEquipmentOperation(
+    equipmentId,
+    branchId,
+    input,
+    tx,
+  );
+}
 
-  await database
-    .update(equipment)
-    .set(input)
-    .where(and(eq(equipment.id, equipmentId), eq(equipment.branchId, branchId)));
+export async function retireEquipment(
+  equipmentId: number,
+  branchId: number,
+  input: RetireEquipmentInput,
+  retiredAt: Date,
+  tx: DbTransaction,
+) {
+  return equipmentMutationService.retireEquipment(
+    equipmentId,
+    branchId,
+    input,
+    retiredAt,
+    tx,
+  );
 }
 
 /** บันทึกงานบำรุงใน transaction และตั้งรอบถัดไปอัตโนมัติเมื่อปิดงานเรียบร้อย */

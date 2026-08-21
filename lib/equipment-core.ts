@@ -190,6 +190,7 @@ export const updateEquipmentOperationSchema = z
   .object({
     currentUsageHours: usageHoursSchema,
     status: z.enum(mutableEquipmentStatuses),
+    expectedVersion: expectedVersionSchema,
   })
   .strict();
 

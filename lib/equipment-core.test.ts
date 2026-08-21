@@ -134,8 +134,29 @@ describe("equipment core", () => {
       updateEquipmentOperationSchema.safeParse({
         currentUsageHours: 100,
         status: "RETIRED",
+        expectedVersion: 3,
       }).success,
     ).toBe(false);
+  });
+
+  it("บังคับ expectedVersion สำหรับการอัปเดตปฏิบัติการ", () => {
+    expect(
+      updateEquipmentOperationSchema.safeParse({
+        currentUsageHours: 100,
+        status: "OPERATIONAL",
+      }).success,
+    ).toBe(false);
+    expect(
+      updateEquipmentOperationSchema.parse({
+        currentUsageHours: 100,
+        status: "OPERATIONAL",
+        expectedVersion: 3,
+      }),
+    ).toEqual({
+      currentUsageHours: 100,
+      status: "OPERATIONAL",
+      expectedVersion: 3,
+    });
   });
 
   it("ปฏิเสธการอัปเดตปฏิบัติการกับแถวที่เลิกใช้งานแล้วก่อนเขียนข้อมูล", async () => {
@@ -143,9 +164,16 @@ describe("equipment core", () => {
       select: () => ({
         from: () => ({
           where: () => ({
-            limit: async () => [
-              { id: 7, currentUsageHours: 100, status: "RETIRED" },
-            ],
+            for: () => ({
+              limit: async () => [
+                {
+                  id: 7,
+                  currentUsageHours: 100,
+                  status: "RETIRED",
+                  version: 3,
+                },
+              ],
+            }),
           }),
         }),
       }),
@@ -158,7 +186,11 @@ describe("equipment core", () => {
       updateEquipmentOperation(
         7,
         10,
-        { currentUsageHours: 100, status: "OPERATIONAL" },
+        {
+          currentUsageHours: 100,
+          status: "OPERATIONAL",
+          expectedVersion: 3,
+        },
         retiredExecutor,
       ),
     ).rejects.toMatchObject({ status: 409 });
