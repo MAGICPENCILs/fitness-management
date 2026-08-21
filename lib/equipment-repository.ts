@@ -313,8 +313,7 @@ export const equipmentReadRepository: EquipmentReadRepository = {
   },
 };
 
-const EQUIPMENT_CODE_CONSTRAINT =
-  /(?:^|[^A-Za-z0-9_])equipment_code_unique(?:$|[^A-Za-z0-9_])/;
+const EQUIPMENT_CODE_CONSTRAINT = "equipment_code_unique";
 
 /** อ่าน property จาก error ภายนอกแบบไม่เชื่อ getter เพื่อไม่ให้ classifier กลบ error ต้นฉบับด้วย exception ใหม่ */
 function readErrorProperty(error: object, key: string) {
@@ -323,6 +322,16 @@ function readErrorProperty(error: object, key: string) {
   } catch {
     return undefined;
   }
+}
+
+/** ดึงชื่อ key หลัง `for key` แล้วตัด quote/qualifier ของ MySQL เพื่อเทียบชื่อ constraint ทั้งคำ ไม่ใช้ substring */
+function getMySqlDuplicateKey(value: unknown) {
+  if (typeof value !== "string") return null;
+  const match = /\bfor key\s+(.+?)\s*$/i.exec(value);
+  if (!match?.[1]) return null;
+  const normalized = match[1].replace(/[`'"]/g, "");
+  const segments = normalized.split(".");
+  return segments.at(-1)?.trim() || null;
 }
 
 /** ตรวจ cause chain แบบมีขอบเขต และยอมรับเฉพาะ duplicate ของ constraint รหัสอุปกรณ์เพื่อไม่แปลง DB error อื่นเป็น 409 ผิดประเภท */
@@ -336,8 +345,7 @@ function isUniqueCodeCollision(error: unknown) {
     const sqlMessage = readErrorProperty(candidate, "sqlMessage");
     const hasDuplicateCode = code === "ER_DUP_ENTRY" || errno === 1062;
     const hasEquipmentConstraint = [message, sqlMessage].some(
-      (value) =>
-        typeof value === "string" && EQUIPMENT_CODE_CONSTRAINT.test(value),
+      (value) => getMySqlDuplicateKey(value) === EQUIPMENT_CODE_CONSTRAINT,
     );
     if (hasDuplicateCode && hasEquipmentConstraint) return true;
 

@@ -239,6 +239,20 @@ function makeWrappedDuplicateError(constraint: string) {
   );
 }
 
+function makeDuplicateErrorForKey(keyReference: string, wrapped: boolean) {
+  const driverError = Object.assign(
+    new Error(`Duplicate entry 'BIKE-02' for key ${keyReference}`),
+    {
+      code: "ER_DUP_ENTRY",
+      errno: 1062,
+      sqlMessage: `Duplicate entry 'BIKE-02' for key ${keyReference}`,
+    },
+  );
+  return wrapped
+    ? new DrizzleQueryError("insert into `equipment` values (?)", [], driverError)
+    : driverError;
+}
+
 describe("production equipment mutation repository", () => {
   beforeEach(() => database.reset());
 
@@ -435,6 +449,52 @@ describe("production equipment mutation repository", () => {
       version: 3,
     });
   });
+
+  it.each([
+    ["backtick hyphen", "`equipment_code_unique-backup`", false],
+    ["single-quote dollar", "'equipment_code_unique$archive'", true],
+    [
+      "qualified backtick hyphen",
+      "`fitness`.`equipment_code_unique-backup`",
+      true,
+    ],
+    [
+      "qualified single-quote dollar",
+      "'fitness.equipment_code_unique$archive'",
+      false,
+    ],
+    [
+      "extra qualified segment",
+      "`fitness`.`equipment_code_unique`.`backup`",
+      true,
+    ],
+  ])(
+    "ไม่แปลง key ที่เพียงขึ้นต้นเหมือน constraint จริง: %s",
+    (_label, keyReference, wrapped) => {
+      const duplicate = makeDuplicateErrorForKey(keyReference, wrapped);
+      expect(repositoryModule.normalizeEquipmentWriteError(duplicate)).toBe(
+        duplicate,
+      );
+    },
+  );
+
+  it.each([
+    ["plain", "equipment_code_unique", false],
+    ["single quoted", "'equipment_code_unique'", true],
+    ["backtick quoted", "`equipment_code_unique`", false],
+    ["plain qualified", "fitness.equipment_code_unique", true],
+    ["single quoted qualified", "'fitness.equipment_code_unique'", false],
+    ["backtick qualified", "`fitness`.`equipment_code_unique`", true],
+  ])(
+    "ยอมรับรูปแบบ MySQL ของ constraint จริง: %s",
+    (_label, keyReference, wrapped) => {
+      expect(
+        repositoryModule.normalizeEquipmentWriteError(
+          makeDuplicateErrorForKey(keyReference, wrapped),
+        ),
+      ).toMatchObject({ status: 409 });
+    },
+  );
 
   it("cause ที่วนซ้ำและ getter ที่ throw ไม่ทำให้ classifier กลบ error เดิม", () => {
     const hostileError: Record<string, unknown> = {};
