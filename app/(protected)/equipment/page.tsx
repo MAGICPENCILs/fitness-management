@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { EquipmentManager } from "@/components/equipment/equipment-manager";
+import { EquipmentDashboard } from "@/components/equipment/equipment-dashboard";
 import {
   getEquipmentDashboard,
   parseEquipmentDashboardFilters,
@@ -54,7 +54,12 @@ export default async function EquipmentPage({
           พร้อมประวัติงานที่ตรวจสอบย้อนหลังได้
         </p>
       </header>
-      <EquipmentManager {...dashboard} today={today} canManage={canManage} />
+      <EquipmentDashboard
+        {...dashboard}
+        filters={filters}
+        today={today}
+        canManage={canManage}
+      />
     </div>
   );
 }
