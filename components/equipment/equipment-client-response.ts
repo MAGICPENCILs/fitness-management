@@ -3,6 +3,7 @@ export type EquipmentClientResponse = {
   error?: string;
   version?: number;
   id?: number;
+  code?: "EQUIPMENT_CODE_CONFLICT" | "STALE_VERSION";
 };
 
 export type EquipmentMutationFlow =
@@ -56,11 +57,16 @@ export async function readEquipmentClientResponse(
     const value: unknown = await response.json();
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     const record = value as Record<string, unknown>;
+    const code =
+      record.code === "EQUIPMENT_CODE_CONFLICT" || record.code === "STALE_VERSION"
+        ? record.code
+        : undefined;
     return {
       ...(typeof record.message === "string" ? { message: record.message } : {}),
       ...(typeof record.error === "string" ? { error: record.error } : {}),
       ...(typeof record.version === "number" ? { version: record.version } : {}),
       ...(typeof record.id === "number" ? { id: record.id } : {}),
+      ...(code ? { code } : {}),
     };
   } catch {
     return null;
@@ -89,7 +95,16 @@ export async function sendEquipmentMutation(input: {
       globalThis.location.replace("/forbidden");
       return { kind: "redirect" };
     }
-    if (response.status === 409) return { kind: "stale" };
+    if (response.status === 409) {
+      if (parsed?.code === "STALE_VERSION") return { kind: "stale" };
+      return {
+        kind: "error",
+        message:
+          parsed?.code === "EQUIPMENT_CODE_CONFLICT"
+            ? "รหัสอุปกรณ์นี้ถูกใช้งานแล้ว"
+            : "ข้อมูลขัดแย้งกับสถานะล่าสุด กรุณาตรวจสอบแล้วลองใหม่",
+      };
+    }
     if (!response.ok) {
       const copy = flowCopy[input.flow];
       return {

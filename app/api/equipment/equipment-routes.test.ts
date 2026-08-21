@@ -455,6 +455,7 @@ describe("equipment API routes", () => {
       new EquipmentOperationError(
         "ข้อมูลอุปกรณ์มีการเปลี่ยนแปลง กรุณาโหลดใหม่",
         409,
+        "STALE_VERSION",
       ),
     );
 
@@ -472,9 +473,36 @@ describe("equipment API routes", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
       error: "ข้อมูลอุปกรณ์มีการเปลี่ยนแปลง กรุณาโหลดใหม่",
+      code: "STALE_VERSION",
     });
     expect(mocks.runAuditedMutation).toHaveBeenCalledOnce();
     expect(mocks.updateEquipmentOperation).toHaveBeenCalledOnce();
+  });
+
+  it("duplicate code คืน 409 fixed copy พร้อม machine code ที่ allowlist", async () => {
+    mocks.createEquipment.mockRejectedValueOnce(
+      new EquipmentOperationError(
+        "รหัสอุปกรณ์นี้มีอยู่แล้ว",
+        409,
+        "EQUIPMENT_CODE_CONFLICT",
+      ),
+    );
+
+    const response = await callRoute(
+      loadCollectionRoute,
+      "POST",
+      mutationRequest(
+        "/api/equipment",
+        "POST",
+        JSON.stringify(createBody),
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "รหัสอุปกรณ์นี้มีอยู่แล้ว",
+      code: "EQUIPMENT_CODE_CONFLICT",
+    });
   });
 
   it("unknown Drizzle/SQL error ตอบ generic และ log เฉพาะ fixed label กับ error name", async () => {

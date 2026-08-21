@@ -8,6 +8,7 @@ import {
   like,
   lt,
   lte,
+  ne,
   not,
   or,
   sql,
@@ -30,6 +31,7 @@ export class EquipmentOperationError extends Error {
   constructor(
     message: string,
     public status = 400,
+    public readonly code?: "EQUIPMENT_CODE_CONFLICT" | "STALE_VERSION",
   ) {
     super(message);
     this.name = "EquipmentOperationError";
@@ -151,10 +153,11 @@ export interface EquipmentReadRepository {
 }
 
 /** สร้างเงื่อนไขสถานะบำรุงให้ตรงกับ equipment-core และคืน boolean SQL ที่ไม่กลายเป็น NULL เมื่อไม่มีรอบกำหนด */
-function getMaintenanceCondition(
+export function getMaintenanceCondition(
   state: MaintenanceState,
   today: string,
 ): SQL {
+  const isActive = ne(equipment.status, "RETIRED");
   const overdue = or(
     and(
       isNotNull(equipment.nextMaintenanceHours),
@@ -186,12 +189,18 @@ function getMaintenanceCondition(
     isNotNull(equipment.nextMaintenanceDate),
   )!;
 
-  if (state === "OVERDUE") return overdue;
+  if (state === "OVERDUE") return and(isActive, overdue)!;
   if (state === "DUE_SOON")
-    return and(not(overdue), withinDueSoonThreshold)!;
+    return and(isActive, not(overdue), withinDueSoonThreshold)!;
   if (state === "SCHEDULED")
-    return and(not(overdue), not(withinDueSoonThreshold), hasSchedule)!;
+    return and(
+      isActive,
+      not(overdue),
+      not(withinDueSoonThreshold),
+      hasSchedule,
+    )!;
   return and(
+    isActive,
     isNull(equipment.nextMaintenanceHours),
     isNull(equipment.nextMaintenanceDate),
   )!;
@@ -378,7 +387,11 @@ function isUniqueCodeCollision(error: unknown) {
 /** แปลงเฉพาะ unique collision เป็น domain error โดยไม่ส่งรายละเอียด SQL/driver ออกไปยัง route */
 export function normalizeEquipmentWriteError(error: unknown) {
   return isUniqueCodeCollision(error)
-    ? new EquipmentOperationError("รหัสอุปกรณ์นี้มีอยู่แล้ว", 409)
+    ? new EquipmentOperationError(
+        "รหัสอุปกรณ์นี้มีอยู่แล้ว",
+        409,
+        "EQUIPMENT_CODE_CONFLICT",
+      )
     : error;
 }
 
@@ -433,6 +446,7 @@ export const equipmentMutationRepository: EquipmentMutationRepository = {
         throw new EquipmentOperationError(
           "ข้อมูลอุปกรณ์มีการเปลี่ยนแปลง กรุณาโหลดใหม่",
           409,
+          "STALE_VERSION",
         );
     } catch (error) {
       throw normalizeEquipmentWriteError(error);

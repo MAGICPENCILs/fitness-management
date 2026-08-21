@@ -122,8 +122,9 @@ export async function runAuditedMutation<T>(
         result: "FAILED",
         metadata: { errorCode: getAuditErrorCode(error) },
       });
-    } catch (auditError) {
-      console.error("Failed to write FAILED audit", auditError);
+    } catch {
+      // ห้ามส่ง error object จากฐานข้อมูลเข้า logger เพราะอาจพก SQL, params หรือข้อมูลอ่อนไหวมาด้วย
+      console.error("Failed to write FAILED audit");
     }
     throw error;
   }

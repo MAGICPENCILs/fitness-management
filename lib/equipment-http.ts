@@ -57,8 +57,14 @@ export function equipmentErrorResponse(error: unknown): NextResponse {
     error instanceof AuthorizationError ||
     error instanceof EquipmentOperationError
   ) {
+    const code =
+      error instanceof EquipmentOperationError &&
+      (error.code === "EQUIPMENT_CODE_CONFLICT" ||
+        error.code === "STALE_VERSION")
+        ? error.code
+        : undefined;
     return NextResponse.json(
-      { error: error.message },
+      { error: error.message, ...(code ? { code } : {}) },
       { status: error.status },
     );
   }

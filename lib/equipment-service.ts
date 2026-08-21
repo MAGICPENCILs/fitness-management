@@ -342,7 +342,11 @@ export async function createEquipment(input: {
     .where(eq(equipment.code, normalizedCode))
     .limit(1);
   if (existing)
-    throw new EquipmentOperationError("รหัสอุปกรณ์นี้มีอยู่แล้ว", 409);
+    throw new EquipmentOperationError(
+      "รหัสอุปกรณ์นี้มีอยู่แล้ว",
+      409,
+      "EQUIPMENT_CODE_CONFLICT",
+    );
 
   try {
     const result = await database.insert(equipment).values({
@@ -428,6 +432,7 @@ function assertExpectedVersion(currentVersion: number, expectedVersion: number) 
     throw new EquipmentOperationError(
       "ข้อมูลอุปกรณ์มีการเปลี่ยนแปลง กรุณาโหลดใหม่",
       409,
+      "STALE_VERSION",
     );
 }
 
@@ -475,6 +480,24 @@ export function createEquipmentMutationService(
       const current = await repository.lockEquipment(equipmentId, branchId, tx);
       assertMutableLifecycle(current.status);
       assertExpectedVersion(current.version, input.expectedVersion);
+      /** ตรวจวันจากค่าที่จะมีผลจริงหลัง merge เพื่อให้ partial API update ทำ invariant เสียไม่ได้ */
+      const effectivePurchaseDate =
+        changes.purchaseDate !== undefined
+          ? changes.purchaseDate
+          : current.purchaseDate;
+      const effectiveWarrantyEndDate =
+        changes.warrantyEndDate !== undefined
+          ? changes.warrantyEndDate
+          : current.warrantyEndDate;
+      if (
+        effectivePurchaseDate &&
+        effectiveWarrantyEndDate &&
+        effectiveWarrantyEndDate < effectivePurchaseDate
+      ) {
+        throw new EquipmentOperationError(
+          "วันสิ้นสุดประกันต้องไม่ก่อนวันที่ซื้อ",
+        );
+      }
       await repository.compareAndSetEquipment(
         equipmentId,
         branchId,

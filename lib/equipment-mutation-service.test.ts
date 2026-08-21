@@ -96,6 +96,54 @@ function createHarness(row = makeEquipmentRow()) {
 }
 
 describe("equipment mutation service", () => {
+  it.each([
+    [
+      "แก้เฉพาะวันซื้อ",
+      { purchaseDate: "2026-02-01", expectedVersion: 3 },
+      { warrantyEndDate: "2026-01-31" },
+    ],
+    [
+      "แก้เฉพาะวันสิ้นสุดประกัน",
+      { warrantyEndDate: "2026-01-31", expectedVersion: 3 },
+      { purchaseDate: "2026-02-01" },
+    ],
+  ])("ปฏิเสธ invariant วันที่จากค่าปัจจุบันเมื่อ%s", async (_label, input, current) => {
+    const { repository, service } = createHarness(makeEquipmentRow(current));
+
+    await expect(
+      service.updateEquipmentMaster(7, 10, input, tx),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(repository.compareAndSetEquipment).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "ล้างวันซื้อ",
+      { purchaseDate: "", expectedVersion: 3 },
+      { purchaseDate: "2026-02-01", warrantyEndDate: "2026-01-31" },
+      { purchaseDate: null },
+    ],
+    [
+      "ขยับวันสิ้นสุดประกัน",
+      { warrantyEndDate: "2026-02-02", expectedVersion: 3 },
+      { purchaseDate: "2026-02-01", warrantyEndDate: "2026-01-31" },
+      { warrantyEndDate: "2026-02-02" },
+    ],
+  ])("ยอมรับ invariant ที่ถูกต้องเมื่อ%s", async (_label, input, current, changes) => {
+    const { repository, service } = createHarness(makeEquipmentRow(current));
+
+    await expect(
+      service.updateEquipmentMaster(7, 10, input, tx),
+    ).resolves.toEqual({ equipmentId: 7, version: 4 });
+    expect(repository.compareAndSetEquipment).toHaveBeenCalledWith(
+      7,
+      10,
+      3,
+      changes,
+      tx,
+    );
+  });
+
   it("ปฏิเสธมิเตอร์ที่ลดลงก่อนเรียก compare-and-set", async () => {
     const { repository, service } = createHarness();
 

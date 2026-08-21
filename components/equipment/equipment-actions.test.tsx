@@ -9,7 +9,7 @@ import { EquipmentFormDialog } from "@/components/equipment/equipment-form-dialo
 import { EquipmentMaintenanceDialog } from "@/components/equipment/equipment-maintenance-dialog";
 import { EquipmentOperationDialog } from "@/components/equipment/equipment-operation-dialog";
 import { EquipmentRetireDialog } from "@/components/equipment/equipment-retire-dialog";
-import { readEquipmentClientResponse } from "@/components/equipment/equipment-client-response";
+import { readEquipmentClientResponse, sendEquipmentMutation } from "@/components/equipment/equipment-client-response";
 import type { EquipmentDashboardFilters, EquipmentDto } from "@/lib/equipment-service";
 
 const navigation = vi.hoisted(() => ({ refresh: vi.fn() }));
@@ -102,6 +102,34 @@ describe("equipment action visibility", () => {
 });
 
 describe("create and edit equipment", () => {
+  it.each([
+    ["create", undefined, "บันทึกอุปกรณ์"],
+    ["edit", item, "บันทึกการแก้ไข"],
+  ] as const)("duplicate code จาก %s คง dialog ให้แก้รหัสและไม่ refresh", async (_label, editingItem, submitLabel) => {
+    const user = userEvent.setup();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(
+        { error: "RAW DUPLICATE SQL", code: "EQUIPMENT_CODE_CONFLICT" },
+        409,
+      ),
+    );
+    const success = vi.fn();
+    render(<EquipmentFormDialog item={editingItem} onSuccess={success} />);
+    await user.click(screen.getByRole("button", { name: editingItem ? /แก้ไขทะเบียน BIKE-007/ : "เพิ่มอุปกรณ์" }));
+    if (!editingItem) {
+      await user.type(screen.getByLabelText("รหัสอุปกรณ์"), "BIKE-007");
+      await user.type(screen.getByLabelText("ชื่ออุปกรณ์"), "จักรยานใหม่");
+      await user.type(screen.getByLabelText("ตำแหน่ง"), "โซน B");
+    }
+    await user.click(screen.getByRole("button", { name: submitLabel }));
+
+    expect(await screen.findByText("รหัสอุปกรณ์นี้ถูกใช้งานแล้ว")).toBeVisible();
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(screen.queryByText(/RAW DUPLICATE SQL/)).not.toBeInTheDocument();
+    expect(success).not.toHaveBeenCalled();
+    expect(navigation.refresh).not.toHaveBeenCalled();
+  });
+
   it("ผูก date error กับ field และไม่ส่ง request เมื่อ warranty ก่อน purchase", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.spyOn(globalThis, "fetch");
@@ -259,6 +287,27 @@ describe("operation, maintenance and retirement", () => {
 });
 
 describe("fixed response handling", () => {
+  it("malformed 409 ใช้ generic conflict โดยไม่ตีความเป็น stale", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("{RAW-CONFLICT-SECRET", {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(
+      sendEquipmentMutation({
+        url: "/api/equipment/7",
+        method: "PATCH",
+        body: { expectedVersion: 4 },
+        flow: "operation",
+      }),
+    ).resolves.toEqual({
+      kind: "error",
+      message: "ข้อมูลขัดแย้งกับสถานะล่าสุด กรุณาตรวจสอบแล้วลองใหม่",
+    });
+  });
+
   it("อ่านเฉพาะ expected JSON keys และคืน null สำหรับ HTML/malformed", async () => {
     await expect(readEquipmentClientResponse(jsonResponse({ message: "x", error: "y", version: 2, token: "SECRET" }))).resolves.toEqual({ message: "x", error: "y", version: 2 });
     await expect(readEquipmentClientResponse(new Response("<html>SQL TOKEN HASH IP</html>", { status: 500, headers: { "content-type": "text/html" } }))).resolves.toBeNull();
@@ -281,7 +330,7 @@ describe("fixed response handling", () => {
 
   it("409 ปิด dialog ประกาศ exact copy refresh ครั้งเดียวและไม่ retry", async () => {
     const user = userEvent.setup();
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ error: "STALE-SERVER-RAW" }, 409));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ error: "STALE-SERVER-RAW", code: "STALE_VERSION" }, 409));
     const success = vi.fn();
     render(<EquipmentOperationDialog item={item} onSuccess={success} />);
     await user.click(screen.getByRole("button", { name: "อัปเดตมิเตอร์และสถานะ BIKE-007" }));
@@ -290,6 +339,23 @@ describe("fixed response handling", () => {
     expect(success).toHaveBeenCalledWith("ข้อมูลถูกแก้ไขแล้ว กรุณาตรวจสอบข้อมูลล่าสุด");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(navigation.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("409 ที่ code ไม่รู้จักคง dialog ด้วย generic conflict และไม่สะท้อน body", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({ error: "RAW-CONFLICT-SECRET", code: "FUTURE_CONFLICT" }, 409),
+    );
+    const success = vi.fn();
+    render(<EquipmentOperationDialog item={item} onSuccess={success} />);
+    await user.click(screen.getByRole("button", { name: "อัปเดตมิเตอร์และสถานะ BIKE-007" }));
+    await user.click(screen.getByRole("button", { name: "บันทึกสถานะ" }));
+
+    expect(await screen.findByText("ข้อมูลขัดแย้งกับสถานะล่าสุด กรุณาตรวจสอบแล้วลองใหม่")).toBeVisible();
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(screen.queryByText(/RAW-CONFLICT-SECRET/)).not.toBeInTheDocument();
+    expect(success).not.toHaveBeenCalled();
+    expect(navigation.refresh).not.toHaveBeenCalled();
   });
 
   it.each([[401, "/login"], [403, "/forbidden"]])("HTTP %s hard-navigate ไปหน้าปลอดภัยโดยไม่สะท้อน body", async (status, destination) => {

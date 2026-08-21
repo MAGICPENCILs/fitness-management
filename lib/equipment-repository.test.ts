@@ -204,6 +204,11 @@ const equipmentMutationRepository = (
     equipmentMutationRepository: ProductionRepository;
   }
 ).equipmentMutationRepository;
+const getMaintenanceCondition = (
+  repositoryModule as unknown as {
+    getMaintenanceCondition: (state: string, today: string) => SQL;
+  }
+).getMaintenanceCondition;
 const createEquipmentMutationService = (
   serviceModule as unknown as {
     createEquipmentMutationService: (
@@ -255,6 +260,18 @@ function makeDuplicateErrorForKey(keyReference: string, wrapped: boolean) {
 
 describe("production equipment mutation repository", () => {
   beforeEach(() => database.reset());
+
+  it.each(["OVERDUE", "DUE_SOON", "SCHEDULED", "NOT_SCHEDULED"])(
+    "maintenance filter %s ตัด RETIRED ออกจาก SQL predicate",
+    (state) => {
+      const query = new MySqlDialect().sqlToQuery(
+        getMaintenanceCondition(state, "2026-08-21").getSQL(),
+      );
+
+      expect(query.sql).toMatch(/`equipment`\.`status` <> \?/);
+      expect(query.params).toContain("RETIRED");
+    },
+  );
 
   it("ล็อกด้วย id และ branch ก่อน CAS ที่ version เดิมและเพิ่ม version หนึ่ง", async () => {
     const service = createEquipmentMutationService(equipmentMutationRepository);
@@ -381,6 +398,42 @@ describe("production equipment mutation repository", () => {
     ).toEqual([]);
   });
 
+  it("partial date ที่ทำ invariant เสียหยุดใน audited transaction โดยไม่มี write หรือ SUCCESS Audit", async () => {
+    database.reset({
+      purchaseDate: "2026-01-01",
+      warrantyEndDate: "2026-12-31",
+    });
+    const service = createEquipmentMutationService(equipmentMutationRepository);
+
+    await expect(
+      runAuditedMutation(
+        {
+          actorStaffId: 2,
+          branchId: 10,
+          action: "EQUIPMENT_MASTER_UPDATED",
+          entityType: "EQUIPMENT",
+          success: () => ({ entityId: 7 }),
+        },
+        (tx) =>
+          service.updateEquipmentMaster(
+            7,
+            10,
+            { purchaseDate: "2027-01-01", expectedVersion: 3 },
+            tx,
+          ),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(database.updates).toEqual([]);
+    expect(database.state.equipment).toMatchObject({
+      purchaseDate: "2026-01-01",
+      warrantyEndDate: "2026-12-31",
+      version: 3,
+    });
+    expect(
+      database.state.audits.filter((entry) => entry.result === "SUCCESS"),
+    ).toEqual([]);
+  });
+
   it.each([0, 2])(
     "affectedRows=%i เป็น conflict และไม่คืน success",
     async (affectedRows) => {
@@ -409,7 +462,7 @@ describe("production equipment mutation repository", () => {
     },
   );
 
-  it("แปลง unique code collision เป็น 409 โดยไม่เผย driver error", async () => {
+  it("แปลง unique code collision เป็น 409 พร้อม machine code โดยไม่เผย driver error", async () => {
     database.setUpdateFailure(
       makeWrappedDuplicateError("equipment_code_unique"),
     );
@@ -421,7 +474,10 @@ describe("production equipment mutation repository", () => {
       { code: "bike-02", expectedVersion: 3 },
       database.directExecutor() as unknown as DbTransaction,
     );
-    await expect(promise).rejects.toMatchObject({ status: 409 });
+    await expect(promise).rejects.toMatchObject({
+      status: 409,
+      code: "EQUIPMENT_CODE_CONFLICT",
+    });
     await expect(promise).rejects.not.toThrow(/Duplicate entry|equipment\.code/);
     expect(database.state.equipment).toMatchObject({
       code: "BIKE-01",
