@@ -374,6 +374,24 @@ describe("auth service", () => {
     });
   });
 
+  it("ตัด milliseconds ก่อนเซ็นและเก็บ session เพื่อไม่ให้ MySQL ปัดเวลา claims ต่างกันหนึ่งวินาที", async () => {
+    const fractionalNow = new Date("2026-08-10T04:00:00.900Z");
+    const service = createAuthService(repo, { now: () => fractionalNow });
+
+    const result = await service.login(
+      { staffCode: "OWNER001", password: "ValidPass#2026", returnTo: "/" },
+      REQUEST_WITHOUT_IP,
+    );
+
+    expect(result.claims.expiresAt).toBe(1786363200);
+    expect(repo.createdSessions[0]).toMatchObject({
+      createdAt: new Date("2026-08-10T04:00:00.000Z"),
+      lastSeenAt: new Date("2026-08-10T04:00:00.000Z"),
+      absoluteExpiresAt: new Date("2026-08-10T12:00:00.000Z"),
+      idleExpiresAt: new Date("2026-08-10T04:30:00.000Z"),
+    });
+  });
+
   it("keeps the account limit and rolls back the session when success audit fails", async () => {
     const service = createAuthService(repo, { now: () => NOW });
     const accountHash = createAuthSubjectFingerprint("OWNER001");

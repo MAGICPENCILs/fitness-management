@@ -24,6 +24,7 @@ import {
 import {
   createSessionId,
   hashSessionId,
+  normalizeSessionTimestamp,
   signSessionClaims,
   verifySessionClaims,
 } from "@/lib/auth/session-token";
@@ -218,8 +219,9 @@ export function createAuthService(
       ? "PASSWORD_CHANGE_REQUIRED"
       : "FULL";
     const sessionId = createSessionId();
+    const sessionStartedAt = normalizeSessionTimestamp(occurredAt);
     const absoluteExpiresAt = new Date(
-      occurredAt.getTime() + SESSION_ABSOLUTE_LIFETIME_SECONDS * 1_000,
+      sessionStartedAt.getTime() + SESSION_ABSOLUTE_LIFETIME_SECONDS * 1_000,
     );
     const claims: SessionClaims = {
       sessionId,
@@ -237,11 +239,11 @@ export function createAuthService(
       branchId: loginStaff.homeBranchId,
       sessionTokenHash: hashSessionId(sessionId),
       mode,
-      createdAt: occurredAt,
-      lastSeenAt: occurredAt,
+      createdAt: sessionStartedAt,
+      lastSeenAt: sessionStartedAt,
       absoluteExpiresAt,
       idleExpiresAt: new Date(
-        occurredAt.getTime() + SESSION_IDLE_TIMEOUT_SECONDS * 1_000,
+        sessionStartedAt.getTime() + SESSION_IDLE_TIMEOUT_SECONDS * 1_000,
       ),
       ...request,
     });
@@ -293,8 +295,9 @@ export function createAuthService(
     const occurredAt = now();
     const passwordHash = await hashPassword(password);
     const sessionId = createSessionId();
+    const sessionStartedAt = normalizeSessionTimestamp(occurredAt);
     const absoluteExpiresAt = new Date(
-      occurredAt.getTime() + SESSION_ABSOLUTE_LIFETIME_SECONDS * 1_000,
+      sessionStartedAt.getTime() + SESSION_ABSOLUTE_LIFETIME_SECONDS * 1_000,
     );
     const claims: SessionClaims = {
       sessionId,
@@ -315,11 +318,11 @@ export function createAuthService(
       newSession: {
         sessionTokenHash: hashSessionId(sessionId),
         mode: "FULL",
-        createdAt: occurredAt,
-        lastSeenAt: occurredAt,
+        createdAt: sessionStartedAt,
+        lastSeenAt: sessionStartedAt,
         absoluteExpiresAt,
         idleExpiresAt: new Date(
-          occurredAt.getTime() + SESSION_IDLE_TIMEOUT_SECONDS * 1_000,
+          sessionStartedAt.getTime() + SESSION_IDLE_TIMEOUT_SECONDS * 1_000,
         ),
         ...request,
       },

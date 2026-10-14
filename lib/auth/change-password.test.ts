@@ -86,6 +86,26 @@ describe("change own password", () => {
     expect(JSON.stringify(changed[0])).not.toContain("ChangedPass#2026");
   });
 
+  it("ตัด milliseconds ของ session ใหม่ก่อนหมุน cookie เพื่อให้ claims ตรงกับ MySQL", async () => {
+    const fractionalNow = new Date("2026-08-11T05:00:00.900Z");
+    const { repository, changed } = createRepository();
+    const service = createAuthService(repository, { now: () => fractionalNow });
+
+    const result = await service.changeOwnPassword(
+      PASSWORD_CHANGE_SESSION,
+      "ChangedPass#2026",
+      REQUEST,
+    );
+
+    expect(result.claims.expiresAt).toBe(1786453200);
+    expect(changed[0].newSession).toMatchObject({
+      createdAt: new Date("2026-08-11T05:00:00.000Z"),
+      lastSeenAt: new Date("2026-08-11T05:00:00.000Z"),
+      absoluteExpiresAt: new Date("2026-08-11T13:00:00.000Z"),
+      idleExpiresAt: new Date("2026-08-11T05:30:00.000Z"),
+    });
+  });
+
   it("rejects a weak password before starting the transaction", async () => {
     const { repository, changed } = createRepository();
     const service = createAuthService(repository, { now: () => NOW });
