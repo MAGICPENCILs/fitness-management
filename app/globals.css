@@ -299,11 +299,14 @@ body {
   }
 
   .receipt-print-page,
-  .receipt-print-page * {
+  .receipt-print-page *,
+  .report-print-page,
+  .report-print-page * {
     visibility: visible;
   }
 
-  .receipt-print-page {
+  .receipt-print-page,
+  .report-print-page {
     position: absolute;
     inset: 0;
     width: 100%;
