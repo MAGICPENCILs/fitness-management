@@ -1,14 +1,23 @@
 import { NotificationManager } from "@/components/settings/notification-manager";
-import { getNotificationHistory, getNotificationSettings } from "@/lib/notification-engine";
+import { getCurrentBranchId } from "@/lib/branch-service";
+import {
+  getNotificationHistory,
+  getNotificationProviderHealth,
+  getNotificationSettings,
+} from "@/lib/notification-engine";
+import { requirePermission } from "@/lib/staff-service";
 
 export const dynamic = "force-dynamic";
 
 /** โหลดค่าตั้งและประวัติจากฐานข้อมูลโดยตรง เพื่อไม่ต้องเรียก API ภายในผ่าน localhost */
 export default async function NotificationsPage() {
+  const branchId = await getCurrentBranchId();
+  await requirePermission("settings.manage", branchId);
   const [settings, history] = await Promise.all([
     getNotificationSettings(),
-    getNotificationHistory(),
+    getNotificationHistory(branchId),
   ]);
+  const providerHealth = getNotificationProviderHealth();
 
   return (
     <div className="w-full max-w-6xl space-y-8 p-4 sm:p-6 lg:p-8">
@@ -33,7 +42,9 @@ export default async function NotificationsPage() {
           ...item,
           scheduledFor: item.scheduledFor.toISOString().slice(0, 10),
           createdAt: item.createdAt?.toISOString() ?? null,
+          lastAttemptAt: item.lastAttemptAt?.toISOString() ?? null,
         }))}
+        providerHealth={providerHealth}
       />
     </div>
   );

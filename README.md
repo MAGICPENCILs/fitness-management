@@ -77,6 +77,17 @@ try {
 
 ควรทดสอบ restore กับฐานข้อมูลที่แยกจาก production ตาม runbook ก่อนใช้ในเหตุฉุกเฉิน และเก็บ key/dump ตามนโยบาย PDPA ขององค์กร
 
+## Notification Providers
+
+ระบบปิดการส่งออกภายนอกเป็นค่าเริ่มต้น (`NOTIFICATION_PROVIDER_MODE=disabled`) ใช้ `simulate` เพื่อทดสอบ state โดยไม่ส่งข้อมูลจริง และใช้ `live` เฉพาะเมื่อกำหนด secret ผ่าน environment/secret manager ครบแล้ว
+
+- SMS ใช้ HTTPS webhook และ bearer token
+- LINE OA ใช้ Channel access token กับ Push Message API
+- อีเมลรองรับ SMTP implicit TLS เท่านั้น (`NOTIFICATION_SMTP_SECURE=true`) เพื่อไม่ส่ง credential ผ่าน connection ที่ไม่เข้ารหัส
+- ผู้ดูแลตรวจสถานะ ส่งคิว และ retry เฉพาะ error ที่แก้ได้จากหน้า “ตั้งค่า → การแจ้งเตือน” โดยหน้าเว็บจะไม่แสดง URL, token, username หรือ password
+
+ก่อนเปิด `live` ให้ทดสอบด้วยบัญชี sandbox ของ provider และตรวจ consent การตลาดของสมาชิก ห้ามใส่ secret ลง Git หรือ log
+
 ## ตรวจคุณภาพก่อนส่งงาน
 
 ```powershell

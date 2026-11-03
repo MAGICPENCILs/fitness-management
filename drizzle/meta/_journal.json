@@ -85,6 +85,13 @@
       "when": 1793690531146,
       "tag": "0011_add_receipt_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1793692228541,
+      "tag": "0012_add_notification_delivery_state",
+      "breakpoints": true
     }
   ]
 }
