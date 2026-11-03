@@ -3,12 +3,16 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ScanLine, Loader2, CheckCircle2, TriangleAlert, XCircle } from "lucide-react";
+import { ScanLine, Loader2, CheckCircle2, DoorOpen, Radio, TriangleAlert, XCircle } from "lucide-react";
 
 type ScanResult = {
   result: "APPROVED" | "REJECTED";
   reason?: string;
   warning?: string | null;
+  door?: {
+    opened: boolean;
+    status: "OPENED" | "DISABLED" | "UNAVAILABLE" | "REJECTED";
+  };
   member?: {
     memberCode: string;
     firstName: string;
@@ -20,15 +24,22 @@ type ScanResult = {
 };
 
 /** รับรหัสบัตรและแสดงผลอนุญาตเข้าใช้บริการด้วยสถานะที่อ่านได้ทั้งสองโหมดสี */
-export function ScanPage() {
+export function ScanPage({
+  hardwareHealth,
+}: {
+  hardwareHealth: { mode: "disabled" | "simulate" | "webhook"; ready: boolean };
+}) {
   const [serial, setSerial] = useState("");
   const [loading, setLoading] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [error, setError] = useState("");
+  const [reading, setReading] = useState(false);
 
   /** ส่งรหัสบัตรที่ตัดช่องว่างแล้วไปตรวจสิทธิ์ โดยคงผลตอบกลับของเซิร์ฟเวอร์เป็นแหล่งข้อมูลหลัก */
   const handleScan = async () => {
     if (!serial.trim()) return;
     setLoading(true);
+    setError("");
     try {
       const res = await fetch("/api/scan", {
         method: "POST",
@@ -36,9 +47,29 @@ export function ScanPage() {
         body: JSON.stringify({ serial: serial.trim() }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "ไม่สามารถตรวจสิทธิ์ได้");
       setScanResult(data);
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : "ไม่สามารถตรวจสิทธิ์ได้");
     } finally {
       setLoading(false);
+    }
+  };
+
+  /** ขออ่าน credential จาก adapter ฝั่งเซิร์ฟเวอร์ แล้วให้ผู้ใช้กดสแกนเพื่อยืนยันการทำรายการ */
+  const handleReadCredential = async () => {
+    setReading(true);
+    setError("");
+    try {
+      const response = await fetch("/api/hardware/credential", { method: "POST" });
+      const result = await response.json();
+      if (!response.ok || result.status !== "READ")
+        throw new Error("เครื่องอ่านไม่พร้อมใช้งาน");
+      setSerial(result.serial);
+    } catch (readError) {
+      setError(readError instanceof Error ? readError.message : "เครื่องอ่านไม่พร้อมใช้งาน");
+    } finally {
+      setReading(false);
     }
   };
 
@@ -61,6 +92,10 @@ export function ScanPage() {
         <p className="text-muted-foreground text-sm">
           สแกน QR Code หรือพิมพ์รหัสบัตร
         </p>
+        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <span className={`size-2 rounded-full ${hardwareHealth.ready ? "bg-success" : "bg-warning"}`} aria-hidden="true" />
+          Hardware: {hardwareHealth.mode === "simulate" ? "Simulator" : hardwareHealth.mode === "webhook" ? "Webhook controller" : "ปิดใช้งาน"}
+        </div>
       </div>
 
       {/* Input สแกน */}
@@ -80,6 +115,11 @@ export function ScanPage() {
           สแกน
         </Button>
       </div>
+      <Button type="button" variant="outline" className="w-full" onClick={handleReadCredential} disabled={reading || !hardwareHealth.ready}>
+        {reading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Radio className="size-4" aria-hidden="true" />}
+        อ่านจากเครื่อง
+      </Button>
+      {error ? <p className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p> : null}
 
       {/* ผลลัพธ์ */}
       {scanResult && (
@@ -143,6 +183,13 @@ export function ScanPage() {
               <span>{scanResult.warning} — กรุณาต่ออายุ</span>
             </div>
           )}
+
+          {scanResult.result === "APPROVED" && scanResult.door ? (
+            <div className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium ${scanResult.door.opened ? "border-success/30 bg-success-surface text-success" : "border-warning/30 bg-warning-surface text-warning-foreground"}`} role="status">
+              {scanResult.door.opened ? <DoorOpen className="size-4" aria-hidden="true" /> : <TriangleAlert className="size-4" aria-hidden="true" />}
+              <span>{scanResult.door.opened ? "ประตูเปิดแล้ว" : "ผ่านสิทธิ์แล้ว แต่ประตูยังไม่เปิด กรุณาตรวจ controller"}</span>
+            </div>
+          ) : null}
 
           {/* ปุ่มสแกนต่อ */}
           <Button variant="outline" className="w-full" onClick={handleReset}>

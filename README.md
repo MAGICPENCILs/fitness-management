@@ -88,6 +88,10 @@ try {
 
 ก่อนเปิด `live` ให้ทดสอบด้วยบัญชี sandbox ของ provider และตรวจ consent การตลาดของสมาชิก ห้ามใส่ secret ลง Git หรือ log
 
+## Access Hardware
+
+`ACCESS_HARDWARE_MODE` มีค่า `disabled` (ค่าเริ่มต้น), `simulate` และ `webhook` เมื่อใช้ webhook ต้องเป็น HTTPS และกำหนด token ผ่าน secret manager ระบบจะ commit ผลตรวจสิทธิ์กับ access log ก่อนขอเปิดประตู และจะแสดง “ประตูยังไม่เปิด” หาก controller ไม่ตอบหรือไม่ยืนยัน `opened=true` ห้ามใช้ simulator กับประตูจริง
+
 ## ตรวจคุณภาพก่อนส่งงาน
 
 ```powershell
