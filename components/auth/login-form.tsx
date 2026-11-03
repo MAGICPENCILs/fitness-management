@@ -11,7 +11,13 @@ import { Label } from "@/components/ui/label";
 const LOGIN_UNAVAILABLE_MESSAGE = "ไม่สามารถเข้าสู่ระบบได้ชั่วคราว";
 
 /** ส่ง credential ไปยัง Route Handler เท่านั้น ล้างสถานะรหัสผ่าน และ reload เอกสารหลังสำเร็จเพื่อให้ request ถัดไปอ่าน session cookie ใหม่แน่นอน */
-export function LoginForm({ returnTo }: { returnTo: string }) {
+export function LoginForm({
+  returnTo,
+  navigateAfterLogin = (path) => globalThis.location.replace(path),
+}: {
+  returnTo: string;
+  navigateAfterLogin?: (path: string) => void;
+}) {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -43,7 +49,7 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
       }
 
       form.reset();
-      globalThis.location.replace(result.returnTo ?? "/");
+      navigateAfterLogin(result.returnTo ?? "/");
     } catch {
       form.reset();
       setError(LOGIN_UNAVAILABLE_MESSAGE);

@@ -9,6 +9,7 @@ import {
   StaffOperationError,
 } from "@/lib/staff-service";
 import { resetStaffPasswordSchema } from "@/lib/staff-validation";
+import { isJsonSyntaxError } from "@/lib/http-error";
 
 const idSchema = z.coerce.number().int().positive();
 
@@ -28,7 +29,7 @@ export async function POST(
     await resetStaffPassword(actor, targetStaffId, input.temporaryPassword);
     return NextResponse.json({ message: "กำหนดรหัสผ่านชั่วคราวแล้ว" });
   } catch (error) {
-    if (error instanceof z.ZodError || error instanceof SyntaxError) {
+    if (error instanceof z.ZodError || isJsonSyntaxError(error)) {
       return NextResponse.json(
         { error: "ข้อมูลรหัสผ่านไม่ถูกต้อง" },
         { status: 400 },

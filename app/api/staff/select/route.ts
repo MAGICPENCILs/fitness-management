@@ -11,6 +11,7 @@ import {
   getRequestFingerprintInput,
 } from "@/lib/auth/request-security";
 import { getSessionCookieOptions } from "@/lib/auth/session-cookie";
+import { isJsonSyntaxError } from "@/lib/http-error";
 
 const selectionSchema = z.object({
   staffId: z.coerce.number().int().positive(),
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
     cookieStore.delete("fitness_staff_id");
     return NextResponse.json({ message: "เปลี่ยนบัญชีพนักงานแล้ว" });
   } catch (error) {
-    if (error instanceof z.ZodError || error instanceof SyntaxError)
+    if (error instanceof z.ZodError || isJsonSyntaxError(error))
       return NextResponse.json({ error: "รหัสพนักงานไม่ถูกต้อง" }, { status: 400 });
     if (error instanceof Error && error.message === "Untrusted origin")
       return NextResponse.json({ error: "ไม่สามารถดำเนินการได้" }, { status: 403 });

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Building2, LogOut, ShieldCheck, UserRoundCheck } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 import { readAuthClientResponse } from "@/components/auth/auth-client-response";
 import { Button } from "@/components/ui/button";
@@ -25,13 +24,18 @@ export type CurrentStaffSummary = {
 
 const LOGOUT_UNAVAILABLE_MESSAGE = "ไม่สามารถออกจากระบบได้ชั่วคราว";
 
-/** Revoke session ผ่าน Route Handler ก่อนนำผู้ใช้กลับหน้า Login และคง error ไว้บนหน้าเพื่อให้ลองใหม่ได้ */
-export function LogoutButton({ className }: { className?: string }) {
-  const router = useRouter();
+/** Revoke session ผ่าน Route Handler ก่อนโหลดหน้า Login ใหม่ โดยเปิด callback เฉพาะเพื่อให้ทดสอบผลหลังสำเร็จได้โดยไม่จำลอง browser location */
+export function LogoutButton({
+  className,
+  navigateAfterLogout = (path) => globalThis.location.replace(path),
+}: {
+  className?: string;
+  navigateAfterLogout?: (path: string) => void;
+}) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
-  /** ป้องกันการส่ง Logout ซ้ำระหว่างรอ และไม่เปลี่ยนหน้าเมื่อ server ยัง revoke ไม่สำเร็จ */
+  /** ป้องกันการส่ง Logout ซ้ำ และใช้ document navigation หลังสำเร็จเพื่อให้ request ถัดไปอ่านสถานะ cookie ที่ลบแล้ว */
   async function handleLogout() {
     setPending(true);
     setError("");
@@ -43,7 +47,7 @@ export function LogoutButton({ className }: { className?: string }) {
         setPending(false);
         return;
       }
-      router.replace("/login");
+      navigateAfterLogout("/login");
     } catch {
       setError(LOGOUT_UNAVAILABLE_MESSAGE);
       setPending(false);

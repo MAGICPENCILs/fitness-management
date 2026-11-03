@@ -8,6 +8,7 @@ import {
 } from "@/lib/staff-service";
 import { assertTrustedOrigin } from "@/lib/auth/request-security";
 import { staffSchema } from "@/lib/staff-validation";
+import { isJsonSyntaxError } from "@/lib/http-error";
 
 const idSchema = z.coerce.number().int().positive();
 
@@ -27,7 +28,7 @@ export async function PATCH(
     await updateStaff(staffId, input);
     return NextResponse.json({ message: "แก้ไขบัญชีพนักงานแล้ว" });
   } catch (error) {
-    if (error instanceof SyntaxError)
+    if (isJsonSyntaxError(error))
       return NextResponse.json({ error: "ข้อมูลพนักงานไม่ถูกต้อง" }, { status: 400 });
     if (error instanceof z.ZodError)
       return NextResponse.json(

@@ -9,10 +9,11 @@ import {
 } from "@/lib/staff-service";
 import { assertTrustedOrigin } from "@/lib/auth/request-security";
 import { createStaffSchema } from "@/lib/staff-validation";
+import { isJsonSyntaxError } from "@/lib/http-error";
 
 /** แปลงข้อผิดพลาดที่คาดหมายเป็น JSON โดยไม่เปิดเผยรายละเอียดภายในระบบ */
 function staffErrorResponse(error: unknown, fallback: string) {
-  if (error instanceof SyntaxError)
+  if (isJsonSyntaxError(error))
     return NextResponse.json({ error: "ข้อมูลพนักงานไม่ถูกต้อง" }, { status: 400 });
   if (error instanceof z.ZodError)
     return NextResponse.json(

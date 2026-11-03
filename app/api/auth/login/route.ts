@@ -14,6 +14,7 @@ import {
   getSafeReturnPath,
 } from "@/lib/auth/request-security";
 import { getSessionCookieOptions } from "@/lib/auth/session-cookie";
+import { isJsonSyntaxError } from "@/lib/http-error";
 
 const loginSchema = z.object({
   staffCode: z.string().trim().min(1).max(20),
@@ -51,7 +52,7 @@ export function loginErrorResponse(error: unknown): NextResponse {
     );
   }
 
-  if (error instanceof z.ZodError || error instanceof SyntaxError) {
+  if (error instanceof z.ZodError || isJsonSyntaxError(error)) {
     return NextResponse.json(
       { error: "ข้อมูลเข้าสู่ระบบไม่ถูกต้อง" },
       { status: 400 },

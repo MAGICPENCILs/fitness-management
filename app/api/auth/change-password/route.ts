@@ -14,6 +14,7 @@ import {
   requireSession,
   SessionAuthenticationError,
 } from "@/lib/auth/session-service";
+import { isJsonSyntaxError } from "@/lib/http-error";
 
 const changePasswordSchema = z
   .object({
@@ -26,7 +27,7 @@ const changePasswordSchema = z
 
 /** ตอบข้อผิดพลาดแบบกลางเพื่อไม่เปิดเผยสถานะ session หรือรายละเอียด policy มากกว่าที่หน้าจอต้องใช้ */
 function changePasswordErrorResponse(error: unknown): NextResponse {
-  if (error instanceof z.ZodError || error instanceof SyntaxError) {
+  if (error instanceof z.ZodError || isJsonSyntaxError(error)) {
     return NextResponse.json(
       { error: "ข้อมูลรหัสผ่านไม่ถูกต้อง" },
       { status: 400 },
