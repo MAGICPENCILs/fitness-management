@@ -5,18 +5,27 @@ import { db } from "@/db";
 import {
   couponCodes,
   couponRedemptions,
+  branchReceiptSettings,
+  branches,
   memberPackages,
   members,
   NewPayment,
   packages,
   payments,
   promotions,
+  receipts,
 } from "@/db/schema";
 import { CouponError, getCouponQuote } from "@/lib/coupon-service";
 import { calculatePromotionBenefit, isPromotionAvailable } from "@/lib/promotion-benefit";
 import { getCurrentBranchId } from "@/lib/branch-service";
 import { runAuditedMutation } from "@/lib/audit-service";
 import { AuthorizationError, requirePermission } from "@/lib/staff-service";
+import {
+  buildReceiptSnapshot,
+  createReceiptNumber,
+  ReceiptError,
+  taxInvoiceInputSchema,
+} from "@/lib/receipt-service";
 
 const paymentSchema = z
   .object({
@@ -27,6 +36,7 @@ const paymentSchema = z
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     promotionId: z.number().int().positive().optional(),
     couponCode: z.string().trim().min(3).max(32).optional(),
+    taxInvoice: taxInvoiceInputSchema.optional(),
   })
   .refine((value) => !(value.promotionId && value.couponCode), {
     message: "เลือกใช้โปรโมชันหรือคูปองได้อย่างใดอย่างหนึ่ง",
@@ -55,9 +65,14 @@ export async function POST(request: Request) {
       entityType: "PAYMENT",
     });
     const validated = paymentSchema.parse(await request.json());
-    const [[member], [selectedPackage]] = await Promise.all([
+    const [[member], [selectedPackage], [branch]] = await Promise.all([
       db
-        .select({ id: members.id, status: members.status })
+        .select({
+          id: members.id,
+          status: members.status,
+          firstName: members.firstName,
+          lastName: members.lastName,
+        })
         .from(members)
         .where(eq(members.id, validated.memberId))
         .limit(1),
@@ -66,11 +81,24 @@ export async function POST(request: Request) {
         .from(packages)
         .where(and(eq(packages.id, validated.packageId), eq(packages.isActive, true)))
         .limit(1),
+      db
+        .select({
+          id: branches.id,
+          name: branches.name,
+          address: branches.address,
+          phone: branches.phone,
+          settings: branchReceiptSettings,
+        })
+        .from(branches)
+        .leftJoin(branchReceiptSettings, eq(branchReceiptSettings.branchId, branches.id))
+        .where(eq(branches.id, branchId))
+        .limit(1),
     ]);
     if (!member || member.status !== "ACTIVE") {
       return NextResponse.json({ error: "สมาชิกไม่อยู่ในสถานะที่รับชำระได้" }, { status: 400 });
     }
     if (!selectedPackage) return NextResponse.json({ error: "ไม่พบแพ็กเกจที่เลือก" }, { status: 404 });
+    if (!branch) return NextResponse.json({ error: "ไม่พบสาขาปัจจุบัน" }, { status: 404 });
 
     const originalAmount = Number(selectedPackage.price);
     let promotionId: number | undefined;
@@ -101,10 +129,15 @@ export async function POST(request: Request) {
     const startDate = new Date(`${validated.startDate}T00:00:00`);
     const expireDate = new Date(startDate);
     expireDate.setDate(expireDate.getDate() + selectedPackage.durationDays + benefit.bonusDays);
-    const receiptNumber = `REC${Date.now()}`;
+    const issuedAt = new Date();
 
     // ล็อกสิทธิ์ด้วยการเพิ่มตัวนับแบบมีเงื่อนไข เพื่อไม่ให้ใช้คูปองเกินจำนวนเมื่อมีคำขอพร้อมกัน
-    const result = await runAuditedMutation<{ paymentId: number; memberPackageId: number }>(
+    const result = await runAuditedMutation<{
+      paymentId: number;
+      memberPackageId: number;
+      receiptId: number;
+      receiptNumber: string;
+    }>(
       {
         actorStaffId: actor.staffId,
         branchId,
@@ -138,10 +171,42 @@ export async function POST(request: Request) {
         method: validated.method,
         status: "PAID",
         note: validated.note,
-        receiptNumber,
       };
       const paymentResult = await tx.insert(payments).values(newPayment);
       const paymentId = paymentResult[0].insertId;
+      const receiptNumber = createReceiptNumber(issuedAt, branchId, paymentId);
+      await tx
+        .update(payments)
+        .set({ receiptNumber })
+        .where(eq(payments.id, paymentId));
+
+      const snapshot = buildReceiptSnapshot({
+        receiptNumber,
+        issuedAt,
+        totalAmount: Number(benefit.finalAmount).toFixed(2),
+        paymentMethod: validated.method,
+        memberName: `${member.firstName} ${member.lastName}`.trim(),
+        packageName: selectedPackage.name,
+        branch: {
+          name: branch.name,
+          address: branch.address,
+          phone: branch.phone,
+        },
+        settings: branch.settings
+          ? {
+              ...branch.settings,
+              taxId: branch.settings.taxId ?? undefined,
+              phone: branch.settings.phone ?? undefined,
+            }
+          : null,
+        taxInvoice: validated.taxInvoice,
+      });
+      const receiptResult = await tx.insert(receipts).values({
+        paymentId,
+        branchId,
+        issuedByStaffId: actor.staffId,
+        ...snapshot,
+      });
 
       const memberPackageResult = await tx.insert(memberPackages).values({
         memberId: validated.memberId,
@@ -160,7 +225,12 @@ export async function POST(request: Request) {
           discountAmount: String(benefit.discountAmount),
         });
       }
-      return { paymentId, memberPackageId: memberPackageResult[0].insertId };
+      return {
+        paymentId,
+        memberPackageId: memberPackageResult[0].insertId,
+        receiptId: receiptResult[0].insertId,
+        receiptNumber,
+      };
       },
     );
 
@@ -169,7 +239,8 @@ export async function POST(request: Request) {
         message: "Payment successful",
         id: result.paymentId,
         memberPackageId: result.memberPackageId,
-        receiptNumber,
+        receiptId: result.receiptId,
+        receiptNumber: result.receiptNumber,
         originalAmount,
         discountAmount: benefit.discountAmount,
         finalAmount: benefit.finalAmount,
@@ -183,6 +254,13 @@ export async function POST(request: Request) {
     }
     if (error instanceof CouponError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof ReceiptError) {
+      const message =
+        error.code === "TAX_SELLER_SETTINGS_REQUIRED"
+          ? "กรุณาตั้งค่าข้อมูลผู้ขายและ VAT ก่อนออกใบกำกับภาษี"
+          : "ไม่สามารถสร้างเอกสารการเงินได้";
+      return NextResponse.json({ error: message }, { status: 400 });
     }
     if (error instanceof AuthorizationError)
       return NextResponse.json({ error: error.message }, { status: error.status });

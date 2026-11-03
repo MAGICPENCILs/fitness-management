@@ -78,6 +78,13 @@
       "when": 1786344623116,
       "tag": "0010_auth_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1793690531146,
+      "tag": "0011_add_receipt_documents",
+      "breakpoints": true
     }
   ]
 }

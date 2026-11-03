@@ -1,7 +1,15 @@
 import Link from "next/link";
-import { Bell, Building2, ChevronRight, Database, DoorOpen, ScrollText, ShieldCheck, Tag, UserCog } from "lucide-react";
+import { Bell, Building2, ChevronRight, Database, DoorOpen, ReceiptText, ScrollText, ShieldCheck, Tag, UserCog } from "lucide-react";
 
 const settings = [
+  {
+    title: "ใบเสร็จและภาษี",
+    description: "กำหนดข้อมูลนิติบุคคล เลขผู้เสียภาษี และ VAT แยกตามสาขา",
+    href: "/settings/receipts",
+    icon: ReceiptText,
+    status: "พร้อมใช้งาน",
+    tone: "bg-success-surface text-success",
+  },
   {
     title: "บัญชีพนักงาน",
     description: "จัดการบัญชี บทบาท สถานะ และขอบเขตสาขา",

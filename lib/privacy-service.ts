@@ -16,6 +16,7 @@ import {
   members,
   notifications,
   payments,
+  receipts,
   privacyFileCleanups,
   privacyRequests,
   ptPackages,
@@ -638,6 +639,25 @@ async function executeAnonymizationOperation(
         .update(payments)
         .set({ note: null })
         .where(eq(payments.memberId, memberId));
+      return;
+    case "receipts":
+      // คงยอด ภาษี เลขเอกสาร และข้อมูลผู้ขายไว้ตามข้อกำหนดบัญชี แต่ล้างตัวระบุผู้ซื้อทั้งหมด
+      await tx
+        .update(receipts)
+        .set({
+          buyerName: "ANONYMIZED",
+          buyerTaxId: null,
+          buyerAddress: null,
+        })
+        .where(
+          inArray(
+            receipts.paymentId,
+            tx
+              .select({ id: payments.id })
+              .from(payments)
+              .where(eq(payments.memberId, memberId)),
+          ),
+        );
       return;
     case "locker_rentals":
       await tx

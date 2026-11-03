@@ -4,6 +4,7 @@ export * from "./member-packages";
 export * from "./cards";
 export * from "./access-logs";
 export * from "./payments";
+export * from "./receipts";
 export * from "./promotions";
 export * from "./coupon-codes";
 export * from "./notifications";
