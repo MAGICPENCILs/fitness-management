@@ -15,7 +15,7 @@ import {
 import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
 const scanSchema = z.object({
-  serial: z.string().trim().min(1).max(20),
+  serial: z.string().trim().min(1).max(64),
 });
 
 /** ตรวจสิทธิ์และ commit access log ก่อนขอเปิดประตู เพื่อไม่ให้ hardware failure ย้อนทำข้อมูลธุรกิจเสีย */
@@ -28,15 +28,16 @@ export async function POST(request: Request) {
       entityType: "ACCESS_SCAN",
     });
     const { serial } = scanSchema.parse(await request.json());
+    const method = serial.startsWith("FQR.") ? "DYNAMIC_QR" : "CARD";
     const result = await runAuditedMutation<AccessScanResult>(
       {
         actorStaffId: actor.staffId,
         branchId,
         action: "ACCESS_SCAN_PROCESSED",
         entityType: "ACCESS_SCAN",
-        metadata: { method: "CARD" },
+        metadata: { method },
         success: (value) => ({
-          metadata: { method: "CARD", status: value.result },
+          metadata: { method, status: value.result },
         }),
       },
       (tx) => processCardScan(tx, branchId, serial),

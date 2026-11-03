@@ -11,6 +11,8 @@ export type AnonymizationOperation = {
     | "pt_sessions"
     | "payments"
     | "receipts"
+    | "freeze_records"
+    | "member_access_tokens"
     | "locker_rentals"
     | "consent_events"
     | "privacy_requests"
@@ -69,6 +71,8 @@ const ANONYMIZATION_OPERATIONS: readonly AnonymizationOperation[] = [
     action: "UPDATE",
     fields: ["buyerName", "buyerTaxId", "buyerAddress"],
   },
+  { table: "freeze_records", action: "UPDATE", fields: ["reason"] },
+  { table: "member_access_tokens", action: "UPDATE", fields: ["revokedAt"] },
   { table: "locker_rentals", action: "UPDATE", fields: ["note"] },
   {
     table: "consent_events",

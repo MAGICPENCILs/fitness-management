@@ -17,6 +17,8 @@ import {
   notifications,
   payments,
   receipts,
+  freezeRecords,
+  memberAccessTokens,
   privacyFileCleanups,
   privacyRequests,
   ptPackages,
@@ -658,6 +660,18 @@ async function executeAnonymizationOperation(
               .where(eq(payments.memberId, memberId)),
           ),
         );
+      return;
+    case "freeze_records":
+      await tx
+        .update(freezeRecords)
+        .set({ reason: "ANONYMIZED" })
+        .where(eq(freezeRecords.memberId, memberId));
+      return;
+    case "member_access_tokens":
+      await tx
+        .update(memberAccessTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(memberAccessTokens.memberId, memberId));
       return;
     case "locker_rentals":
       await tx

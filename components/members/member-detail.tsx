@@ -19,6 +19,7 @@ import {
   type ConsentDisplay,
   type ConsentType,
 } from "@/components/privacy/member-privacy-card";
+import { MembershipActions } from "@/components/members/membership-actions";
 
 type MemberPackage = {
   id: number;
@@ -272,6 +273,11 @@ export function MemberDetail({
           )}
         </div>
       </div>
+      <MembershipActions
+        memberId={member.id}
+        memberStatus={member.status}
+        activePackageId={packages.find((pkg) => pkg.status === "ACTIVE" || pkg.status === "FROZEN")?.id ?? null}
+      />
       {/* Card */}
       <MemberCard
         memberId={member.id}

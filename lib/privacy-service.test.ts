@@ -27,6 +27,8 @@ describe("anonymization transaction plan", () => {
       "pt_sessions",
       "payments",
       "receipts",
+      "freeze_records",
+      "member_access_tokens",
       "locker_rentals",
       "consent_events",
       "privacy_requests",

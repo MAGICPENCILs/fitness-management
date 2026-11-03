@@ -92,6 +92,13 @@
       "when": 1793692228541,
       "tag": "0012_add_notification_delivery_state",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1793693626122,
+      "tag": "0013_add_freeze_and_dynamic_qr",
+      "breakpoints": true
     }
   ]
 }

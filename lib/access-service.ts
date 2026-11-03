@@ -1,10 +1,11 @@
 import "server-only";
 
-import { and, desc, eq } from "drizzle-orm";
-import { accessLogs, cardPool, memberPackages, members } from "@/db/schema";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { accessLogs, cardPool, memberAccessTokens, memberPackages, members } from "@/db/schema";
 import { evaluateAccessPolicy } from "@/lib/access-policy";
 import type { DbTransaction } from "@/lib/audit-service";
 import { recordScanWarning } from "@/lib/notification-engine";
+import { hashMemberAccessToken } from "@/lib/member-token";
 
 export type AccessScanResult =
   | { result: "REJECTED"; reason: string }
@@ -47,28 +48,44 @@ export async function processCardScan(
   serial: string,
   now = new Date(),
 ): Promise<AccessScanResult> {
-  const [card] = await tx
-    .select({ memberId: cardPool.memberId, status: cardPool.status })
-    .from(cardPool)
-    .where(and(eq(cardPool.serial, serial), eq(cardPool.branchId, branchId)))
-    .limit(1);
-  if (!card || card.status !== "IN_USE" || !card.memberId)
-    return rejectAccess(
-      tx,
-      branchId,
-      serial,
-      "ไม่พบบัตรหรือบัตรไม่ได้ใช้งาน",
-    );
+  let memberId: number | null = null;
+  let auditSerial = serial;
+  if (serial.startsWith("FQR.")) {
+    const tokenHash = hashMemberAccessToken(serial);
+    const [token] = await tx
+      .select({ memberId: memberAccessTokens.memberId })
+      .from(memberAccessTokens)
+      .where(
+        and(
+          eq(memberAccessTokens.tokenHash, tokenHash),
+          eq(memberAccessTokens.branchId, branchId),
+          isNull(memberAccessTokens.revokedAt),
+          gt(memberAccessTokens.expiresAt, now),
+        ),
+      )
+      .limit(1);
+    memberId = token?.memberId ?? null;
+    auditSerial = `QR:${tokenHash.slice(0, 12)}`;
+  } else {
+    const [card] = await tx
+      .select({ memberId: cardPool.memberId, status: cardPool.status })
+      .from(cardPool)
+      .where(and(eq(cardPool.serial, serial), eq(cardPool.branchId, branchId)))
+      .limit(1);
+    memberId = card?.status === "IN_USE" ? card.memberId : null;
+  }
+  if (!memberId)
+    return rejectAccess(tx, branchId, auditSerial, "ไม่พบบัตรหรือ QR หมดอายุ");
 
   const [member] = await tx
     .select()
     .from(members)
     .where(
-      and(eq(members.id, card.memberId), eq(members.homeBranchId, branchId)),
+      and(eq(members.id, memberId), eq(members.homeBranchId, branchId)),
     )
     .limit(1);
   if (!member)
-    return rejectAccess(tx, branchId, serial, "ไม่พบสมาชิกในสาขานี้");
+    return rejectAccess(tx, branchId, auditSerial, "ไม่พบสมาชิกในสาขานี้");
 
   const [memberPackage] = await tx
     .select()
@@ -92,7 +109,7 @@ export async function processCardScan(
     return rejectAccess(
       tx,
       branchId,
-      serial,
+      auditSerial,
       decision.reason,
       member.id,
     );
@@ -100,7 +117,7 @@ export async function processCardScan(
   await tx.insert(accessLogs).values({
     branchId,
     memberId: member.id,
-    serial,
+    serial: auditSerial,
     result: "APPROVED",
     reason: null,
   });
