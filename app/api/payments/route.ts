@@ -14,6 +14,8 @@ import {
   payments,
   promotions,
   receipts,
+  compensationProfiles,
+  commissionLedger,
 } from "@/db/schema";
 import { CouponError, getCouponQuote } from "@/lib/coupon-service";
 import { calculatePromotionBenefit, isPromotionAvailable } from "@/lib/promotion-benefit";
@@ -26,6 +28,7 @@ import {
   ReceiptError,
   taxInvoiceInputSchema,
 } from "@/lib/receipt-service";
+import { calculateCommissionSatang } from "@/lib/workforce-policy";
 
 const paymentSchema = z
   .object({
@@ -207,6 +210,16 @@ export async function POST(request: Request) {
         issuedByStaffId: actor.staffId,
         ...snapshot,
       });
+      const [compensation] = await tx.select({ rate: compensationProfiles.commissionRateBasisPoints }).from(compensationProfiles).where(eq(compensationProfiles.staffId, actor.staffId)).limit(1);
+      if (compensation && compensation.rate > 0) {
+        const salesSatang = Math.round(Number(benefit.finalAmount) * 100);
+        await tx.insert(commissionLedger).values({
+          staffId: actor.staffId,
+          paymentId,
+          salesAmount: (salesSatang / 100).toFixed(2),
+          commissionAmount: (calculateCommissionSatang(salesSatang, compensation.rate) / 100).toFixed(2),
+        });
+      }
 
       const memberPackageResult = await tx.insert(memberPackages).values({
         memberId: validated.memberId,

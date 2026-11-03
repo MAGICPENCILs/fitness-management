@@ -28,6 +28,7 @@ const GUARDED_IMPORTS = new Set([
   "@/lib/branch-service:setCurrentBranchCookie",
   "@/lib/staff-service:setCurrentStaffCookie",
   "@/lib/member-auth/service:requireMemberSession",
+  "@/lib/staff-service:getStaffContext",
 ]);
 
 type ExportedMethod = { method: string; node: ts.Node | null };

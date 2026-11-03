@@ -20,6 +20,7 @@ const loginSchema = z.object({
   staffCode: z.string().trim().min(1).max(20),
   password: z.string().min(1).max(1_024),
   returnTo: z.string().max(2_048).optional(),
+  totpCode: z.string().trim().max(64).optional(),
 });
 
 const INVALID_LOGIN_MESSAGE = "รหัสพนักงานหรือรหัสผ่านไม่ถูกต้อง";

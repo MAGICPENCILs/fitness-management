@@ -20,8 +20,11 @@ const PUBLIC_PATHS = [
   "/api/member-portal",
 ];
 
+const AUTHENTICATED_SELF_SERVICE_PATHS = ["/settings/security/totp"];
+
 const PAGE_POLICIES = [
   ["/settings/security", "auth.security.read"],
+  ["/settings/workforce", "staff.manage"],
   ["/settings/promotions", "payments.manage"],
   ["/settings/notifications", "settings.manage"],
   ["/settings/branches", "settings.manage"],
@@ -70,6 +73,10 @@ export function decideRouteAccess(
 
   if (claims.mode === "PASSWORD_CHANGE_REQUIRED") {
     return { type: "CHANGE_PASSWORD" };
+  }
+
+  if (AUTHENTICATED_SELF_SERVICE_PATHS.some((prefix) => matchesPrefix(pathname, prefix))) {
+    return { type: "ALLOW" };
   }
 
   if (pathname.startsWith("/api/")) return { type: "ALLOW" };

@@ -1,0 +1,3 @@
+import { NextResponse } from "next/server"; import { assertTrustedOrigin } from "@/lib/auth/request-security"; import { getCurrentBranchId } from "@/lib/branch-service"; import { requirePermission } from "@/lib/staff-service"; import { approvePayroll } from "@/lib/workforce-service";
+/** อนุมัติ payroll draft แบบ manual */
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) { try { assertTrustedOrigin(request); const branchId = await getCurrentBranchId(); const actor = await requirePermission("staff.manage", branchId); await approvePayroll(actor, branchId, Number((await params).id)); return NextResponse.json({ success: true }); } catch { return NextResponse.json({ error: "อนุมัติ payroll ไม่สำเร็จ" }, { status: 400 }); } }

@@ -37,6 +37,7 @@ export function LoginForm({
         body: JSON.stringify({
           staffCode: String(formData.get("staffCode") ?? ""),
           password: String(formData.get("password") ?? ""),
+          totpCode: String(formData.get("totpCode") ?? "") || undefined,
           returnTo,
         }),
       });
@@ -133,6 +134,11 @@ export function LoginForm({
               )}
             </Button>
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="login-totp">รหัส 2FA หรือ Recovery code</Label>
+          <Input id="login-totp" name="totpCode" inputMode="numeric" autoComplete="one-time-code" maxLength={64} disabled={pending} placeholder="กรอกเมื่อบัญชีเปิดใช้ 2FA" />
         </div>
 
         <p

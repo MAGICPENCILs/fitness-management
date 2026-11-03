@@ -1,0 +1,5 @@
+import { NextResponse } from "next/server"; import { z } from "zod";
+import { assertTrustedOrigin } from "@/lib/auth/request-security"; import { getCurrentBranchId } from "@/lib/branch-service"; import { requirePermission } from "@/lib/staff-service"; import { correctAttendance } from "@/lib/workforce-service";
+const schema = z.object({ correctedAt: z.string().datetime(), reason: z.string().trim().min(3).max(500) });
+/** แก้ punch พร้อม correction ledger */
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) { try { assertTrustedOrigin(request); const branchId = await getCurrentBranchId(); const actor = await requirePermission("staff.manage", branchId); const input = schema.parse(await request.json()); await correctAttendance(actor, branchId, Number((await params).id), new Date(input.correctedAt), input.reason); return NextResponse.json({ success: true }); } catch { return NextResponse.json({ error: "แก้ไขเวลาไม่สำเร็จ" }, { status: 400 }); } }

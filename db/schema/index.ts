@@ -7,6 +7,7 @@ export * from "./payments";
 export * from "./receipts";
 export * from "./membership-lifecycle";
 export * from "./member-portal";
+export * from "./workforce";
 export * from "./promotions";
 export * from "./coupon-codes";
 export * from "./notifications";

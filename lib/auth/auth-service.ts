@@ -34,11 +34,13 @@ import type {
   SessionMode,
 } from "@/lib/auth/types";
 import type { AuthenticatedStaff } from "@/lib/auth/session-service";
+import { decryptTotpSecret, hashRecoveryCode, verifyTotp } from "@/lib/totp";
 
 export type LoginInput = {
   staffCode: string;
   password: string;
   returnTo?: string | null;
+  totpCode?: string | null;
 };
 
 export type AuthRequestContext = RequestFingerprintInput;
@@ -177,11 +179,29 @@ export function createAuthService(
       loginStaff?.passwordHash ?? null,
       input.password,
     );
+    let secondFactorValid = loginStaff?.totpStatus !== "ENABLED";
+    if (
+      loginStaff?.totpStatus === "ENABLED" &&
+      loginStaff.passwordHash &&
+      passwordMatches &&
+      input.totpCode
+    ) {
+      if (/^\d{6}$/.test(input.totpCode)) {
+        if (!loginStaff.encryptedTotpSecret || !repository.claimTotpStep)
+          throw new AuthError("AUTH_UNAVAILABLE", 503, AUTH_UNAVAILABLE_MESSAGE);
+        const secret = decryptTotpSecret(loginStaff.encryptedTotpSecret, process.env.AUTH_TOTP_ENCRYPTION_KEY ?? "");
+        const verified = verifyTotp(secret, input.totpCode, Math.floor(occurredAt.getTime() / 1000), loginStaff.lastUsedTotpStep ?? null);
+        secondFactorValid = Boolean(verified.valid && verified.step !== null && (await repository.claimTotpStep(loginStaff.id, verified.step)));
+      } else if (repository.consumeTotpRecoveryCode) {
+        secondFactorValid = await repository.consumeTotpRecoveryCode(loginStaff.id, hashRecoveryCode(input.totpCode), occurredAt);
+      }
+    }
     const credentialsValid = Boolean(
       loginStaff &&
         loginStaff.status === "ACTIVE" &&
         loginStaff.passwordHash &&
-        passwordMatches,
+        passwordMatches &&
+        secondFactorValid,
     );
 
     if (!credentialsValid || !loginStaff) {

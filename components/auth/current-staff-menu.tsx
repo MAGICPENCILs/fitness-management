@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, LogOut, ShieldCheck, UserRoundCheck } from "lucide-react";
+import Link from "next/link";
+import { Building2, Clock3, LogOut, ShieldCheck, UserRoundCheck } from "lucide-react";
 
 import { readAuthClientResponse } from "@/components/auth/auth-client-response";
 import { Button } from "@/components/ui/button";
@@ -80,6 +81,23 @@ export function LogoutButton({
 
 /** แสดงตัวตนจาก authoritative session โดยไม่ใช้รายชื่อ Staff เป็นตัวเลือกใน runtime ปกติ */
 export function CurrentStaffMenu({ staff }: { staff: CurrentStaffSummary }) {
+  const [attendancePending, setAttendancePending] = useState(false);
+  const [attendanceMessage, setAttendanceMessage] = useState("");
+
+  /** ลงเวลาให้บัญชีใน session เท่านั้น และไม่เดาสถานะ IN/OUT ฝั่ง client */
+  async function punchAttendance() {
+    setAttendancePending(true);
+    setAttendanceMessage("");
+    try {
+      const response = await fetch("/api/workforce/attendance", { method: "POST" });
+      setAttendanceMessage(response.ok ? "ลงเวลาแล้ว" : "ลงเวลาไม่สำเร็จ");
+    } catch {
+      setAttendanceMessage("ลงเวลาไม่สำเร็จ");
+    } finally {
+      setAttendancePending(false);
+    }
+  }
+
   return (
     <section aria-label="บัญชีผู้ใช้ปัจจุบัน" className="space-y-3">
       <div className="flex min-w-0 items-start gap-3">
@@ -107,6 +125,14 @@ export function CurrentStaffMenu({ staff }: { staff: CurrentStaffSummary }) {
           <dd className="truncate">{staff.branchName}</dd>
         </div>
       </dl>
+      <Button type="button" variant="secondary" className="w-full justify-start" disabled={attendancePending} onClick={punchAttendance}>
+        <Clock3 className="size-4" aria-hidden="true" />
+        {attendancePending ? "กำลังลงเวลา" : "ลงเวลาเข้า / ออก"}
+      </Button>
+      <p role="status" aria-live="polite" className={attendanceMessage ? "text-xs leading-5 text-muted-foreground" : "sr-only"}>{attendanceMessage}</p>
+      <Button asChild type="button" variant="outline" className="w-full justify-start">
+        <Link href="/settings/security/totp"><ShieldCheck className="size-4" aria-hidden="true" />ตั้งค่า 2FA</Link>
+      </Button>
       <LogoutButton />
     </section>
   );

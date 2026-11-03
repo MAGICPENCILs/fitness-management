@@ -25,10 +25,13 @@ npm run dev
 - `DATABASE_URL` ต้องชี้ฐานข้อมูล MySQL เป้าหมายที่ตรวจสอบแล้ว
 - `APP_ORIGIN` ต้องตรงกับ origin ที่ผู้ใช้เปิดจริง
 - `AUTH_SESSION_SECRET` และ `AUTH_FINGERPRINT_SECRET` ต้องเป็นค่าสุ่มคนละค่าและยาวอย่างน้อย 32 bytes
+- `AUTH_TOTP_ENCRYPTION_KEY` ต้องเป็น base64 ของ key สุ่ม 32 bytes และต้องเก็บใน secret manager เพื่อถอด TOTP secret ของพนักงาน
 - ใช้ `TRUST_PROXY=true` เฉพาะเมื่อ deploy หลัง reverse proxy ที่เชื่อถือได้
 - `ENABLE_DEV_STAFF_SWITCHER` ต้องเป็น `false` นอก development ที่ตั้งใจเปิดใช้
 
 ห้าม commit `.env`, รหัสผ่าน, token, dump ฐานข้อมูล หรือไฟล์ที่มีข้อมูลส่วนบุคคล
+
+พนักงานเปิด Authenticator 2FA และบันทึก recovery codes ได้จากเมนูบัญชีใน sidebar ส่วนหน้า Workforce ให้ผู้มีสิทธิ์จัดการเวลา เงินเดือนฐาน commission และอนุมัติ payroll แบบ manual โดยยอด payroll ยังไม่รวมภาษีและประกันสังคม
 
 ## Database และ Owner เริ่มต้น
 

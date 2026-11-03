@@ -1,7 +1,15 @@
 import Link from "next/link";
-import { Bell, Building2, ChevronRight, Database, DoorOpen, ReceiptText, ScrollText, ShieldCheck, Tag, UserCog } from "lucide-react";
+import { Bell, Building2, ChevronRight, Database, DoorOpen, ReceiptText, ScrollText, ShieldCheck, Tag, UserCog, UsersRound } from "lucide-react";
 
 const settings = [
+  {
+    title: "เวลาและค่าตอบแทน",
+    description: "ลงเวลา เงินเดือนฐาน commission และ payroll แบบอนุมัติ manual",
+    href: "/settings/workforce",
+    icon: UsersRound,
+    status: "พร้อมใช้งาน",
+    tone: "bg-info-surface text-info",
+  },
   {
     title: "ใบเสร็จและภาษี",
     description: "กำหนดข้อมูลนิติบุคคล เลขผู้เสียภาษี และ VAT แยกตามสาขา",
