@@ -50,10 +50,17 @@ const settings = [
     status: "พร้อมใช้งาน",
     tone: "bg-success-surface text-success",
   },
+  {
+    title: "สาขา",
+    description: "จัดการข้อมูลสาขา เวลาเปิดให้บริการ และสถานะการใช้งาน",
+    href: "/settings/branches",
+    icon: Building2,
+    status: "พร้อมใช้งาน",
+    tone: "bg-info-surface text-info",
+  },
 ];
 
 const upcoming = [
-  { title: "สาขา", description: "ข้อมูลสาขาและเวลาเปิดให้บริการ", icon: Building2 },
   { title: "สำรองข้อมูล", description: "รอบสำรองข้อมูลและการกู้คืน", icon: Database },
 ];
 

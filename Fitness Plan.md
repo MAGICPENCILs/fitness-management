@@ -250,44 +250,48 @@ branches             — สาขา
 
 ---
 
-## 8. Tech Stack (แนะนำ)
+## 8. Tech Stack (ใช้งานจริง)
 
-| ส่วน | ตัวเลือกแนะนำ |
+| ส่วน | เทคโนโลยีปัจจุบัน |
 |---|---|
-| Backend | Node.js (Express) หรือ Python (FastAPI) |
-| Frontend | React.js + Tailwind CSS |
-| Mobile App | React Native (iOS + Android) |
-| Database | PostgreSQL (หลัก) + Redis (Cache/Session) |
-| QR Generate | qrcode library (Node/Python) |
-| Print | ESC/POS Protocol สำหรับเครื่องพิมพ์ความร้อน |
-| Notification | Twilio (SMS), LINE Messaging API, Firebase (Push) |
-| Auth | JWT + 2FA (TOTP) |
-| Hosting | Cloud (AWS/GCP/Azure) หรือ On-premise |
-| Backup | Daily automated backup + offsite storage |
+| Full stack | Next.js 16.3.8 App Router + React 19 + TypeScript |
+| UI | Tailwind CSS 4 + Radix UI + Recharts |
+| Database | MySQL + Drizzle ORM |
+| QR Generate | `qrcode` library |
+| Auth | Argon2 password hash + signed server session cookie + RBAC |
+| Hosting | Node.js server รองรับ Cloud หรือ On-premise |
+| Member Portal | Responsive web/PWA-ready ใน repository เดียวกัน; ยังไม่ทำ native app |
+| Backup | Operator CLI พร้อม checksum/restore guard (อยู่ในรอบ Integrated MVP) |
 
 ---
 
 ## 9. ลำดับการพัฒนา (Development Priority)
 
+### สถานะ ณ พฤศจิกายน 2569
+
+- **พร้อมทดสอบแล้ว:** สมาชิกและแพ็กเกจ, static card pool, สแกนเข้าใช้, ชำระเงิน, โปรโมชั่น/คูปอง, บัญชี, Dashboard, ล็อกเกอร์, อุปกรณ์/ซ่อมบำรุง, คลาส/PT, CRM/loyalty, หลายสาขา, PDPA anonymization, พนักงาน/RBAC, Login/Session/Rate limit และ Audit log
+- **กำลังปิดงาน Integrated MVP:** Backup/Restore, ใบเสร็จ/ใบกำกับภาษี, provider แจ้งเตือน, hardware adapter, Freeze, Dynamic QR, member portal, 2FA/เวลาเข้างาน/ค่าตอบแทน และรายงานขั้นสูง
+- **ต้องมีระบบภายนอกก่อนเปิดจริง:** SMS/LINE/SMTP credentials, ตัวควบคุมประตู/เครื่องอ่านบัตร และพื้นที่เก็บ backup นอกเครื่อง
+
 ### Phase 1 — Core MVP
-- [ ] ระบบสมาชิก (สมัคร / แก้ไข / ดูข้อมูล)
+- [x] ระบบสมาชิก (สมัคร / แก้ไข / ดูข้อมูล)
 - [ ] อ่านบัตรประชาชน
 - [ ] ระบบบัตร QR ทั้ง 2 แบบ
-- [ ] ระบบสแกนเข้า-ออก + ตัดวัน
+- [x] ระบบสแกนเข้า-ออก + ตัดวัน
 - [ ] ระบบชำระเงิน + ใบเสร็จ
 
 ### Phase 2 — Business Operations
-- [ ] ระบบโปรโมชั่น + คูปองโค้ด
+- [x] ระบบโปรโมชั่น + คูปองโค้ด
 - [ ] ระบบแจ้งเตือน (SMS/LINE)
-- [ ] ระบบบัญชีเต็มรูปแบบ
+- [x] ระบบบัญชีพื้นฐานและกระทบยอด
 - [ ] Dashboard + รายงาน
 
 ### Phase 3 — Advanced Features
 - [ ] Mobile App สมาชิก
-- [ ] ระบบเทรนเนอร์ + จองคลาส
-- [ ] CRM + Loyalty Points
-- [ ] Multi-branch support
-- [ ] PDPA Compliance
+- [x] ระบบเทรนเนอร์ + จองคลาส
+- [x] CRM + Loyalty Points
+- [x] Multi-branch support
+- [x] PDPA Compliance
 
 ---
 
