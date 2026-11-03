@@ -46,7 +46,7 @@ export const memberAccessTokens = mysqlTable(
     tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
     expiresAt: timestamp("expires_at").notNull(),
     revokedAt: timestamp("revoked_at"),
-    issuedByStaffId: int("issued_by_staff_id").notNull().references(() => staff.id),
+    issuedByStaffId: int("issued_by_staff_id").references(() => staff.id),
     createdAt: timestamp("created_at").defaultNow(),
   },
   (table) => [

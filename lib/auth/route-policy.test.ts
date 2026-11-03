@@ -89,6 +89,11 @@ describe("auth route policy", () => {
       type: "ALLOW",
     });
     expect(decideRouteAccess("/forbidden", null)).toEqual({ type: "ALLOW" });
+    expect(decideRouteAccess("/signup", null)).toEqual({ type: "ALLOW" });
+    expect(decideRouteAccess("/member-login", null)).toEqual({ type: "ALLOW" });
+    expect(decideRouteAccess("/member", null)).toEqual({ type: "ALLOW" });
+    expect(decideRouteAccess("/api/member-auth/login", null)).toEqual({ type: "ALLOW" });
+    expect(decideRouteAccess("/api/member-portal", null)).toEqual({ type: "ALLOW" });
   });
 
   it("allows auth pages for signed claims because authoritative page loaders decide redirects", () => {

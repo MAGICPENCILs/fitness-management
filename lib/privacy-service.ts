@@ -19,6 +19,9 @@ import {
   receipts,
   freezeRecords,
   memberAccessTokens,
+  memberAccounts,
+  memberSessions,
+  memberApplications,
   privacyFileCleanups,
   privacyRequests,
   ptPackages,
@@ -672,6 +675,15 @@ async function executeAnonymizationOperation(
         .update(memberAccessTokens)
         .set({ revokedAt: new Date() })
         .where(eq(memberAccessTokens.memberId, memberId));
+      return;
+    case "member_accounts":
+      await tx.update(memberAccounts).set({ email: sql`concat('anon-', ${memberAccounts.memberId}, '@invalid.local')`, passwordHash: "ANONYMIZED", status: "INACTIVE" }).where(eq(memberAccounts.memberId, memberId));
+      return;
+    case "member_sessions":
+      await tx.update(memberSessions).set({ revokedAt: new Date() }).where(inArray(memberSessions.memberAccountId, tx.select({ id: memberAccounts.id }).from(memberAccounts).where(eq(memberAccounts.memberId, memberId))));
+      return;
+    case "member_applications":
+      await tx.update(memberApplications).set({ firstName: "ANONYMIZED", lastName: "ANONYMIZED", phone: "", email: sql`concat('anon-app-', ${memberApplications.id}, '@invalid.local')`, passwordHash: "ANONYMIZED", reviewNote: null }).where(eq(memberApplications.memberId, memberId));
       return;
     case "locker_rentals":
       await tx

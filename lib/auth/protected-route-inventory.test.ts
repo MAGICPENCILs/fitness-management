@@ -17,6 +17,9 @@ const PUBLIC_METHODS = new Set([
   "app/api/auth/login/route.ts:POST",
   "app/api/auth/logout/route.ts:POST",
   "app/api/auth/change-password/route.ts:POST",
+  "app/api/member-applications/route.ts:POST",
+  "app/api/member-auth/login/route.ts:POST",
+  "app/api/member-auth/logout/route.ts:POST",
 ]);
 const GUARDED_IMPORTS = new Set([
   "@/lib/staff-service:requirePermission",
@@ -24,6 +27,7 @@ const GUARDED_IMPORTS = new Set([
   "@/lib/staff-service:getStaffDashboard",
   "@/lib/branch-service:setCurrentBranchCookie",
   "@/lib/staff-service:setCurrentStaffCookie",
+  "@/lib/member-auth/service:requireMemberSession",
 ]);
 
 type ExportedMethod = { method: string; node: ts.Node | null };

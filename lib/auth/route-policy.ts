@@ -7,7 +7,18 @@ export type RouteDecision =
   | { type: "CHANGE_PASSWORD" }
   | { type: "FORBIDDEN" };
 
-const PUBLIC_PATHS = ["/login", "/change-password", "/forbidden", "/api/auth"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/change-password",
+  "/forbidden",
+  "/signup",
+  "/member-login",
+  "/member",
+  "/api/auth",
+  "/api/member-auth",
+  "/api/member-applications",
+  "/api/member-portal",
+];
 
 const PAGE_POLICIES = [
   ["/settings/security", "auth.security.read"],

@@ -7,7 +7,8 @@ import {
   memberPackages,
   members,
 } from "@/db/schema";
-import { runAuditedMutation } from "@/lib/audit-service";
+import { runAuditedMutation, writeAudit } from "@/lib/audit-service";
+import { db } from "@/db";
 import {
   assertFreezeAllowance,
   extendExpiryDate,
@@ -141,4 +142,17 @@ export async function revokeMemberAccessTokens(actor: ActorContext, branchId: nu
     { actorStaffId: actor.staffId, branchId, action: "MEMBER_QR_REVOKED", entityType: "MEMBER_ACCESS_TOKEN", metadata: { memberId } },
     (tx) => tx.update(memberAccessTokens).set({ revokedAt: new Date() }).where(and(eq(memberAccessTokens.memberId, memberId), eq(memberAccessTokens.branchId, branchId), isNull(memberAccessTokens.revokedAt))),
   );
+}
+
+/** หมุน QR จาก Member Portal โดย audit เป็น system action และไม่สร้าง Staff actor ปลอม */
+export async function rotateSelfMemberAccessToken(memberId: number, branchId: number) {
+  const created = createMemberAccessToken();
+  return db.transaction(async (tx) => {
+    const [member] = await tx.select({ id: members.id }).from(members).where(and(eq(members.id, memberId), eq(members.homeBranchId, branchId), ne(members.status, "CANCELLED"))).limit(1).for("update");
+    if (!member) throw new MembershipLifecycleError("MEMBER_NOT_FOUND");
+    await tx.update(memberAccessTokens).set({ revokedAt: new Date() }).where(and(eq(memberAccessTokens.memberId, memberId), isNull(memberAccessTokens.revokedAt)));
+    const result = await tx.insert(memberAccessTokens).values({ memberId, branchId, tokenHash: created.tokenHash, expiresAt: created.expiresAt, issuedByStaffId: null });
+    await writeAudit(tx, { actorStaffId: null, branchId, action: "MEMBER_QR_SELF_ROTATED", entityType: "MEMBER_ACCESS_TOKEN", entityId: result[0].insertId, result: "SUCCESS", metadata: { memberId } });
+    return { token: created.token, expiresAt: created.expiresAt };
+  });
 }
