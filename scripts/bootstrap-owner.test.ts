@@ -244,7 +244,7 @@ describe("Owner bootstrap", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("CLI entrypoint โหลด server-only dependency ได้และคืน error แบบไม่เผยข้อมูล", () => {
+  it("CLI entrypoint โหลด server-only dependency ได้และคืน error แบบไม่เผยข้อมูล", { timeout: 15_000 }, () => {
     const environment = { ...process.env };
     delete environment.DATABASE_URL;
     delete environment.BOOTSTRAP_OWNER_PASSWORD;

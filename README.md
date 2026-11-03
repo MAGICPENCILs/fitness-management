@@ -46,6 +46,37 @@ npm run auth:bootstrap-owner
 
 คำสั่งจะปฏิเสธรหัสผ่านที่อ่อนและไม่พิมพ์รหัสผ่านหรือ hash ลง log
 
+## Backup และ Restore สำหรับผู้ดูแลระบบ
+
+ติดตั้ง MySQL client ที่มี `mysqldump` และ `mysql` จากนั้นกำหนด `BACKUP_ENCRYPTION_KEY` เป็น base64 ของ key สุ่ม 32 bytes ซึ่งเก็บใน secret manager แยกจากไฟล์ backup ห้าม commit หรือส่ง key คู่กับ backup
+
+สร้าง dump ที่เข้ารหัส AES-256-GCM พร้อม SHA-256 manifest:
+
+```powershell
+npm run db:backup
+```
+
+ระบบเขียนไฟล์ลง `BACKUP_DIRECTORY` (ค่าเริ่มต้น `backups`) ให้คัดลอกทั้ง `.sql.enc` และ `.manifest.json` ไปยังพื้นที่ offsite ที่จำกัดสิทธิ์
+
+ตรวจ checksum, manifest และถอดรหัสแบบ dry-run โดยไม่แตะฐานข้อมูล:
+
+```powershell
+npm run db:restore -- --backup "backups/<file>.sql.enc" --manifest "backups/<file>.sql.enc.manifest.json"
+```
+
+Restore จริงทำได้เฉพาะฐานข้อมูลชื่อเดียวกับ manifest และต้องเปิด flag ชั่วคราวพร้อมพิมพ์คำยืนยันตรงตัว:
+
+```powershell
+try {
+  $env:BACKUP_RESTORE_ENABLED = "true"
+  npm run db:restore -- --backup "backups/<file>.sql.enc" --manifest "backups/<file>.sql.enc.manifest.json" --execute --confirm "RESTORE <database>"
+} finally {
+  Remove-Item Env:BACKUP_RESTORE_ENABLED -ErrorAction SilentlyContinue
+}
+```
+
+ควรทดสอบ restore กับฐานข้อมูลที่แยกจาก production ตาม runbook ก่อนใช้ในเหตุฉุกเฉิน และเก็บ key/dump ตามนโยบาย PDPA ขององค์กร
+
 ## ตรวจคุณภาพก่อนส่งงาน
 
 ```powershell

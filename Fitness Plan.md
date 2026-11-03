@@ -269,8 +269,8 @@ branches             — สาขา
 
 ### สถานะ ณ พฤศจิกายน 2569
 
-- **พร้อมทดสอบแล้ว:** สมาชิกและแพ็กเกจ, static card pool, สแกนเข้าใช้, ชำระเงิน, โปรโมชั่น/คูปอง, บัญชี, Dashboard, ล็อกเกอร์, อุปกรณ์/ซ่อมบำรุง, คลาส/PT, CRM/loyalty, หลายสาขา, PDPA anonymization, พนักงาน/RBAC, Login/Session/Rate limit และ Audit log
-- **กำลังปิดงาน Integrated MVP:** Backup/Restore, ใบเสร็จ/ใบกำกับภาษี, provider แจ้งเตือน, hardware adapter, Freeze, Dynamic QR, member portal, 2FA/เวลาเข้างาน/ค่าตอบแทน และรายงานขั้นสูง
+- **พร้อมทดสอบแล้ว:** สมาชิกและแพ็กเกจ, static card pool, สแกนเข้าใช้, ชำระเงิน, โปรโมชั่น/คูปอง, บัญชี, Dashboard, ล็อกเกอร์, อุปกรณ์/ซ่อมบำรุง, คลาส/PT, CRM/loyalty, หลายสาขา, PDPA anonymization, พนักงาน/RBAC, Login/Session/Rate limit, Audit log และ Backup/Restore สำหรับผู้ดูแลระบบ
+- **กำลังปิดงาน Integrated MVP:** ใบเสร็จ/ใบกำกับภาษี, provider แจ้งเตือน, hardware adapter, Freeze, Dynamic QR, member portal, 2FA/เวลาเข้างาน/ค่าตอบแทน และรายงานขั้นสูง
 - **ต้องมีระบบภายนอกก่อนเปิดจริง:** SMS/LINE/SMTP credentials, ตัวควบคุมประตู/เครื่องอ่านบัตร และพื้นที่เก็บ backup นอกเครื่อง
 
 ### Phase 1 — Core MVP
