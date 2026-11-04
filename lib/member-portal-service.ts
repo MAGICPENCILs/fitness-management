@@ -3,6 +3,7 @@ import "server-only";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  authLoginLimits,
   consentEvents,
   branches,
   memberAccounts,
@@ -10,7 +11,13 @@ import {
   memberSessions,
   members,
 } from "@/db/schema";
-import { runAuditedMutation } from "@/lib/audit-service";
+import { runAuditedMutation, writeAudit } from "@/lib/audit-service";
+import { authRepository } from "@/lib/auth/auth-repository";
+import { LOGIN_LIMIT_LOCK_SECONDS } from "@/lib/auth/constants";
+import {
+  createAuthSubjectFingerprint,
+} from "@/lib/auth/request-security";
+import type { RequestFingerprintInput } from "@/lib/auth/types";
 import {
   hashPassword,
   validatePassword,
@@ -22,6 +29,7 @@ import {
   MEMBER_SESSION_SECONDS,
 } from "@/lib/member-auth/session";
 import type { ActorContext } from "@/lib/rbac";
+import { ACTIVE_PRIVACY_POLICY_VERSION } from "@/lib/consent-policy";
 
 export class MemberPortalError extends Error {
   /** เก็บรหัสคงที่เพื่อให้ public route ตอบข้อความกลางและไม่เปิดเผยว่ามีอีเมลอยู่หรือไม่ */
@@ -36,7 +44,13 @@ export function normalizeMemberEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
-/** รับใบสมัครแบบ pending เท่านั้น; ยังไม่สร้าง member/account หรือสิทธิ์เข้าใช้บริการ */
+/** ตรวจ duplicate-key จากรหัสมาตรฐานของ MySQL โดยไม่ผูกกับข้อความ error ที่เปลี่ยนได้ */
+function isDuplicateEntryError(error: unknown) {
+  return typeof error === "object" && error !== null &&
+    (("code" in error && error.code === "ER_DUP_ENTRY") || ("errno" in error && error.errno === 1062));
+}
+
+/** รับใบสมัครใหม่หรือเปิดใบสมัครที่เคยถูกปฏิเสธอีกครั้ง โดยไม่เปลี่ยนบัญชีหรือใบสมัครที่ยังใช้งาน */
 export async function createMemberApplication(input: {
   branchId: number;
   firstName: string;
@@ -46,28 +60,45 @@ export async function createMemberApplication(input: {
   password: string;
   servicePrivacyConsent: true;
   marketingConsent: boolean;
-  policyVersion: string;
 }) {
   const policy = validatePassword(input.password);
   if (!policy.valid) throw new MemberPortalError("PASSWORD_POLICY");
   const [branch] = await db.select({ id: branches.id }).from(branches).where(and(eq(branches.id, input.branchId), eq(branches.status, "ACTIVE"))).limit(1);
   if (!branch) throw new MemberPortalError("BRANCH_NOT_AVAILABLE");
   const passwordHash = await hashPassword(input.password);
+  const email = normalizeMemberEmail(input.email);
+  const values = {
+    branchId: input.branchId,
+    firstName: input.firstName.trim(),
+    lastName: input.lastName.trim(),
+    phone: input.phone.trim(),
+    email,
+    passwordHash,
+    servicePrivacyConsent: true as const,
+    marketingConsent: input.marketingConsent,
+    policyVersion: ACTIVE_PRIVACY_POLICY_VERSION,
+    status: "PENDING" as const,
+  };
   try {
-    await db.insert(memberApplications).values({
-      branchId: input.branchId,
-      firstName: input.firstName.trim(),
-      lastName: input.lastName.trim(),
-      phone: input.phone.trim(),
-      email: normalizeMemberEmail(input.email),
-      passwordHash,
-      servicePrivacyConsent: true,
-      marketingConsent: input.marketingConsent,
-      policyVersion: input.policyVersion,
-      status: "PENDING",
+    await db.transaction(async (tx) => {
+      const [account] = await tx.select({ id: memberAccounts.id }).from(memberAccounts).where(eq(memberAccounts.email, email)).limit(1).for("update");
+      const [application] = await tx.select({ id: memberApplications.id, status: memberApplications.status }).from(memberApplications).where(eq(memberApplications.email, email)).limit(1).for("update");
+      if (account || (application && application.status !== "REJECTED")) return;
+      if (!application) {
+        await tx.insert(memberApplications).values(values);
+        return;
+      }
+      await tx.update(memberApplications).set({
+        ...values,
+        reviewNote: null,
+        reviewedByStaffId: null,
+        reviewedAt: null,
+        memberId: null,
+        createdAt: new Date(),
+      }).where(eq(memberApplications.id, application.id));
     });
   } catch (error) {
-    if (error instanceof Error && /duplicate/i.test(error.message)) return;
+    if (isDuplicateEntryError(error)) return;
     throw error;
   }
 }
@@ -140,24 +171,46 @@ export async function reviewMemberApplication(
   );
 }
 
-/** ตรวจ credential ด้วย dummy hash เมื่อไม่พบบัญชี แล้วสร้าง opaque Member session อายุ 7 วัน */
-export async function loginMember(email: string, password: string) {
+/** ตรวจ rate limit/credential พร้อม audit และสร้าง opaque Member session อายุ 7 วันแบบ atomic เมื่อสำเร็จ */
+export async function loginMember(email: string, password: string, request: RequestFingerprintInput) {
   const normalized = normalizeMemberEmail(email);
+  const now = new Date();
+  const accountSubjectHash = createAuthSubjectFingerprint(`MEMBER:${normalized}`);
+  const ipSubjectHash = request.ipFingerprint ? createAuthSubjectFingerprint(`MEMBER_IP:${request.ipFingerprint}`) : null;
+  const limitChecks = await Promise.all([
+    authRepository.checkLimit("ACCOUNT", accountSubjectHash, now),
+    ...(ipSubjectHash ? [authRepository.checkLimit("IP", ipSubjectHash, now)] : []),
+  ]);
+  if (limitChecks.some((check) => check.blocked)) {
+    await writeAudit(db, { actorStaffId: null, branchId: null, action: "MEMBER_LOGIN_RATE_LIMITED", entityType: "MEMBER_AUTH", result: "DENIED", metadata: { scope: "MEMBER" } });
+    throw new MemberPortalError("RATE_LIMITED");
+  }
   const [account] = await db
-    .select({ id: memberAccounts.id, passwordHash: memberAccounts.passwordHash, accountStatus: memberAccounts.status, memberStatus: members.status })
+    .select({ id: memberAccounts.id, passwordHash: memberAccounts.passwordHash, accountStatus: memberAccounts.status, memberStatus: members.status, branchId: members.homeBranchId })
     .from(memberAccounts)
     .innerJoin(members, eq(memberAccounts.memberId, members.id))
     .where(eq(memberAccounts.email, normalized))
     .limit(1);
   const valid = await verifyPasswordOrDummy(account?.passwordHash ?? null, password);
-  if (!valid || !account || account.accountStatus !== "ACTIVE" || account.memberStatus === "CANCELLED")
+  if (!valid || !account || account.accountStatus !== "ACTIVE" || account.memberStatus === "CANCELLED") {
+    const accountDecision = await authRepository.consumeFailure("ACCOUNT", accountSubjectHash, now);
+    const ipDecision = ipSubjectHash ? await authRepository.consumeFailure("IP", ipSubjectHash, now) : null;
+    const blocked = accountDecision.blocked || Boolean(ipDecision?.blocked);
+    await writeAudit(db, { actorStaffId: null, branchId: account?.branchId ?? null, action: blocked ? "MEMBER_LOGIN_RATE_LIMITED" : "MEMBER_LOGIN_FAILED", entityType: "MEMBER_AUTH", entityId: account?.id, result: blocked ? "DENIED" : "FAILED", metadata: { scope: "MEMBER" } });
+    if (blocked) throw new MemberPortalError("RATE_LIMITED");
     throw new MemberPortalError("INVALID_CREDENTIALS");
+  }
   const token = createMemberSessionToken();
-  const now = new Date();
   const expiresAt = new Date(now.getTime() + MEMBER_SESSION_SECONDS * 1000);
-  await db.insert(memberSessions).values({ memberAccountId: account.id, tokenHash: hashMemberSessionToken(token), expiresAt, lastSeenAt: now });
+  await db.transaction(async (tx) => {
+    await tx.delete(authLoginLimits).where(and(eq(authLoginLimits.scope, "ACCOUNT"), eq(authLoginLimits.subjectHash, accountSubjectHash)));
+    await tx.insert(memberSessions).values({ memberAccountId: account.id, tokenHash: hashMemberSessionToken(token), expiresAt, lastSeenAt: now });
+    await writeAudit(tx, { actorStaffId: null, branchId: account.branchId, action: "MEMBER_LOGIN_SUCCESS", entityType: "MEMBER_AUTH", entityId: account.id, result: "SUCCESS", metadata: { scope: "MEMBER" } });
+  });
   return { token, expiresAt };
 }
+
+export { LOGIN_LIMIT_LOCK_SECONDS as MEMBER_LOGIN_LOCK_SECONDS };
 
 /** คืนรายการสาขาที่เปิดใช้งานสำหรับฟอร์มสมัคร โดยไม่เปิดข้อมูลภายในอื่น */
 export async function getPublicBranches() {

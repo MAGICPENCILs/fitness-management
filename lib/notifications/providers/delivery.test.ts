@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  canClaimDelivery,
   canRetryDelivery,
   deliverNotification,
   type DeliveryEnvironment,
@@ -103,6 +104,15 @@ describe("notification delivery providers", () => {
     expect(canRetryDelivery("FAILED", "RETRYABLE", 5)).toBe(false);
   });
 
+  it("ยึด PROCESSING ซ้ำได้หลัง lease หมด แต่ claim ใหม่กัน worker พร้อมกัน", () => {
+    const now = new Date("2026-11-04T03:10:00.000Z");
+    const staleClaim = new Date("2026-11-04T03:04:59.000Z");
+
+    expect(canClaimDelivery("PROCESSING", null, 1, staleClaim, now)).toBe(true);
+    expect(canClaimDelivery("PROCESSING", null, 2, now, now)).toBe(false);
+    expect(canClaimDelivery("PROCESSING", null, 5, staleClaim, now)).toBe(false);
+  });
+
   it("โหลด config แบบ fail closed และ health ไม่คืน credential", () => {
     const environment = loadDeliveryEnvironment({
       NOTIFICATION_PROVIDER_MODE: "unexpected",
@@ -113,7 +123,7 @@ describe("notification delivery providers", () => {
       mode: "disabled",
       inApp: "READY",
       sms: "DISABLED",
-      line: "DISABLED",
+      line: "UNAVAILABLE",
       email: "DISABLED",
     });
     expect(JSON.stringify(getProviderHealth(environment))).not.toContain("secret");

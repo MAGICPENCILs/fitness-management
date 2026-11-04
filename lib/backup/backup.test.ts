@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -44,6 +44,8 @@ describe("database backup", () => {
     expect(command.args).toContain("--host=db.example.test");
     expect(command.args).toContain("--port=3307");
     expect(command.args).toContain("--user=fitness_user");
+    expect(command.args).not.toContain("--databases");
+    expect(command.args.at(-1)).toBe("fitness_test");
     expect(command.args.join(" ")).not.toContain("super-secret");
     expect(command.args.join(" ")).not.toContain(DATABASE_URL);
     expect(command.env).toEqual({ PATH: "safe-path", MYSQL_PWD: "super-secret" });
@@ -108,6 +110,34 @@ describe("database backup", () => {
         encryptionKey: ENCRYPTION_KEY,
       }),
     ).rejects.toThrow("BACKUP_CHECKSUM_INVALID");
+  });
+
+  it("ปฏิเสธ manifest เมื่อ metadata ที่กำหนดเป้าหมาย restore ถูกแก้", async () => {
+    const outputDirectory = await temporaryDirectory();
+    const executor: BackupExecutor = {
+      dump: async () => Readable.from(["SELECT 1;\n"]),
+      restore: vi.fn(),
+    };
+    const result = await createBackup(
+      {
+        databaseUrl: DATABASE_URL,
+        encryptionKey: ENCRYPTION_KEY,
+        outputDirectory,
+        schemaVersion: "0010_auth_sessions",
+      },
+      { executor, randomBytes: () => Buffer.alloc(12, 8) },
+    );
+    const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
+    manifest.database = "attacker_database";
+    await writeFile(result.manifestPath, JSON.stringify(manifest));
+
+    await expect(
+      verifyBackup({
+        backupPath: result.backupPath,
+        manifestPath: result.manifestPath,
+        encryptionKey: ENCRYPTION_KEY,
+      }),
+    ).rejects.toThrow("BACKUP_DECRYPTION_INVALID");
   });
 
   it("restore เป็น dry-run โดยปริยาย และไม่แตะฐานข้อมูล", async () => {
@@ -186,5 +216,86 @@ describe("database backup", () => {
       restoreBackup(input, { executor, restoreEnabled: true }),
     ).resolves.toMatchObject({ restored: true, database: "fitness_test" });
     expect(restored.join("")).toBe("SELECT 1;\n");
+  });
+
+  it("ยืนยันไฟล์ plaintext ให้ครบก่อนส่งเข้า MySQL และลบไฟล์ชั่วคราวหลังสำเร็จ", async () => {
+    const outputDirectory = await temporaryDirectory();
+    let plaintextPath: string | undefined;
+    let plaintextMode: number | undefined;
+    const executor: BackupExecutor = {
+      dump: async () => Readable.from(["SELECT 1;\n"]),
+      restore: vi.fn(async (_target, input) => {
+        plaintextPath = typeof input.path === "string" ? input.path : undefined;
+        if (plaintextPath) plaintextMode = (await stat(plaintextPath)).mode & 0o777;
+        for await (const chunk of input) {
+          void chunk;
+          // อ่าน stream ให้จบเหมือน MySQL เพื่อยืนยันว่าไฟล์พร้อมใช้ก่อน restore
+        }
+      }),
+    };
+    const backup = await createBackup(
+      {
+        databaseUrl: DATABASE_URL,
+        encryptionKey: ENCRYPTION_KEY,
+        outputDirectory,
+        schemaVersion: "0010_auth_sessions",
+      },
+      { executor, randomBytes: () => Buffer.alloc(12, 9) },
+    );
+
+    await restoreBackup(
+      {
+        databaseUrl: DATABASE_URL,
+        encryptionKey: ENCRYPTION_KEY,
+        backupPath: backup.backupPath,
+        manifestPath: backup.manifestPath,
+        dryRun: false,
+        confirmation: "RESTORE fitness_test",
+      },
+      { executor, restoreEnabled: true },
+    );
+
+    expect(plaintextPath).toBeTypeOf("string");
+    // Windows ใช้ ACL และไม่สะท้อน POSIX mode จาก createWriteStream ใน stat
+    if (process.platform !== "win32") expect(plaintextMode).toBe(0o600);
+    await expect(stat(plaintextPath!)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("ลบไฟล์ plaintext ชั่วคราวแม้ MySQL restore ล้มเหลว", async () => {
+    const outputDirectory = await temporaryDirectory();
+    let plaintextPath: string | undefined;
+    const executor: BackupExecutor = {
+      dump: async () => Readable.from(["SELECT 1;\n"]),
+      restore: vi.fn(async (_target, input) => {
+        plaintextPath = typeof input.path === "string" ? input.path : undefined;
+        throw new Error("MYSQL_RESTORE_FAILED");
+      }),
+    };
+    const backup = await createBackup(
+      {
+        databaseUrl: DATABASE_URL,
+        encryptionKey: ENCRYPTION_KEY,
+        outputDirectory,
+        schemaVersion: "0010_auth_sessions",
+      },
+      { executor, randomBytes: () => Buffer.alloc(12, 10) },
+    );
+
+    await expect(
+      restoreBackup(
+        {
+          databaseUrl: DATABASE_URL,
+          encryptionKey: ENCRYPTION_KEY,
+          backupPath: backup.backupPath,
+          manifestPath: backup.manifestPath,
+          dryRun: false,
+          confirmation: "RESTORE fitness_test",
+        },
+        { executor, restoreEnabled: true },
+      ),
+    ).rejects.toThrow("MYSQL_RESTORE_FAILED");
+
+    expect(plaintextPath).toBeTypeOf("string");
+    await expect(stat(plaintextPath!)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

@@ -11,7 +11,9 @@ import { runAuditedMutation, writeAudit } from "@/lib/audit-service";
 import { db } from "@/db";
 import {
   assertFreezeAllowance,
+  calculateGrantedFreezeDays,
   extendExpiryDate,
+  getBangkokCalendarYear,
   MembershipLifecycleError,
 } from "@/lib/membership-lifecycle";
 import { createMemberAccessToken } from "@/lib/member-token";
@@ -24,7 +26,8 @@ export async function freezeMembership(
   input: { memberId: number; memberPackageId: number; days: number; reason: string },
 ) {
   assertFreezeAllowance(0, input.days);
-  const year = new Date().getFullYear();
+  const startedAt = new Date();
+  const year = getBangkokCalendarYear(startedAt);
   return runAuditedMutation<number>(
     {
       actorStaffId: actor.staffId,
@@ -57,7 +60,7 @@ export async function freezeMembership(
         reason: input.reason,
         status: "ACTIVE",
         activeKey: "ACTIVE",
-        startedAt: new Date(),
+        startedAt,
         createdByStaffId: actor.staffId,
       });
       await Promise.all([
@@ -69,7 +72,7 @@ export async function freezeMembership(
   );
 }
 
-/** จบ Freeze แล้วต่อวันหมดอายุตามจำนวนวันที่อนุมัติ พร้อมคืนสมาชิกและแพ็กเกจเป็น ACTIVE */
+/** จบ Freeze แล้วต่อวันหมดอายุตามวันปฏิทินไทยที่ใช้จริง แต่ไม่เกินวันที่อนุมัติ */
 export async function unfreezeMembership(
   actor: ActorContext,
   branchId: number,
@@ -89,10 +92,12 @@ export async function unfreezeMembership(
       if (!record) throw new MembershipLifecycleError("FREEZE_NOT_ACTIVE");
       const [memberPackage] = await tx.select().from(memberPackages).where(eq(memberPackages.id, record.memberPackageId)).limit(1).for("update");
       if (!memberPackage) throw new MembershipLifecycleError("PACKAGE_NOT_FOUND");
-      const nextExpiry = extendExpiryDate(memberPackage.expireDate, record.requestedDays);
+      const endedAt = new Date();
+      const grantedDays = calculateGrantedFreezeDays(record.startedAt, endedAt, record.requestedDays);
+      const nextExpiry = extendExpiryDate(memberPackage.expireDate, grantedDays);
       await Promise.all([
-        tx.update(freezeRecords).set({ status: "COMPLETED", activeKey: null, endedAt: new Date(), endedByStaffId: actor.staffId }).where(eq(freezeRecords.id, record.id)),
-        tx.update(memberPackages).set({ status: "ACTIVE", expireDate: new Date(`${nextExpiry}T00:00:00`), freezeDaysUsed: sql`${memberPackages.freezeDaysUsed} + ${record.requestedDays}` }).where(eq(memberPackages.id, record.memberPackageId)),
+        tx.update(freezeRecords).set({ status: "COMPLETED", activeKey: null, endedAt, endedByStaffId: actor.staffId }).where(eq(freezeRecords.id, record.id)),
+        tx.update(memberPackages).set({ status: "ACTIVE", expireDate: new Date(`${nextExpiry}T00:00:00`), freezeDaysUsed: sql`${memberPackages.freezeDaysUsed} + ${grantedDays}` }).where(eq(memberPackages.id, record.memberPackageId)),
         tx.update(members).set({ status: "ACTIVE" }).where(and(eq(members.id, memberId), eq(members.homeBranchId, branchId))),
       ]);
       return record.id;

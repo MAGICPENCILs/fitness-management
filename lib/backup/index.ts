@@ -10,7 +10,8 @@ import {
   createReadStream,
   createWriteStream,
 } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -18,7 +19,7 @@ import { pipeline } from "node:stream/promises";
 import { z } from "zod";
 
 const ENCRYPTION_ALGORITHM = "aes-256-gcm";
-const MANIFEST_VERSION = 1;
+const MANIFEST_VERSION = 2;
 
 const manifestSchema = z.object({
   version: z.literal(MANIFEST_VERSION),
@@ -158,7 +159,6 @@ export function buildMySqlCommand(
         "--triggers",
         "--events",
         "--hex-blob",
-        "--databases",
         target.database,
       ],
       env,
@@ -256,6 +256,33 @@ function backupFileName(now: Date): string {
   return `fitness-backup-${timestamp}.sql.enc`;
 }
 
+type AuthenticatedManifestMetadata = Pick<
+  BackupManifest,
+  "version" | "file" | "database" | "schemaVersion" | "createdAt"
+> & {
+  encryption: Pick<BackupManifest["encryption"], "algorithm" | "iv">;
+};
+
+/** จัดลำดับ metadata ที่ใช้ตัดสินใจ restore ให้คงที่ เพื่อให้ AES-GCM ตรวจพบการแก้ manifest ทุกฟิลด์สำคัญ */
+function manifestAdditionalData(
+  metadata: AuthenticatedManifestMetadata | BackupManifest,
+) {
+  return Buffer.from(
+    JSON.stringify({
+      version: metadata.version,
+      file: metadata.file,
+      database: metadata.database,
+      schemaVersion: metadata.schemaVersion,
+      createdAt: metadata.createdAt,
+      encryption: {
+        algorithm: metadata.encryption.algorithm,
+        iv: metadata.encryption.iv,
+      },
+    }),
+    "utf8",
+  );
+}
+
 /** สร้าง MySQL dump เข้ารหัสพร้อม manifest และลบไฟล์บางส่วนเมื่อขั้นตอนไหนล้มเหลว */
 export async function createBackup(
   input: CreateBackupInput,
@@ -271,6 +298,18 @@ export async function createBackup(
   const backupPath = join(input.outputDirectory, backupFileName(now));
   const manifestPath = `${backupPath}.manifest.json`;
   const cipher = createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
+  const authenticatedMetadata: AuthenticatedManifestMetadata = {
+    version: MANIFEST_VERSION,
+    file: basename(backupPath),
+    database: target.database,
+    schemaVersion: input.schemaVersion.trim(),
+    createdAt: now.toISOString(),
+    encryption: {
+      algorithm: ENCRYPTION_ALGORITHM,
+      iv: iv.toString("base64"),
+    },
+  };
+  cipher.setAAD(manifestAdditionalData(authenticatedMetadata));
 
   try {
     const dump = await (dependencies.executor ?? mysqlBackupExecutor).dump(target);
@@ -280,14 +319,9 @@ export async function createBackup(
       createWriteStream(backupPath, { flags: "wx", mode: 0o600 }),
     );
     const manifest: BackupManifest = {
-      version: MANIFEST_VERSION,
-      file: basename(backupPath),
-      database: target.database,
-      schemaVersion: input.schemaVersion.trim(),
-      createdAt: now.toISOString(),
+      ...authenticatedMetadata,
       encryption: {
-        algorithm: ENCRYPTION_ALGORITHM,
-        iv: iv.toString("base64"),
+        ...authenticatedMetadata.encryption,
         authTag: cipher.getAuthTag().toString("base64"),
       },
       checksum: {
@@ -338,6 +372,7 @@ export async function verifyBackup(
     key,
     Buffer.from(manifest.encryption.iv, "base64"),
   );
+  decipher.setAAD(manifestAdditionalData(manifest));
   decipher.setAuthTag(Buffer.from(manifest.encryption.authTag, "base64"));
   try {
     await pipeline(
@@ -375,8 +410,23 @@ export async function restoreBackup(
     key,
     Buffer.from(manifest.encryption.iv, "base64"),
   );
+  decipher.setAAD(manifestAdditionalData(manifest));
   decipher.setAuthTag(Buffer.from(manifest.encryption.authTag, "base64"));
-  const decrypted = createReadStream(input.backupPath).pipe(decipher);
-  await (dependencies.executor ?? mysqlBackupExecutor).restore(target, decrypted);
-  return { ...manifest, restored: true };
+  const restoreDirectory = await mkdtemp(join(tmpdir(), "fitness-restore-"));
+  const plaintextPath = join(restoreDirectory, "backup.sql");
+  try {
+    // ยืนยัน GCM auth tag ให้เสร็จก่อนส่ง SQL เข้า MySQL เพื่อไม่ให้ restore ข้อมูลบางส่วนจากไฟล์ที่ถูกแก้
+    await pipeline(
+      createReadStream(input.backupPath),
+      decipher,
+      createWriteStream(plaintextPath, { flags: "wx", mode: 0o600 }),
+    );
+    await (dependencies.executor ?? mysqlBackupExecutor).restore(
+      target,
+      createReadStream(plaintextPath),
+    );
+    return { ...manifest, restored: true };
+  } finally {
+    await rm(restoreDirectory, { recursive: true, force: true });
+  }
 }

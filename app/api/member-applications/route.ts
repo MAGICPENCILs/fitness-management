@@ -18,7 +18,6 @@ const applicationSchema = z.object({
   password: z.string().min(1).max(1024),
   servicePrivacyConsent: z.literal(true),
   marketingConsent: z.boolean(),
-  policyVersion: z.string().trim().min(1).max(30),
 });
 
 /** รับใบสมัครและตอบข้อความเดียวกันแม้อีเมลซ้ำ เพื่อไม่เปิดเผยบัญชีที่มีอยู่ */

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 /** รับใบสมัครออนไลน์แบบ pending พร้อม consent ที่จำเป็น โดยไม่สื่อว่าได้สิทธิ์เข้าใช้ทันที */
-export function SignupForm({ branches }: { branches: Array<{ id: number; name: string }> }) {
+export function SignupForm({ branches, policyVersion }: { branches: Array<{ id: number; name: string }>; policyVersion: string }) {
   const [branchId, setBranchId] = useState(branches[0] ? String(branches[0].id) : "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -30,7 +30,6 @@ export function SignupForm({ branches }: { branches: Array<{ id: number; name: s
           phone: data.get("phone"), email: data.get("email"), password: data.get("password"),
           servicePrivacyConsent: data.get("servicePrivacyConsent") === "on",
           marketingConsent: data.get("marketingConsent") === "on",
-          policyVersion: "2026-11",
         }),
       });
       const result = await response.json();
@@ -49,7 +48,7 @@ export function SignupForm({ branches }: { branches: Array<{ id: number; name: s
     <div className="space-y-1.5"><Label htmlFor="signup-branch">สาขาที่ต้องการสมัคร *</Label><Select value={branchId} onValueChange={setBranchId}><SelectTrigger id="signup-branch" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{branches.map((branch) => <SelectItem key={branch.id} value={String(branch.id)}>{branch.name}</SelectItem>)}</SelectContent></Select></div>
     <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label htmlFor="signup-phone">โทรศัพท์ *</Label><Input id="signup-phone" name="phone" type="tel" minLength={8} maxLength={20} required /></div><div className="space-y-1.5"><Label htmlFor="signup-email">อีเมล *</Label><Input id="signup-email" name="email" type="email" maxLength={191} required /></div></div>
     <div className="space-y-1.5"><Label htmlFor="signup-password">รหัสผ่าน *</Label><Input id="signup-password" name="password" type="password" minLength={12} maxLength={1024} required /><p className="text-xs text-muted-foreground">อย่างน้อย 12 ตัว มีตัวพิมพ์ใหญ่ พิมพ์เล็ก ตัวเลข และอักขระพิเศษ</p></div>
-    <label className="flex gap-3 rounded-lg border p-3 text-sm"><input name="servicePrivacyConsent" type="checkbox" required className="mt-0.5 size-4 accent-primary" /><span>ยอมรับนโยบายความเป็นส่วนตัวเพื่อให้บริการ *</span></label>
+    <label className="flex gap-3 rounded-lg border p-3 text-sm"><input name="servicePrivacyConsent" type="checkbox" required className="mt-0.5 size-4 accent-primary" /><span>ยอมรับนโยบายความเป็นส่วนตัวเพื่อให้บริการ เวอร์ชัน {policyVersion} *</span></label>
     <label className="flex gap-3 rounded-lg border p-3 text-sm"><input name="marketingConsent" type="checkbox" className="mt-0.5 size-4 accent-primary" /><span>ยินยอมรับข่าวสารและโปรโมชัน (ไม่บังคับ)</span></label>
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     <Button type="submit" className="w-full" disabled={pending || !branchId}>{pending ? <Loader2 className="size-4 animate-spin" /> : null}ส่งใบสมัคร</Button>

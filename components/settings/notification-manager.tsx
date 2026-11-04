@@ -41,7 +41,7 @@ type NotificationHistory = {
 const channelOptions = [
   { key: "enableInApp", label: "ภายในระบบ", description: "แสดงและบันทึกข้อความในระบบทันที" },
   { key: "enableSms", label: "SMS", description: "ส่งผ่าน webhook ที่ผู้ดูแลระบบกำหนด" },
-  { key: "enableLine", label: "LINE OA", description: "ส่งเมื่อรายการมี LINE User ID ของผู้รับ" },
+  { key: "enableLine", label: "LINE OA", description: "ยังไม่พร้อมใช้: ระบบยังไม่มี LINE User ID ของสมาชิก", disabled: true },
   { key: "enableEmail", label: "อีเมล", description: "ส่งผ่าน SMTP แบบ TLS" },
 ] as const;
 
@@ -58,7 +58,7 @@ type ProviderHealth = {
   mode: "disabled" | "simulate" | "live";
   inApp: "READY";
   sms: "READY" | "DISABLED";
-  line: "READY" | "DISABLED";
+  line: "UNAVAILABLE";
   email: "READY" | "DISABLED";
 };
 
@@ -203,7 +203,7 @@ export function NotificationManager({
             <div className="grid gap-3 sm:grid-cols-2">
               {channelOptions.map((channel) => (
                 <label key={channel.key} className="flex min-h-20 cursor-pointer items-start gap-3 rounded-lg border p-3 hover:bg-muted/50">
-                  <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-primary" checked={form[channel.key]} onChange={(event) => updateForm(channel.key, event.target.checked)} />
+                  <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-primary" checked={form[channel.key]} disabled={"disabled" in channel && channel.disabled} onChange={(event) => updateForm(channel.key, event.target.checked)} />
                   <span>
                     <span className="block text-sm font-medium">{channel.label}</span>
                     <span className="mt-0.5 block text-xs text-muted-foreground">{channel.description}</span>
@@ -245,7 +245,7 @@ export function NotificationManager({
           <div className="mt-4 space-y-4 text-sm">
             <div className="rounded-lg bg-muted/50 p-3"><p className="font-medium">โหมด {providerHealth.mode === "live" ? "ส่งจริง" : providerHealth.mode === "simulate" ? "จำลอง" : "ปิด"}</p><p className="text-muted-foreground">ค่าเริ่มต้นปิด และไม่แสดง credential ในหน้านี้</p></div>
             {([['inApp', 'ข้อความในระบบ'], ['sms', 'SMS webhook'], ['line', 'LINE OA'], ['email', 'อีเมล SMTP']] as const).map(([key, label]) => (
-              <div key={key} className="flex items-center justify-between gap-3"><p className="font-medium">{label}</p><Badge variant={providerHealth[key] === "READY" ? "default" : "outline"}>{providerHealth[key] === "READY" ? "พร้อมใช้" : "ปิด/ยังไม่ครบ"}</Badge></div>
+              <div key={key} className="flex items-center justify-between gap-3"><p className="font-medium">{label}</p><Badge variant={providerHealth[key] === "READY" ? "default" : "outline"}>{providerHealth[key] === "READY" ? "พร้อมใช้" : providerHealth[key] === "UNAVAILABLE" ? "ยังไม่รองรับ" : "ปิด/ยังไม่ครบ"}</Badge></div>
             ))}
           </div>
         </aside>

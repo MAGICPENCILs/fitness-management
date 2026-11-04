@@ -48,6 +48,9 @@ export async function PATCH(request: Request) {
     if (!reminderDays.length) {
       return NextResponse.json({ error: "กรุณาระบุจำนวนวันแจ้งเตือนอย่างน้อย 1 ค่า" }, { status: 400 });
     }
+    if (validated.enableLine) {
+      return NextResponse.json({ error: "LINE OA ยังไม่พร้อมใช้งาน เนื่องจากระบบยังไม่มี LINE User ID ของสมาชิก" }, { status: 400 });
+    }
     if (!validated.enableInApp && !validated.enableSms && !validated.enableLine && !validated.enableEmail) {
       return NextResponse.json({ error: "กรุณาเปิดช่องทางแจ้งเตือนอย่างน้อย 1 ช่องทาง" }, { status: 400 });
     }

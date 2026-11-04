@@ -46,11 +46,7 @@ export function getProviderHealth(environment: DeliveryEnvironment) {
         Boolean(environment.smsWebhookUrl && environment.smsWebhookToken))
         ? ("READY" as const)
         : ("DISABLED" as const),
-    line:
-      environment.mode === "simulate" ||
-      (environment.mode === "live" && Boolean(environment.lineAccessToken))
-        ? ("READY" as const)
-        : ("DISABLED" as const),
+    line: "UNAVAILABLE" as const,
     email:
       environment.mode === "simulate" ||
       (environment.mode === "live" &&

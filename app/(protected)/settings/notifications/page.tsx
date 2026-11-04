@@ -25,7 +25,7 @@ export default async function NotificationsPage() {
         <p className="mb-1 text-sm font-medium text-primary">การดูแลสมาชิก</p>
         <h1 className="text-balance text-2xl font-bold sm:text-3xl">ระบบแจ้งเตือน</h1>
         <p className="mt-1 max-w-3xl text-pretty text-sm text-muted-foreground">
-          ตั้งค่าแจ้งเตือนก่อนหมดอายุ ติดตามสมาชิกที่ไม่ได้เข้าใช้บริการ และตรวจสอบคิว SMS, LINE OA, อีเมล และข้อความในระบบ
+          ตั้งค่าแจ้งเตือนก่อนหมดอายุ ติดตามสมาชิกที่ไม่ได้เข้าใช้บริการ และตรวจสอบคิว SMS, อีเมล และข้อความในระบบ โดย LINE OA ยังไม่พร้อมใช้งาน
         </p>
       </header>
       <NotificationManager
@@ -34,7 +34,7 @@ export default async function NotificationsPage() {
           inactivityDays: settings.inactivityDays,
           enableInApp: settings.enableInApp,
           enableSms: settings.enableSms,
-          enableLine: settings.enableLine,
+          enableLine: false,
           enableEmail: settings.enableEmail,
           isActive: settings.isActive,
         }}

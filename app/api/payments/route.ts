@@ -29,6 +29,14 @@ import {
   taxInvoiceInputSchema,
 } from "@/lib/receipt-service";
 import { calculateCommissionSatang } from "@/lib/workforce-policy";
+import { assertTrustedOrigin } from "@/lib/auth/request-security";
+
+class PaymentError extends Error {
+  constructor(public code: "MEMBER_NOT_PAYABLE") {
+    super(code);
+    this.name = "PaymentError";
+  }
+}
 
 const paymentSchema = z
   .object({
@@ -62,23 +70,14 @@ export async function GET() {
 /** บันทึกการชำระเงิน ต่ออายุสมาชิก และใช้สิทธิ์คูปองภายใน transaction เดียว */
 export async function POST(request: Request) {
   try {
+    assertTrustedOrigin(request);
     const branchId = await getCurrentBranchId();
     const actor = await requirePermission("payments.manage", branchId, {
       action: "PAYMENT_CREATED",
       entityType: "PAYMENT",
     });
     const validated = paymentSchema.parse(await request.json());
-    const [[member], [selectedPackage], [branch]] = await Promise.all([
-      db
-        .select({
-          id: members.id,
-          status: members.status,
-          firstName: members.firstName,
-          lastName: members.lastName,
-        })
-        .from(members)
-        .where(eq(members.id, validated.memberId))
-        .limit(1),
+    const [[selectedPackage], [branch]] = await Promise.all([
       db
         .select()
         .from(packages)
@@ -97,9 +96,6 @@ export async function POST(request: Request) {
         .where(eq(branches.id, branchId))
         .limit(1),
     ]);
-    if (!member || member.status !== "ACTIVE") {
-      return NextResponse.json({ error: "สมาชิกไม่อยู่ในสถานะที่รับชำระได้" }, { status: 400 });
-    }
     if (!selectedPackage) return NextResponse.json({ error: "ไม่พบแพ็กเกจที่เลือก" }, { status: 404 });
     if (!branch) return NextResponse.json({ error: "ไม่พบสาขาปัจจุบัน" }, { status: 404 });
 
@@ -150,6 +146,20 @@ export async function POST(request: Request) {
         success: (value) => ({ entityId: value.paymentId }),
       },
       async (tx) => {
+      // ล็อกสมาชิกภายใน transaction และผูกกับสาขาปัจจุบันก่อนสร้างรายการการเงินใด ๆ
+      const [member] = await tx
+        .select({
+          id: members.id,
+          status: members.status,
+          firstName: members.firstName,
+          lastName: members.lastName,
+        })
+        .from(members)
+        .where(and(eq(members.id, validated.memberId), eq(members.homeBranchId, branchId)))
+        .limit(1)
+        .for("update");
+      if (!member || member.status !== "ACTIVE") throw new PaymentError("MEMBER_NOT_PAYABLE");
+
       if (couponQuote) {
         const counterResult = await tx
           .update(couponCodes)
@@ -262,6 +272,10 @@ export async function POST(request: Request) {
       { status: 201 },
     );
   } catch (error) {
+    if (error instanceof Error && error.message === "Untrusted origin")
+      return NextResponse.json({ error: "ไม่สามารถดำเนินการได้" }, { status: 403 });
+    if (error instanceof PaymentError)
+      return NextResponse.json({ error: "สมาชิกไม่อยู่ในสถานะที่รับชำระได้" }, { status: 400 });
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "ข้อมูลการชำระเงินไม่ถูกต้อง", details: error.issues }, { status: 400 });
     }

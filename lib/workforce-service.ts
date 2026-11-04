@@ -1,11 +1,11 @@
 import "server-only";
 
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { attendanceCorrections, attendancePunches, commissionLedger, compensationProfiles, payrollSummaries, staff } from "@/db/schema";
 import { runAuditedMutation } from "@/lib/audit-service";
 import type { ActorContext } from "@/lib/rbac";
-import { calculatePayrollAmounts, nextAttendancePunch } from "@/lib/workforce-policy";
+import { assertPayrollPeriod, calculatePayrollAmounts, nextAttendancePunch } from "@/lib/workforce-policy";
 
 export class WorkforceError extends Error {
   constructor(public code: string) { super(code); this.name = "WorkforceError"; }
@@ -59,17 +59,24 @@ export async function correctAttendance(actor: ActorContext, branchId: number, p
   );
 }
 
-/** สร้าง payroll draft จาก profile + commission ledger เท่านั้น และไม่รวมภาษี/ประกันสังคม */
+/** สร้าง payroll draft จาก profile + commission ledger โดยล็อกพนักงานและห้ามช่วงที่ซ้อนกัน */
 export async function createPayrollDraft(actor: ActorContext, branchId: number, staffId: number, periodStart: string, periodEnd: string) {
+  assertPayrollPeriod(periodStart, periodEnd);
+  const startDate = new Date(`${periodStart}T00:00:00`);
+  const endDate = new Date(`${periodEnd}T00:00:00`);
   return runAuditedMutation<number>(
     { actorStaffId: actor.staffId, branchId, action: "PAYROLL_DRAFT_CREATED", entityType: "PAYROLL", success: (id) => ({ entityId: id }) },
     async (tx) => {
+      const [target] = await tx.select({ id: staff.id }).from(staff).where(and(eq(staff.id, staffId), eq(staff.homeBranchId, branchId))).limit(1).for("update");
+      if (!target) throw new WorkforceError("STAFF_NOT_FOUND");
+      const [overlap] = await tx.select({ id: payrollSummaries.id }).from(payrollSummaries).where(and(eq(payrollSummaries.staffId, staffId), inArray(payrollSummaries.status, ["DRAFT", "APPROVED"]), lte(payrollSummaries.periodStart, endDate), gte(payrollSummaries.periodEnd, startDate))).limit(1);
+      if (overlap) throw new WorkforceError("PAYROLL_PERIOD_OVERLAP");
       const [profile] = await tx.select({ baseSalary: compensationProfiles.baseSalary }).from(compensationProfiles).innerJoin(staff, eq(compensationProfiles.staffId, staff.id)).where(and(eq(compensationProfiles.staffId, staffId), eq(staff.homeBranchId, branchId))).limit(1);
       if (!profile) throw new WorkforceError("COMPENSATION_NOT_FOUND");
       const from = new Date(`${periodStart}T00:00:00`); const to = new Date(`${periodEnd}T23:59:59`);
       const [commission] = await tx.select({ total: sql<string>`coalesce(sum(${commissionLedger.commissionAmount}), 0)` }).from(commissionLedger).where(and(eq(commissionLedger.staffId, staffId), gte(commissionLedger.createdAt, from), lte(commissionLedger.createdAt, to)));
       const amounts = calculatePayrollAmounts(profile.baseSalary, commission?.total ?? "0");
-      const result = await tx.insert(payrollSummaries).values({ staffId, branchId, periodStart: new Date(`${periodStart}T00:00:00`), periodEnd: new Date(`${periodEnd}T00:00:00`), baseSalary: profile.baseSalary, ...amounts, status: "DRAFT" });
+      const result = await tx.insert(payrollSummaries).values({ staffId, branchId, periodStart: startDate, periodEnd: endDate, baseSalary: profile.baseSalary, ...amounts, status: "DRAFT" });
       return result[0].insertId;
     },
   );

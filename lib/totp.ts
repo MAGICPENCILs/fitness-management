@@ -1,5 +1,10 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 
+/** กันการเขียนทับ factor ที่ใช้งานอยู่จนกว่าผู้ใช้จะยืนยันปิดด้วยรหัสเดิม */
+export function assertTotpEnrollmentAllowed(status: "PENDING" | "ENABLED" | "DISABLED" | undefined) {
+  if (status === "ENABLED") throw new Error("TOTP_ALREADY_ENABLED");
+}
+
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 /** สร้าง Base32 secret จาก entropy 20 bytes สำหรับแอป Authenticator */

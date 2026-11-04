@@ -24,3 +24,24 @@ export function extendExpiryDate(expireDate: string | Date, days: number) {
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
+
+/** นับจำนวนวันปฏิทินไทยที่ผ่านจริง เพื่อให้เส้นแบ่งวันตรงกับเวลาที่สาขาใช้งาน */
+export function calculateFrozenCalendarDays(startedAt: Date, endedAt: Date) {
+  const toBangkokDate = (date: Date) => {
+    const bangkok = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+    return Date.UTC(bangkok.getUTCFullYear(), bangkok.getUTCMonth(), bangkok.getUTCDate());
+  };
+  const startDate = toBangkokDate(startedAt);
+  const endDate = toBangkokDate(endedAt);
+  return Math.max(0, Math.floor((endDate - startDate) / 86_400_000));
+}
+
+/** ให้วันชดเชยตามวันที่ Freeze จริง แต่ไม่เกินจำนวนวันที่ได้รับอนุมัติ */
+export function calculateGrantedFreezeDays(startedAt: Date, endedAt: Date, requestedDays: number) {
+  return Math.min(calculateFrozenCalendarDays(startedAt, endedAt), requestedDays);
+}
+
+/** คืนปีปฏิทินไทยจาก timestamp เพื่อให้โควตาปีใหม่ตรงกับเวลาที่สาขาใช้งาน */
+export function getBangkokCalendarYear(at: Date) {
+  return new Date(at.getTime() + 7 * 60 * 60 * 1000).getUTCFullYear();
+}

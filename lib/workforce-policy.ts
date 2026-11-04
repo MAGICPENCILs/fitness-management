@@ -1,3 +1,21 @@
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** ตรวจช่วง payroll แบบ date-only เพื่อไม่รับวันที่ไม่มีจริงหรือช่วงย้อนกลับ */
+export function assertPayrollPeriod(periodStart: string, periodEnd: string) {
+  const valid = (value: string) => {
+    const match = DATE_ONLY.exec(value);
+    if (!match) return false;
+    const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    return date.toISOString().slice(0, 10) === value;
+  };
+  if (!valid(periodStart) || !valid(periodEnd) || periodStart > periodEnd) throw new Error("PAYROLL_PERIOD_INVALID");
+}
+
+/** ช่วง payroll รวมวันต้นและวันท้าย จึงถือว่าการแตะวันเดียวกันเป็นการซ้อนทับ */
+export function payrollPeriodsOverlap(firstStart: string, firstEnd: string, secondStart: string, secondEnd: string) {
+  return firstStart <= secondEnd && firstEnd >= secondStart;
+}
+
 /** คำนวณ commission จากยอดสตางค์และ basis points ด้วย integer arithmetic */
 export function calculateCommissionSatang(salesSatang: number, rateBasisPoints: number) {
   if (!Number.isSafeInteger(salesSatang) || salesSatang < 0 || !Number.isInteger(rateBasisPoints) || rateBasisPoints < 0 || rateBasisPoints > 10_000)

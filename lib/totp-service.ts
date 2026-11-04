@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 import { db } from "@/db";
 import { staff, staffTotp, staffTotpRecoveryCodes } from "@/db/schema";
 import { runAuditedMutation } from "@/lib/audit-service";
-import { decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, generateTotpSecret, hashRecoveryCode, verifyTotp } from "@/lib/totp";
+import { assertTotpEnrollmentAllowed, decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, generateTotpSecret, hashRecoveryCode, verifyTotp } from "@/lib/totp";
 import type { ActorContext } from "@/lib/rbac";
 
 export class TotpOperationError extends Error {
@@ -18,7 +18,7 @@ function encryptionKey() {
   return key;
 }
 
-/** เริ่ม enrollment ใหม่และแสดง recovery codes ครั้งเดียว โดยเก็บ secret แบบเข้ารหัสและ codes แบบ hash */
+/** เริ่ม enrollment และแสดง recovery codes ครั้งเดียว โดยต้องปิด factor เดิมด้วยรหัสปัจจุบันก่อน */
 export async function startTotpEnrollment(actor: ActorContext) {
   const secret = generateTotpSecret();
   const recoveryCodes = generateRecoveryCodes();
@@ -28,6 +28,8 @@ export async function startTotpEnrollment(actor: ActorContext) {
   await runAuditedMutation(
     { actorStaffId: actor.staffId, branchId: actor.homeBranchId, action: "TOTP_ENROLLMENT_STARTED", entityType: "STAFF", entityId: actor.staffId },
     async (tx) => {
+      const [current] = await tx.select({ status: staffTotp.status }).from(staffTotp).where(eq(staffTotp.staffId, actor.staffId)).limit(1).for("update");
+      assertTotpEnrollmentAllowed(current?.status);
       await tx.insert(staffTotp).values({ staffId: actor.staffId, encryptedSecret, status: "PENDING", lastUsedStep: null, enabledAt: null }).onDuplicateKeyUpdate({ set: { encryptedSecret, status: "PENDING", lastUsedStep: null, enabledAt: null } });
       await tx.delete(staffTotpRecoveryCodes).where(eq(staffTotpRecoveryCodes.staffId, actor.staffId));
       await tx.insert(staffTotpRecoveryCodes).values(recoveryCodes.map((code) => ({ staffId: actor.staffId, codeHash: hashRecoveryCode(code) })));

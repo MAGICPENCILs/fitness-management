@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { calculateTotp, decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, hashRecoveryCode, verifyTotp } from "@/lib/totp";
+import { assertTotpEnrollmentAllowed, calculateTotp, decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, hashRecoveryCode, verifyTotp } from "@/lib/totp";
 
 describe("staff TOTP", () => {
+  it("ปฏิเสธ enrollment ใหม่ขณะที่ factor เดิมยังเปิดใช้งาน", () => {
+    expect(() => assertTotpEnrollmentAllowed("ENABLED")).toThrowError("TOTP_ALREADY_ENABLED");
+    expect(() => assertTotpEnrollmentAllowed("PENDING")).not.toThrow();
+  });
+
   const secret = "JBSWY3DPEHPK3PXP";
 
   it("สร้าง code 6 หลักแบบ deterministic ตาม time step", () => {

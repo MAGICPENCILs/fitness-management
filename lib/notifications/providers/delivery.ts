@@ -32,6 +32,8 @@ export type DeliveryResult =
       errorCode: "RECIPIENT_MISSING" | "PROVIDER_REJECTED";
     };
 
+export const NOTIFICATION_CLAIM_LEASE_MS = 5 * 60 * 1000;
+
 type DeliveryDependencies = {
   request?: typeof fetch;
   sendSmtp?: (
@@ -50,6 +52,24 @@ export function canRetryDelivery(
     attemptCount < 5 &&
     ((status === "FAILED" && failureKind === "RETRYABLE") ||
       (status === "SKIPPED" && failureKind === "CONFIG"))
+  );
+}
+
+/** อนุญาตยึดงาน PROCESSING เดิมซ้ำเมื่อ lease หมดเท่านั้น เพื่อกู้คิวหลัง worker ล้มโดยไม่ชน worker ที่ยังทำงาน */
+export function canClaimDelivery(
+  status: "QUEUED" | "PROCESSING" | "SENT" | "FAILED" | "SKIPPED",
+  failureKind: "RETRYABLE" | "PERMANENT" | "CONFIG" | null,
+  attemptCount: number,
+  lastAttemptAt: Date | null,
+  now = new Date(),
+) {
+  return (
+    attemptCount < 5 &&
+    (status === "QUEUED" ||
+      canRetryDelivery(status, failureKind, attemptCount) ||
+      (status === "PROCESSING" &&
+        (!lastAttemptAt ||
+          lastAttemptAt.getTime() <= now.getTime() - NOTIFICATION_CLAIM_LEASE_MS)))
   );
 }
 

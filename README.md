@@ -4,7 +4,7 @@
 
 ## เทคโนโลยี
 
-- Next.js 16.3.8 (App Router + Turbopack), React 19 และ TypeScript
+- Next.js 16.4.4 (App Router + Turbopack), React 19 และ TypeScript
 - Tailwind CSS 4 และ Radix UI
 - MySQL, Drizzle ORM และ Argon2
 - Session cookie ที่ลงลายเซ็น, rate limit และ RBAC ฝั่ง server
@@ -85,7 +85,7 @@ try {
 ระบบปิดการส่งออกภายนอกเป็นค่าเริ่มต้น (`NOTIFICATION_PROVIDER_MODE=disabled`) ใช้ `simulate` เพื่อทดสอบ state โดยไม่ส่งข้อมูลจริง และใช้ `live` เฉพาะเมื่อกำหนด secret ผ่าน environment/secret manager ครบแล้ว
 
 - SMS ใช้ HTTPS webhook และ bearer token
-- LINE OA ใช้ Channel access token กับ Push Message API
+- LINE OA ยังไม่พร้อมใช้งาน เพราะระบบยังไม่มี lifecycle สำหรับผูกและยกเลิก LINE User ID ของสมาชิก; การตั้งค่า token อย่างเดียวจะไม่แสดงสถานะพร้อมใช้
 - อีเมลรองรับ SMTP implicit TLS เท่านั้น (`NOTIFICATION_SMTP_SECURE=true`) เพื่อไม่ส่ง credential ผ่าน connection ที่ไม่เข้ารหัส
 - ผู้ดูแลตรวจสถานะ ส่งคิว และ retry เฉพาะ error ที่แก้ได้จากหน้า “ตั้งค่า → การแจ้งเตือน” โดยหน้าเว็บจะไม่แสดง URL, token, username หรือ password
 
