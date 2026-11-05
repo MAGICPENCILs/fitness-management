@@ -33,9 +33,11 @@ export const notifications = mysqlTable(
     memberPackageId: int("member_package_id").references(() => memberPackages.id),
     type: mysqlEnum("type", ["EXPIRY_REMINDER", "INACTIVITY", "SCAN_WARNING"]).notNull(),
     channel: mysqlEnum("channel", ["IN_APP", "SMS", "LINE", "EMAIL"]).notNull(),
-    status: mysqlEnum("status", ["QUEUED", "SENT", "FAILED", "SKIPPED"])
+    status: mysqlEnum("status", ["QUEUED", "PROCESSING", "SENT", "FAILED", "SKIPPED"])
       .notNull()
       .default("QUEUED"),
+    failureKind: mysqlEnum("failure_kind", ["RETRYABLE", "PERMANENT", "CONFIG"]),
+    attemptCount: int("attempt_count").notNull().default(0),
     recipient: varchar("recipient", { length: 191 }),
     title: varchar("title", { length: 150 }).notNull(),
     message: text("message").notNull(),
@@ -43,6 +45,7 @@ export const notifications = mysqlTable(
     dedupeKey: varchar("dedupe_key", { length: 191 }).notNull(),
     errorMessage: varchar("error_message", { length: 255 }),
     sentAt: timestamp("sent_at"),
+    lastAttemptAt: timestamp("last_attempt_at"),
     createdAt: timestamp("created_at").defaultNow(),
   },
   (table) => [

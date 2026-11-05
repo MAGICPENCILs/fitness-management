@@ -2,6 +2,8 @@ import { SecurityConsole } from "@/components/security/security-console";
 import { getSecurityDashboard, type SecurityFilters } from "@/lib/auth/security-service";
 import { getBranchContext } from "@/lib/branch-service";
 import { requirePermission } from "@/lib/staff-service";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 type SecurityTab = "sessions" | "limits" | "events";
@@ -84,6 +86,7 @@ export default async function SecuritySettingsPage({
         <p className="mt-1 max-w-3xl text-pretty text-muted-foreground">
           ตรวจเซสชัน การจำกัดความพยายาม Login และเหตุการณ์ยืนยันตัวตนตามขอบเขตสิทธิ์ของคุณ
         </p>
+        <Button asChild variant="outline" className="mt-4"><Link href="/settings/security/totp">ตั้งค่า 2FA ของฉัน</Link></Button>
       </header>
       <SecurityConsole
         data={data}

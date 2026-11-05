@@ -5,6 +5,7 @@ import { getNotificationSettings, parseReminderDays } from "@/lib/notification-e
 import { getCurrentBranchId } from "@/lib/branch-service";
 import { runAuditedMutation } from "@/lib/audit-service";
 import { AuthorizationError, requirePermission } from "@/lib/staff-service";
+import { assertTrustedOrigin } from "@/lib/auth/request-security";
 
 const settingsSchema = z.object({
   reminderDays: z.string().trim().min(1).max(50),
@@ -36,6 +37,7 @@ export async function GET() {
 /** ตรวจสอบและบันทึกค่าตั้งระบบแจ้งเตือนแบบ singleton ที่แถวหมายเลข 1 */
 export async function PATCH(request: Request) {
   try {
+    assertTrustedOrigin(request);
     const branchId = await getCurrentBranchId();
     const actor = await requirePermission("settings.manage", branchId, {
       action: "NOTIFICATION_SETTINGS_UPDATED",
@@ -45,6 +47,9 @@ export async function PATCH(request: Request) {
     const reminderDays = parseReminderDays(validated.reminderDays);
     if (!reminderDays.length) {
       return NextResponse.json({ error: "กรุณาระบุจำนวนวันแจ้งเตือนอย่างน้อย 1 ค่า" }, { status: 400 });
+    }
+    if (validated.enableLine) {
+      return NextResponse.json({ error: "LINE OA ยังไม่พร้อมใช้งาน เนื่องจากระบบยังไม่มี LINE User ID ของสมาชิก" }, { status: 400 });
     }
     if (!validated.enableInApp && !validated.enableSms && !validated.enableLine && !validated.enableEmail) {
       return NextResponse.json({ error: "กรุณาเปิดช่องทางแจ้งเตือนอย่างน้อย 1 ช่องทาง" }, { status: 400 });
@@ -65,6 +70,8 @@ export async function PATCH(request: Request) {
     );
     return NextResponse.json({ message: "บันทึกการตั้งค่าแล้ว", settings: { id: 1, ...values } });
   } catch (error) {
+    if (error instanceof Error && error.message === "Untrusted origin")
+      return NextResponse.json({ error: "คำขอไม่ผ่านการตรวจสอบความปลอดภัย" }, { status: 403 });
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "ข้อมูลการตั้งค่าไม่ถูกต้อง", details: error.issues }, { status: 400 });
     }

@@ -1,7 +1,23 @@
 import Link from "next/link";
-import { Bell, Building2, ChevronRight, Database, DoorOpen, ScrollText, ShieldCheck, Tag, UserCog } from "lucide-react";
+import { Bell, Building2, ChevronRight, Database, DoorOpen, ReceiptText, ScrollText, ShieldCheck, Tag, UserCog, UsersRound } from "lucide-react";
 
 const settings = [
+  {
+    title: "เวลาและค่าตอบแทน",
+    description: "ลงเวลา เงินเดือนฐาน commission และ payroll แบบอนุมัติ manual",
+    href: "/settings/workforce",
+    icon: UsersRound,
+    status: "พร้อมใช้งาน",
+    tone: "bg-info-surface text-info",
+  },
+  {
+    title: "ใบเสร็จและภาษี",
+    description: "กำหนดข้อมูลนิติบุคคล เลขผู้เสียภาษี และ VAT แยกตามสาขา",
+    href: "/settings/receipts",
+    icon: ReceiptText,
+    status: "พร้อมใช้งาน",
+    tone: "bg-success-surface text-success",
+  },
   {
     title: "บัญชีพนักงาน",
     description: "จัดการบัญชี บทบาท สถานะ และขอบเขตสาขา",
@@ -50,11 +66,22 @@ const settings = [
     status: "พร้อมใช้งาน",
     tone: "bg-success-surface text-success",
   },
+  {
+    title: "สาขา",
+    description: "จัดการข้อมูลสาขา เวลาเปิดให้บริการ และสถานะการใช้งาน",
+    href: "/settings/branches",
+    icon: Building2,
+    status: "พร้อมใช้งาน",
+    tone: "bg-info-surface text-info",
+  },
 ];
 
-const upcoming = [
-  { title: "สาขา", description: "ข้อมูลสาขาและเวลาเปิดให้บริการ", icon: Building2 },
-  { title: "สำรองข้อมูล", description: "รอบสำรองข้อมูลและการกู้คืน", icon: Database },
+const operatorTools = [
+  {
+    title: "สำรองและกู้คืนข้อมูล",
+    description: "เข้ารหัส ตรวจ checksum และกู้คืนผ่าน Operator CLI ตาม runbook เท่านั้น",
+    icon: Database,
+  },
 ];
 
 export default function SettingsPage() {
@@ -94,10 +121,10 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      <section aria-labelledby="upcoming-settings-heading">
-        <h2 id="upcoming-settings-heading" className="mb-3 text-lg font-semibold">แผนระยะถัดไป</h2>
+      <section aria-labelledby="operator-tools-heading">
+        <h2 id="operator-tools-heading" className="mb-3 text-lg font-semibold">เครื่องมือระดับระบบ</h2>
         <div className="divide-y overflow-hidden rounded-xl border bg-card">
-          {upcoming.map((setting) => {
+          {operatorTools.map((setting) => {
             const Icon = setting.icon;
             return (
               <div key={setting.title} className="flex items-center gap-4 p-4 sm:p-5">
@@ -108,7 +135,7 @@ export default function SettingsPage() {
                   <h3 className="font-medium">{setting.title}</h3>
                   <p className="text-pretty text-sm text-muted-foreground">{setting.description}</p>
                 </div>
-                <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">เร็ว ๆ นี้</span>
+                <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">ใช้ผ่าน CLI</span>
               </div>
             );
           })}

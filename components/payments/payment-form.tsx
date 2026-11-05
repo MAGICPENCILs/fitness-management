@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { CheckCircle2, Loader2, Receipt, TicketPercent } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -71,6 +72,12 @@ const initialForm = {
   startDate: new Date().toISOString().split("T")[0],
 };
 
+const initialTaxInvoice = {
+  buyerName: "",
+  buyerTaxId: "",
+  buyerAddress: "",
+};
+
 /** จัดการขั้นตอนเลือกสมาชิก แพ็กเกจ โปรโมชันหรือคูปอง และบันทึกการชำระเงิน */
 export function PaymentForm({
   members,
@@ -89,7 +96,9 @@ export function PaymentForm({
   const [couponQuote, setCouponQuote] = useState<CouponQuote | null>(null);
   const [loading, setLoading] = useState(false);
   const [validatingCoupon, setValidatingCoupon] = useState(false);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [success, setSuccess] = useState<{ receiptNumber: string; receiptId: number } | null>(null);
+  const [taxInvoiceRequested, setTaxInvoiceRequested] = useState(false);
+  const [taxInvoice, setTaxInvoice] = useState(initialTaxInvoice);
   const [error, setError] = useState("");
   const [couponError, setCouponError] = useState("");
 
@@ -203,17 +212,20 @@ export function PaymentForm({
           startDate: form.startDate,
           promotionId: promotionId ? Number(promotionId) : undefined,
           couponCode: couponQuote ? couponQuote.code : undefined,
+          taxInvoice: taxInvoiceRequested ? taxInvoice : undefined,
         }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "ไม่สามารถบันทึกการชำระเงินได้");
 
-      setSuccess(result.receiptNumber);
+      setSuccess({ receiptNumber: result.receiptNumber, receiptId: result.receiptId });
       setForm(initialForm);
       setSearch("");
       setPromotionId("");
       setCouponCode("");
       setCouponQuote(null);
+      setTaxInvoiceRequested(false);
+      setTaxInvoice(initialTaxInvoice);
       router.refresh();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "ไม่สามารถบันทึกการชำระเงินได้");
@@ -353,11 +365,45 @@ export function PaymentForm({
         <Input id="payment-note" value={form.note} onChange={(event) => handleChange("note", event.target.value)} placeholder="รายละเอียดเพิ่มเติม" />
       </div>
 
+      <div className="space-y-4 rounded-xl border bg-muted/30 p-4">
+        <label className="flex min-h-11 cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            checked={taxInvoiceRequested}
+            onChange={(event) => setTaxInvoiceRequested(event.target.checked)}
+            className="size-4 accent-primary"
+          />
+          <span>
+            <span className="block text-sm font-medium">ออกใบกำกับภาษีเต็มรูป</span>
+            <span className="block text-xs text-muted-foreground">กรอกเฉพาะเมื่อผู้ซื้อร้องขอ ข้อมูลจะถูกเก็บในเอกสารตามข้อกำหนดบัญชี</span>
+          </span>
+        </label>
+        {taxInvoiceRequested ? (
+          <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="tax-buyer-name">ชื่อผู้ซื้อ/นิติบุคคล *</Label>
+              <Input id="tax-buyer-name" value={taxInvoice.buyerName} onChange={(event) => setTaxInvoice((current) => ({ ...current, buyerName: event.target.value }))} minLength={2} maxLength={200} required />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="tax-buyer-id">เลขผู้เสียภาษี 13 หลัก *</Label>
+              <Input id="tax-buyer-id" value={taxInvoice.buyerTaxId} onChange={(event) => setTaxInvoice((current) => ({ ...current, buyerTaxId: event.target.value }))} inputMode="numeric" pattern="[0-9]{13}" maxLength={13} required />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="tax-buyer-address">ที่อยู่ผู้ซื้อ *</Label>
+              <Input id="tax-buyer-address" value={taxInvoice.buyerAddress} onChange={(event) => setTaxInvoice((current) => ({ ...current, buyerAddress: event.target.value }))} minLength={5} maxLength={1000} required />
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
       {success ? (
         <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-accent p-3 text-sm text-accent-foreground" aria-live="polite">
           <CheckCircle2 className="size-4" aria-hidden="true" />
-          <span>ชำระเงินสำเร็จ เลขใบเสร็จ <strong>{success}</strong></span>
+          <span className="flex-1">ชำระเงินสำเร็จ เลขใบเสร็จ <strong>{success.receiptNumber}</strong></span>
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/payments/receipts/${success.receiptId}`}>ดู/พิมพ์</Link>
+          </Button>
         </div>
       ) : null}
 

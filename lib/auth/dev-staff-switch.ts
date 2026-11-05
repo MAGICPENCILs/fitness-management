@@ -12,6 +12,7 @@ import {
 import {
   createSessionId,
   hashSessionId,
+  normalizeSessionTimestamp,
   signSessionClaims,
 } from "@/lib/auth/session-token";
 import type {
@@ -85,12 +86,13 @@ export function createDevStaffSwitchService(
     request: RequestFingerprintInput,
   ) {
     const occurredAt = dependencies.now();
+    const sessionStartedAt = normalizeSessionTimestamp(occurredAt);
     const sessionId = dependencies.createSessionId();
     const absoluteExpiresAt = new Date(
-      occurredAt.getTime() + SESSION_ABSOLUTE_LIFETIME_SECONDS * 1_000,
+      sessionStartedAt.getTime() + SESSION_ABSOLUTE_LIFETIME_SECONDS * 1_000,
     );
     const idleExpiresAt = new Date(
-      occurredAt.getTime() + SESSION_IDLE_TIMEOUT_SECONDS * 1_000,
+      sessionStartedAt.getTime() + SESSION_IDLE_TIMEOUT_SECONDS * 1_000,
     );
     const rotated = await repository.rotate({
       currentAuthSessionId: current.authSessionId,
@@ -101,8 +103,8 @@ export function createDevStaffSwitchService(
       newSession: {
         sessionTokenHash: dependencies.hashSessionId(sessionId),
         mode: "FULL",
-        createdAt: occurredAt,
-        lastSeenAt: occurredAt,
+        createdAt: sessionStartedAt,
+        lastSeenAt: sessionStartedAt,
         absoluteExpiresAt,
         idleExpiresAt,
         ...request,

@@ -66,6 +66,32 @@ describe("development Staff session rotation", () => {
     expect(JSON.stringify(repository.calls)).not.toContain("new-opaque-session-id");
   });
 
+  it("ตัด milliseconds ของ session เป้าหมายก่อนเซ็นและบันทึก", async () => {
+    const repository = new FakeRepository();
+    const service = createDevStaffSwitchService(repository, {
+      now: () => new Date("2026-08-11T06:00:00.900Z"),
+      createSessionId: () => "new-opaque-session-id",
+      hashSessionId: () => "stored-session-hash",
+      signSessionClaims: async (claims) => `signed:${claims.staffId}`,
+    });
+
+    const result = await service.rotate(CURRENT, 3, {
+      ipFingerprint: null,
+      userAgentCategory: "UNKNOWN",
+    });
+
+    expect(result.claims.expiresAt).toBe(1786456800);
+    expect(repository.calls[0]).toMatchObject({
+      occurredAt: new Date("2026-08-11T06:00:00.900Z"),
+      newSession: {
+        createdAt: new Date("2026-08-11T06:00:00.000Z"),
+        lastSeenAt: new Date("2026-08-11T06:00:00.000Z"),
+        absoluteExpiresAt: new Date("2026-08-11T14:00:00.000Z"),
+        idleExpiresAt: new Date("2026-08-11T06:30:00.000Z"),
+      },
+    });
+  });
+
   it("does not return a signed cookie when the atomic repository rotation rolls back", async () => {
     const repository = new FakeRepository();
     repository.fail = true;

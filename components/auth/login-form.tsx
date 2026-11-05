@@ -11,10 +11,17 @@ import { Label } from "@/components/ui/label";
 const LOGIN_UNAVAILABLE_MESSAGE = "ไม่สามารถเข้าสู่ระบบได้ชั่วคราว";
 
 /** ส่ง credential ไปยัง Route Handler เท่านั้น ล้างสถานะรหัสผ่าน และ reload เอกสารหลังสำเร็จเพื่อให้ request ถัดไปอ่าน session cookie ใหม่แน่นอน */
-export function LoginForm({ returnTo }: { returnTo: string }) {
+export function LoginForm({
+  returnTo,
+  navigateAfterLogin = (path) => globalThis.location.replace(path),
+}: {
+  returnTo: string;
+  navigateAfterLogin?: (path: string) => void;
+}) {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");
 
   /** ใช้ FormData แบบ uncontrolled เพื่อให้ plaintext อยู่เฉพาะ DOM ระหว่างที่ผู้ใช้กรอกและตอนส่ง request */
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -23,6 +30,7 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
     const formData = new FormData(form);
     setPending(true);
     setError("");
+    setErrorCode("");
 
     try {
       const response = await fetch("/api/auth/login", {
@@ -31,6 +39,7 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
         body: JSON.stringify({
           staffCode: String(formData.get("staffCode") ?? ""),
           password: String(formData.get("password") ?? ""),
+          totpCode: String(formData.get("totpCode") ?? "") || undefined,
           returnTo,
         }),
       });
@@ -38,12 +47,13 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
       if (!response.ok || !result) {
         form.reset();
         setError(result?.error ?? LOGIN_UNAVAILABLE_MESSAGE);
+        setErrorCode(result?.code ?? "");
         setPending(false);
         return;
       }
 
       form.reset();
-      globalThis.location.replace(result.returnTo ?? "/");
+      navigateAfterLogin(result.returnTo ?? "/");
     } catch {
       form.reset();
       setError(LOGIN_UNAVAILABLE_MESSAGE);
@@ -129,6 +139,11 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
           </div>
         </div>
 
+        <div className="space-y-2">
+          <Label htmlFor="login-totp">รหัส 2FA หรือ Recovery code</Label>
+          <Input id="login-totp" name="totpCode" inputMode="numeric" autoComplete="one-time-code" maxLength={64} disabled={pending} placeholder="กรอกเมื่อบัญชีเปิดใช้ 2FA" />
+        </div>
+
         <p
           id="login-status"
           role="status"
@@ -138,7 +153,9 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
           {pending
             ? "กำลังตรวจสอบข้อมูล..."
             : error
-              ? `${error} กรุณาตรวจสอบข้อมูลแล้วลองอีกครั้ง`
+              ? errorCode === "SCHEMA_NOT_READY"
+                ? error
+                : `${error} กรุณาตรวจสอบข้อมูลแล้วลองอีกครั้ง`
               : ""}
         </p>
 

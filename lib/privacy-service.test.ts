@@ -26,6 +26,12 @@ describe("anonymization transaction plan", () => {
       "pt_packages",
       "pt_sessions",
       "payments",
+      "receipts",
+      "freeze_records",
+      "member_access_tokens",
+      "member_accounts",
+      "member_sessions",
+      "member_applications",
       "locker_rentals",
       "consent_events",
       "privacy_requests",
@@ -37,6 +43,9 @@ describe("anonymization transaction plan", () => {
       (operation) => operation.table === "payments",
     )?.fields;
     expect(paymentFields).toEqual(["note"]);
+    expect(
+      recorded.find((operation) => operation.table === "receipts")?.fields,
+    ).toEqual(["buyerName", "buyerTaxId", "buyerAddress"]);
     expect(tables).not.toContain("member_packages");
     expect(recorded.flatMap((operation) => operation.fields)).not.toEqual(
       expect.arrayContaining([

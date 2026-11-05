@@ -10,6 +10,12 @@ export type AnonymizationOperation = {
     | "pt_packages"
     | "pt_sessions"
     | "payments"
+    | "receipts"
+    | "freeze_records"
+    | "member_access_tokens"
+    | "member_accounts"
+    | "member_sessions"
+    | "member_applications"
     | "locker_rentals"
     | "consent_events"
     | "privacy_requests"
@@ -63,6 +69,16 @@ const ANONYMIZATION_OPERATIONS: readonly AnonymizationOperation[] = [
     fields: ["weightKg", "bmi", "waistCm", "workoutSummary", "trainerNote"],
   },
   { table: "payments", action: "UPDATE", fields: ["note"] },
+  {
+    table: "receipts",
+    action: "UPDATE",
+    fields: ["buyerName", "buyerTaxId", "buyerAddress"],
+  },
+  { table: "freeze_records", action: "UPDATE", fields: ["reason"] },
+  { table: "member_access_tokens", action: "UPDATE", fields: ["revokedAt"] },
+  { table: "member_accounts", action: "UPDATE", fields: ["email", "passwordHash", "status"] },
+  { table: "member_sessions", action: "UPDATE", fields: ["revokedAt"] },
+  { table: "member_applications", action: "UPDATE", fields: ["firstName", "lastName", "phone", "email", "passwordHash", "reviewNote"] },
   { table: "locker_rentals", action: "UPDATE", fields: ["note"] },
   {
     table: "consent_events",

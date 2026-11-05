@@ -30,6 +30,11 @@ export function hashSessionId(sessionId: string): string {
   return createHash("sha256").update(sessionId).digest("hex");
 }
 
+/** ตัดเศษวินาทีก่อนเซ็นและบันทึก session เพื่อให้ JWT ตรงกับ MySQL TIMESTAMP ที่ไม่มี fractional precision */
+export function normalizeSessionTimestamp(value: Date): Date {
+  return new Date(Math.floor(value.getTime() / 1_000) * 1_000);
+}
+
 /** เซ็นเฉพาะ claims ขั้นต่ำที่ proxy ใช้ตัดสินใจเบื้องต้น โดยการตรวจ authoritative อยู่ที่ DAL */
 export async function signSessionClaims(
   claims: SessionClaims,

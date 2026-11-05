@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, LogOut, ShieldCheck, UserRoundCheck } from "lucide-react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Building2, Clock3, LogOut, ShieldCheck, UserRoundCheck } from "lucide-react";
 
 import { readAuthClientResponse } from "@/components/auth/auth-client-response";
 import { Button } from "@/components/ui/button";
@@ -25,13 +25,18 @@ export type CurrentStaffSummary = {
 
 const LOGOUT_UNAVAILABLE_MESSAGE = "ไม่สามารถออกจากระบบได้ชั่วคราว";
 
-/** Revoke session ผ่าน Route Handler ก่อนนำผู้ใช้กลับหน้า Login และคง error ไว้บนหน้าเพื่อให้ลองใหม่ได้ */
-export function LogoutButton({ className }: { className?: string }) {
-  const router = useRouter();
+/** Revoke session ผ่าน Route Handler ก่อนโหลดหน้า Login ใหม่ โดยเปิด callback เฉพาะเพื่อให้ทดสอบผลหลังสำเร็จได้โดยไม่จำลอง browser location */
+export function LogoutButton({
+  className,
+  navigateAfterLogout = (path) => globalThis.location.replace(path),
+}: {
+  className?: string;
+  navigateAfterLogout?: (path: string) => void;
+}) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
-  /** ป้องกันการส่ง Logout ซ้ำระหว่างรอ และไม่เปลี่ยนหน้าเมื่อ server ยัง revoke ไม่สำเร็จ */
+  /** ป้องกันการส่ง Logout ซ้ำ และใช้ document navigation หลังสำเร็จเพื่อให้ request ถัดไปอ่านสถานะ cookie ที่ลบแล้ว */
   async function handleLogout() {
     setPending(true);
     setError("");
@@ -43,7 +48,7 @@ export function LogoutButton({ className }: { className?: string }) {
         setPending(false);
         return;
       }
-      router.replace("/login");
+      navigateAfterLogout("/login");
     } catch {
       setError(LOGOUT_UNAVAILABLE_MESSAGE);
       setPending(false);
@@ -76,6 +81,23 @@ export function LogoutButton({ className }: { className?: string }) {
 
 /** แสดงตัวตนจาก authoritative session โดยไม่ใช้รายชื่อ Staff เป็นตัวเลือกใน runtime ปกติ */
 export function CurrentStaffMenu({ staff }: { staff: CurrentStaffSummary }) {
+  const [attendancePending, setAttendancePending] = useState(false);
+  const [attendanceMessage, setAttendanceMessage] = useState("");
+
+  /** ลงเวลาให้บัญชีใน session เท่านั้น และไม่เดาสถานะ IN/OUT ฝั่ง client */
+  async function punchAttendance() {
+    setAttendancePending(true);
+    setAttendanceMessage("");
+    try {
+      const response = await fetch("/api/workforce/attendance", { method: "POST" });
+      setAttendanceMessage(response.ok ? "ลงเวลาแล้ว" : "ลงเวลาไม่สำเร็จ");
+    } catch {
+      setAttendanceMessage("ลงเวลาไม่สำเร็จ");
+    } finally {
+      setAttendancePending(false);
+    }
+  }
+
   return (
     <section aria-label="บัญชีผู้ใช้ปัจจุบัน" className="space-y-3">
       <div className="flex min-w-0 items-start gap-3">
@@ -103,6 +125,14 @@ export function CurrentStaffMenu({ staff }: { staff: CurrentStaffSummary }) {
           <dd className="truncate">{staff.branchName}</dd>
         </div>
       </dl>
+      <Button type="button" variant="secondary" className="w-full justify-start" disabled={attendancePending} onClick={punchAttendance}>
+        <Clock3 className="size-4" aria-hidden="true" />
+        {attendancePending ? "กำลังลงเวลา" : "ลงเวลาเข้า / ออก"}
+      </Button>
+      <p role="status" aria-live="polite" className={attendanceMessage ? "text-xs leading-5 text-muted-foreground" : "sr-only"}>{attendanceMessage}</p>
+      <Button asChild type="button" variant="outline" className="w-full justify-start">
+        <Link href="/settings/security/totp"><ShieldCheck className="size-4" aria-hidden="true" />ตั้งค่า 2FA</Link>
+      </Button>
       <LogoutButton />
     </section>
   );

@@ -5,11 +5,7 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ replace: vi.fn() }));
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mocks.replace }),
-}));
+const mocks = vi.hoisted(() => ({ locationReplace: vi.fn() }));
 
 import { CurrentStaffMenu, LogoutButton } from "@/components/auth/current-staff-menu";
 
@@ -25,7 +21,7 @@ const currentStaff = {
 describe("CurrentStaffMenu", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    mocks.replace.mockReset();
+    mocks.locationReplace.mockReset();
   });
 
   it("แสดงชื่อ รหัส บทบาท สาขา และปุ่มออกจากระบบ", () => {
@@ -38,7 +34,7 @@ describe("CurrentStaffMenu", () => {
     expect(screen.getByRole("button", { name: "ออกจากระบบ" })).toBeVisible();
   });
 
-  it("ปิดปุ่มขณะ logout และไปหน้า login เมื่อสำเร็จ", async () => {
+  it("ปิดปุ่มขณะ logout และโหลดหน้า login ใหม่เมื่อสำเร็จ", async () => {
     let resolveRequest!: (response: Response) => void;
     vi.spyOn(globalThis, "fetch").mockReturnValue(
       new Promise<Response>((resolve) => {
@@ -46,7 +42,7 @@ describe("CurrentStaffMenu", () => {
       }),
     );
     const user = userEvent.setup();
-    render(<LogoutButton />);
+    render(<LogoutButton navigateAfterLogout={mocks.locationReplace} />);
 
     await user.click(screen.getByRole("button", { name: "ออกจากระบบ" }));
     expect(screen.getByRole("button", { name: "กำลังออกจากระบบ" })).toBeDisabled();
@@ -62,7 +58,9 @@ describe("CurrentStaffMenu", () => {
         }),
       );
     });
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/login"));
+    await waitFor(() =>
+      expect(mocks.locationReplace).toHaveBeenCalledWith("/login"),
+    );
   });
 
   it("แจ้งข้อผิดพลาดพร้อมทางแก้และเปิดปุ่มให้ลองใหม่", async () => {

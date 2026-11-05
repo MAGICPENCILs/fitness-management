@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, inArray, isNotNull, max } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, lte, max, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   accessLogs,
@@ -13,6 +13,17 @@ import {
 } from "@/db/schema";
 import type { DbTransaction } from "@/lib/audit-service";
 import { getLatestConsent } from "@/lib/consent-policy";
+import {
+  canClaimDelivery,
+  deliverNotification,
+  NOTIFICATION_CLAIM_LEASE_MS,
+  type DeliveryResult,
+} from "@/lib/notifications/providers/delivery";
+import {
+  getProviderHealth,
+  loadDeliveryEnvironment,
+} from "@/lib/notifications/providers/config";
+import { sendSmtpNotification } from "@/lib/notifications/providers/smtp";
 
 export const defaultNotificationSettings = {
   id: 1,
@@ -66,11 +77,11 @@ export function parseReminderDays(value: string) {
 /** โหลดค่าตั้งต้นการแจ้งเตือน โดยคืนค่าเริ่มต้นหากยังไม่เคยบันทึกลงฐานข้อมูล */
 export async function getNotificationSettings(executor?: DbTransaction) {
   const [settings] = await (executor ?? db).select().from(notificationSettings).where(eq(notificationSettings.id, 1)).limit(1);
-  return settings ?? defaultNotificationSettings;
+  return settings ? { ...settings, enableLine: false } : defaultNotificationSettings;
 }
 
 /** โหลดประวัติการแจ้งเตือนล่าสุดพร้อมชื่อสมาชิกสำหรับหน้า Admin */
-export async function getNotificationHistory(limit = 50) {
+export async function getNotificationHistory(branchId: number, limit = 50) {
   return db
     .select({
       id: notifications.id,
@@ -85,10 +96,14 @@ export async function getNotificationHistory(limit = 50) {
       message: notifications.message,
       scheduledFor: notifications.scheduledFor,
       errorMessage: notifications.errorMessage,
+      failureKind: notifications.failureKind,
+      attemptCount: notifications.attemptCount,
+      lastAttemptAt: notifications.lastAttemptAt,
       createdAt: notifications.createdAt,
     })
     .from(notifications)
     .innerJoin(members, eq(notifications.memberId, members.id))
+    .where(eq(members.homeBranchId, branchId))
     .orderBy(desc(notifications.createdAt))
     .limit(limit);
 }
@@ -110,7 +125,7 @@ function getDeliveryState(channel: NotificationChannel, member: NotificationMemb
   return {
     recipient: channel === "SMS" ? member.phone : member.email,
     status: "QUEUED" as const,
-    errorMessage: "รอเชื่อมต่อผู้ให้บริการส่งข้อความ",
+    errorMessage: null,
     sentAt: null,
   };
 }
@@ -120,7 +135,6 @@ function getEnabledChannels(settings: Awaited<ReturnType<typeof getNotificationS
   const channels: NotificationChannel[] = [];
   if (settings.enableInApp) channels.push("IN_APP");
   if (settings.enableSms) channels.push("SMS");
-  if (settings.enableLine) channels.push("LINE");
   if (settings.enableEmail) channels.push("EMAIL");
   return channels;
 }
@@ -143,7 +157,11 @@ async function insertNewNotifications(entries: NewNotification[], executor?: DbT
 }
 
 /** สร้างแจ้งเตือนวันหมดอายุและสมาชิกขาดการใช้งานตามค่าตั้งระบบ */
-export async function generateNotifications(now = new Date(), executor?: DbTransaction) {
+export async function generateNotifications(
+  branchId: number,
+  now = new Date(),
+  executor?: DbTransaction,
+) {
   const database = executor ?? db;
   const settings = await getNotificationSettings(executor);
   if (!settings.isActive) return { created: 0, candidates: 0, message: "ระบบแจ้งเตือนถูกปิดใช้งาน" };
@@ -164,7 +182,13 @@ export async function generateNotifications(now = new Date(), executor?: DbTrans
       })
       .from(memberPackages)
       .innerJoin(members, eq(memberPackages.memberId, members.id))
-      .where(and(eq(memberPackages.status, "ACTIVE"), eq(members.status, "ACTIVE"))),
+      .where(
+        and(
+          eq(memberPackages.status, "ACTIVE"),
+          eq(members.status, "ACTIVE"),
+          eq(members.homeBranchId, branchId),
+        ),
+      ),
     database
       .select({
         id: members.id,
@@ -175,11 +199,19 @@ export async function generateNotifications(now = new Date(), executor?: DbTrans
         createdAt: members.createdAt,
       })
       .from(members)
-      .where(eq(members.status, "ACTIVE")),
+      .where(
+        and(eq(members.status, "ACTIVE"), eq(members.homeBranchId, branchId)),
+      ),
     database
       .select({ memberId: accessLogs.memberId, lastVisit: max(accessLogs.scannedAt) })
       .from(accessLogs)
-      .where(and(eq(accessLogs.result, "APPROVED"), isNotNull(accessLogs.memberId)))
+      .where(
+        and(
+          eq(accessLogs.result, "APPROVED"),
+          eq(accessLogs.branchId, branchId),
+          isNotNull(accessLogs.memberId),
+        ),
+      )
       .groupBy(accessLogs.memberId),
     database
       .select({
@@ -189,7 +221,9 @@ export async function generateNotifications(now = new Date(), executor?: DbTrans
         action: consentEvents.action,
         createdAt: consentEvents.createdAt,
       })
-      .from(consentEvents),
+      .from(consentEvents)
+      .innerJoin(members, eq(consentEvents.memberId, members.id))
+      .where(eq(members.homeBranchId, branchId)),
   ]);
 
   const reminderDays = new Set(parseReminderDays(settings.reminderDays));
@@ -252,6 +286,201 @@ export async function generateNotifications(now = new Date(), executor?: DbTrans
 
   const created = await insertNewNotifications(entries, executor);
   return { created, candidates: entries.length, message: created ? "สร้างรายการแจ้งเตือนแล้ว" : "ไม่มีรายการใหม่ในวันนี้" };
+}
+
+export class NotificationDeliveryError extends Error {
+  /** เก็บสถานะ HTTP แยกจากข้อความทั่วไปเพื่อไม่เผยข้อมูลผู้รับหรือ provider */
+  constructor(
+    message: string,
+    public status = 409,
+  ) {
+    super(message);
+    this.name = "NotificationDeliveryError";
+  }
+}
+
+/** แปลงผล provider เป็นสถานะฐานข้อมูลและข้อความทั่วไปที่ไม่มี PII */
+function deliveryUpdate(result: DeliveryResult) {
+  if (result.outcome === "sent")
+    return {
+      status: "SENT" as const,
+      failureKind: null,
+      errorMessage: null,
+      sentAt: new Date(),
+    };
+  if (result.outcome === "disabled")
+    return {
+      status: "SKIPPED" as const,
+      failureKind: "CONFIG" as const,
+      errorMessage: "ช่องทางยังไม่พร้อมใช้งาน",
+      sentAt: null,
+    };
+  if (result.outcome === "retryable_failure")
+    return {
+      status: "FAILED" as const,
+      failureKind: "RETRYABLE" as const,
+      errorMessage: "ผู้ให้บริการไม่พร้อมใช้งานชั่วคราว",
+      sentAt: null,
+    };
+  return {
+    status: "FAILED" as const,
+    failureKind: "PERMANENT" as const,
+    errorMessage: "ผู้ให้บริการปฏิเสธคำขอ",
+    sentAt: null,
+  };
+}
+
+/** claim รายการก่อนเรียก provider เพื่อกันผู้ดูแลสองคนส่งข้อความเดียวกันพร้อมกัน */
+export async function processNotificationDelivery(
+  notificationId: number,
+  branchId: number,
+) {
+  // MySQL timestamp เก็บระดับวินาที จึงตัด millisecond เพื่อใช้เวลา claim เป็น token เปรียบเทียบได้ตรงกัน
+  const claimTime = new Date(Math.floor(Date.now() / 1000) * 1000);
+  const staleBefore = new Date(claimTime.getTime() - NOTIFICATION_CLAIM_LEASE_MS);
+  const [record] = await db
+    .select({
+      id: notifications.id,
+      channel: notifications.channel,
+      recipient: notifications.recipient,
+      title: notifications.title,
+      message: notifications.message,
+      status: notifications.status,
+      failureKind: notifications.failureKind,
+      attemptCount: notifications.attemptCount,
+      lastAttemptAt: notifications.lastAttemptAt,
+    })
+    .from(notifications)
+    .innerJoin(members, eq(notifications.memberId, members.id))
+    .where(
+      and(
+        eq(notifications.id, notificationId),
+        eq(members.homeBranchId, branchId),
+      ),
+    )
+    .limit(1);
+  if (!record) throw new NotificationDeliveryError("ไม่พบรายการแจ้งเตือน", 404);
+  const claimable = canClaimDelivery(
+    record.status,
+    record.failureKind,
+    record.attemptCount,
+    record.lastAttemptAt,
+    claimTime,
+  );
+  if (!claimable)
+    throw new NotificationDeliveryError("รายการนี้ไม่สามารถส่งซ้ำได้");
+
+  const claim = await db
+    .update(notifications)
+    .set({
+      status: "PROCESSING",
+      attemptCount: sql`${notifications.attemptCount} + 1`,
+      lastAttemptAt: claimTime,
+    })
+    .where(
+      and(
+        eq(notifications.id, record.id),
+        lt(notifications.attemptCount, 5),
+        or(
+          eq(notifications.status, "QUEUED"),
+          and(
+            eq(notifications.status, "FAILED"),
+            eq(notifications.failureKind, "RETRYABLE"),
+          ),
+          and(
+            eq(notifications.status, "SKIPPED"),
+            eq(notifications.failureKind, "CONFIG"),
+          ),
+          and(
+            eq(notifications.status, "PROCESSING"),
+            or(
+              isNull(notifications.lastAttemptAt),
+              lte(notifications.lastAttemptAt, staleBefore),
+            ),
+          ),
+        ),
+      ),
+    );
+  if (claim[0].affectedRows !== 1)
+    throw new NotificationDeliveryError("รายการกำลังถูกประมวลผล");
+
+  const environment = loadDeliveryEnvironment();
+  const result = await deliverNotification(record, environment, {
+    sendSmtp: sendSmtpNotification,
+  });
+  const update = deliveryUpdate(result);
+  const completion = await db
+    .update(notifications)
+    .set(update)
+    .where(
+      and(
+        eq(notifications.id, record.id),
+        eq(notifications.status, "PROCESSING"),
+        eq(notifications.lastAttemptAt, claimTime),
+      ),
+    );
+  if (completion[0].affectedRows !== 1)
+    throw new NotificationDeliveryError("lease ของรายการหมดอายุแล้ว");
+  return {
+    id: record.id,
+    status: update.status,
+    failureKind: update.failureKind,
+    attemptCount: record.attemptCount + 1,
+  };
+}
+
+/** ส่งคิวของสาขาทีละรายการเพื่อลดการกระแทก provider และสรุปเฉพาะจำนวน */
+export async function deliverQueuedNotifications(branchId: number, limit = 20) {
+  const staleBefore = new Date(Date.now() - NOTIFICATION_CLAIM_LEASE_MS);
+  const rows = await db
+    .select({ id: notifications.id })
+    .from(notifications)
+    .innerJoin(members, eq(notifications.memberId, members.id))
+    .where(
+      and(
+        eq(members.homeBranchId, branchId),
+        or(
+          eq(notifications.status, "QUEUED"),
+          and(
+            eq(notifications.status, "FAILED"),
+            eq(notifications.failureKind, "RETRYABLE"),
+          ),
+          and(
+            eq(notifications.status, "SKIPPED"),
+            eq(notifications.failureKind, "CONFIG"),
+          ),
+          and(
+            eq(notifications.status, "PROCESSING"),
+            or(
+              isNull(notifications.lastAttemptAt),
+              lte(notifications.lastAttemptAt, staleBefore),
+            ),
+          ),
+        ),
+        lt(notifications.attemptCount, 5),
+      ),
+    )
+    .orderBy(notifications.createdAt)
+    .limit(Math.min(Math.max(limit, 1), 50));
+
+  const summary = { processed: 0, sent: 0, failed: 0, skipped: 0 };
+  for (const row of rows) {
+    try {
+      const result = await processNotificationDelivery(row.id, branchId);
+      summary.processed += 1;
+      if (result.status === "SENT") summary.sent += 1;
+      else if (result.status === "SKIPPED") summary.skipped += 1;
+      else summary.failed += 1;
+    } catch (error) {
+      if (!(error instanceof NotificationDeliveryError)) throw error;
+    }
+  }
+  return summary;
+}
+
+/** คืน readiness ที่ปลอดภัยสำหรับหน้า Admin โดยไม่คืน URL, token, username หรือ password */
+export function getNotificationProviderHealth() {
+  return getProviderHealth(loadDeliveryEnvironment());
 }
 
 /** บันทึกคำเตือนวันหมดอายุที่แสดง ณ จุดสแกนลงในประวัติแบบไม่ซ้ำภายในวันเดียวกัน */

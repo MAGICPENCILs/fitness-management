@@ -85,6 +85,13 @@ type SessionServiceDependencies = {
   now(): Date;
 };
 
+/** บันทึกเฉพาะเหตุที่ authoritative session ผ่านหรือไม่ผ่านใน development โดยไม่เผย token, hash หรือ identity */
+function logAuthDiagnostic(status: string): void {
+  if (process.env.NODE_ENV === "development") {
+    console.info("[auth-diagnostic]", status);
+  }
+}
+
 export class SessionAuthenticationError extends Error {
   /** เก็บ reason ภายในเพื่อให้ DAL ทำ side effect ที่ถูกต้อง โดยไม่ส่งรายละเอียด security state ไปยังผู้ใช้ */
   constructor(
@@ -197,14 +204,23 @@ export function createSessionService(dependencies: SessionServiceDependencies) {
   /** อ่าน signed cookie แล้วตรวจ row, claims และ lifecycle ก่อนคืน Staff; invalid state ทุกแบบ fail closed */
   async function getOptionalSession(): Promise<AuthenticatedStaff | null> {
     const cookie = await dependencies.readSessionCookie();
-    if (!cookie) return null;
+    if (!cookie) {
+      logAuthDiagnostic("DAL_COOKIE_MISSING");
+      return null;
+    }
 
     const claims = await dependencies.verifyClaims(cookie);
-    if (!claims) return null;
+    if (!claims) {
+      logAuthDiagnostic("DAL_CLAIMS_INVALID");
+      return null;
+    }
 
     const tokenHash = dependencies.hashSessionId(claims.sessionId);
     const row = await dependencies.repository.findByTokenHash(tokenHash);
-    if (!row || row.sessionTokenHash !== tokenHash) return null;
+    if (!row || row.sessionTokenHash !== tokenHash) {
+      logAuthDiagnostic("DAL_SESSION_ROW_MISSING");
+      return null;
+    }
 
     const now = dependencies.now();
     let authenticatedStaff: AuthenticatedStaff;
@@ -222,10 +238,18 @@ export function createSessionService(dependencies: SessionServiceDependencies) {
           occurredAt: now,
         });
       }
+      logAuthDiagnostic(
+        error instanceof SessionAuthenticationError
+          ? `DAL_SESSION_${error.reason}`
+          : "DAL_SESSION_INVALID",
+      );
       return null;
     }
 
-    if (!claimsMatchStoredSession(claims, row)) return null;
+    if (!claimsMatchStoredSession(claims, row)) {
+      logAuthDiagnostic("DAL_CLAIMS_MISMATCH");
+      return null;
+    }
 
     if (shouldTouchSession(row.lastSeenAt, now)) {
       await dependencies.repository.touchSession({
@@ -240,6 +264,7 @@ export function createSessionService(dependencies: SessionServiceDependencies) {
       });
     }
 
+    logAuthDiagnostic("DAL_SESSION_OK");
     return authenticatedStaff;
   }
 

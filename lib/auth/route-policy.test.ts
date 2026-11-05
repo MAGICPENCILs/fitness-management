@@ -70,6 +70,11 @@ describe("auth route policy", () => {
     });
   });
 
+  it("ให้พนักงานทุกบทบาทเข้าหน้าตั้งค่า 2FA ของบัญชีตนเองหลัง login", () => {
+    expect(decideRouteAccess("/settings/security/totp", claims("TRAINER"))).toEqual({ type: "ALLOW" });
+    expect(decideRouteAccess("/settings/security/totp", null)).toEqual({ type: "LOGIN" });
+  });
+
   it.each([
     ["/settings/promotions", "COUNTER", "ALLOW"],
     ["/settings/privacy", "COUNTER", "ALLOW"],
@@ -94,7 +99,13 @@ describe("auth route policy", () => {
     expect(decideRouteAccess("/api/auth/login", null)).toEqual({
       type: "ALLOW",
     });
+    expect(decideRouteAccess("/api/health", null)).toEqual({ type: "ALLOW" });
     expect(decideRouteAccess("/forbidden", null)).toEqual({ type: "ALLOW" });
+    expect(decideRouteAccess("/signup", null)).toEqual({ type: "ALLOW" });
+    expect(decideRouteAccess("/member-login", null)).toEqual({ type: "ALLOW" });
+    expect(decideRouteAccess("/member", null)).toEqual({ type: "ALLOW" });
+    expect(decideRouteAccess("/api/member-auth/login", null)).toEqual({ type: "ALLOW" });
+    expect(decideRouteAccess("/api/member-portal", null)).toEqual({ type: "ALLOW" });
   });
 
   it("allows auth pages for signed claims because authoritative page loaders decide redirects", () => {

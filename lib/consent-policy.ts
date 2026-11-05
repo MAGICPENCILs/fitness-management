@@ -2,6 +2,9 @@ export type ConsentType = "SERVICE_PRIVACY" | "MARKETING" | "PHOTO";
 export type ConsentAction = "GRANTED" | "WITHDRAWN";
 export type ConsentSnapshot = Record<ConsentType, boolean>;
 
+/** เวอร์ชันนโยบายที่ระบบเปิดให้ยอมรับในขณะนี้ เพื่อไม่รับค่าที่ public client กำหนดเอง */
+export const ACTIVE_PRIVACY_POLICY_VERSION = "2026-11";
+
 type ConsentPolicyEvent = {
   id?: number;
   consentType: ConsentType;

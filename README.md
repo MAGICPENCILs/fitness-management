@@ -1,60 +1,107 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Fitness Pro
 
-## Getting Started
+ระบบบริหารฟิตเนสแบบหลายสาขา ครอบคลุมสมาชิก แพ็กเกจ การชำระเงิน การเข้าใช้บริการ อุปกรณ์ คลาส PT บัญชี CRM/loyalty, PDPA, บัญชีพนักงาน RBAC และ Audit log
 
-First, run the development server:
+## เทคโนโลยี
 
-```bash
+- Next.js 16.4.4 (App Router + Turbopack), React 19 และ TypeScript
+- Tailwind CSS 4 และ Radix UI
+- MySQL, Drizzle ORM และ Argon2
+- Session cookie ที่ลงลายเซ็น, rate limit และ RBAC ฝั่ง server
+
+## เริ่มใช้งานสำหรับ Development
+
+ต้องใช้ Node.js 20.9 ขึ้นไปและ MySQL ที่เข้าถึงได้ จากนั้นคัดลอก `.env.example` เป็น `.env` และแทน placeholder ด้วยค่าของ environment นั้น
+
+```powershell
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3005](http://localhost:3005) with your browser to see the result.
+เปิด [http://localhost:3005](http://localhost:3005) พอร์ต development และ production ของโปรเจกต์คือ `3005`
 
-## Authentication environment
+## Environment สำคัญ
 
-Copy `.env.example` to a local environment file and replace the placeholders with secrets generated for that environment. `AUTH_SESSION_SECRET` and `AUTH_FINGERPRINT_SECRET` must be different random values of at least 32 bytes. Keep `TRUST_PROXY=false` unless the deployment has a trusted reverse proxy, and keep `ENABLE_DEV_STAFF_SWITCHER=false` outside an explicitly opted-in development session.
+- `DATABASE_URL` ต้องชี้ฐานข้อมูล MySQL เป้าหมายที่ตรวจสอบแล้ว
+- `APP_ORIGIN` ต้องตรงกับ origin ที่ผู้ใช้เปิดจริง
+- `AUTH_SESSION_SECRET` และ `AUTH_FINGERPRINT_SECRET` ต้องเป็นค่าสุ่มคนละค่าและยาวอย่างน้อย 32 bytes
+- `AUTH_TOTP_ENCRYPTION_KEY` ต้องเป็น base64 ของ key สุ่ม 32 bytes และต้องเก็บใน secret manager เพื่อถอด TOTP secret ของพนักงาน
+- ใช้ `TRUST_PROXY=true` เฉพาะเมื่อ deploy หลัง reverse proxy ที่เชื่อถือได้
+- `ENABLE_DEV_STAFF_SWITCHER` ต้องเป็น `false` นอก development ที่ตั้งใจเปิดใช้
 
-The application and production server use port `3005`. Set `APP_ORIGIN` to the externally visible origin for each deployment.
+ห้าม commit `.env`, รหัสผ่าน, token, dump ฐานข้อมูล หรือไฟล์ที่มีข้อมูลส่วนบุคคล
 
-## Database migration and Owner bootstrap
+พนักงานเปิด Authenticator 2FA และบันทึก recovery codes ได้จากเมนูบัญชีใน sidebar ส่วนหน้า Workforce ให้ผู้มีสิทธิ์จัดการเวลา เงินเดือนฐาน commission และอนุมัติ payroll แบบ manual โดยยอด payroll ยังไม่รวมภาษีและประกันสังคม
 
-Set `DATABASE_URL` for the intended MySQL database, confirm the target before making changes, and apply committed migrations:
+## Database และ Owner เริ่มต้น
+
+ยืนยันฐานข้อมูลเป้าหมายก่อน apply migration:
 
 ```powershell
 npx drizzle-kit migrate
 ```
 
-Bootstrap `OWNER001` only from a secure shell. Supply `BOOTSTRAP_OWNER_PASSWORD` to that process without writing, echoing, or committing it, run the command, and clear the process variable immediately afterward:
+Bootstrap `OWNER001` จาก secure shell เท่านั้น โดยส่ง `BOOTSTRAP_OWNER_PASSWORD` ให้ process ชั่วคราวแล้วล้างค่าหลังจบ:
 
 ```powershell
 npm run auth:bootstrap-owner
 ```
 
-The bootstrap command refuses missing or weak passwords and does not print the password or stored hash. Do not keep `BOOTSTRAP_OWNER_PASSWORD` in a persistent environment file.
+คำสั่งจะปฏิเสธรหัสผ่านที่อ่อนและไม่พิมพ์รหัสผ่านหรือ hash ลง log
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Backup และ Restore สำหรับผู้ดูแลระบบ
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+ติดตั้ง MySQL client ที่มี `mysqldump` และ `mysql` จากนั้นกำหนด `BACKUP_ENCRYPTION_KEY` เป็น base64 ของ key สุ่ม 32 bytes ซึ่งเก็บใน secret manager แยกจากไฟล์ backup ห้าม commit หรือส่ง key คู่กับ backup
 
-## Learn More
+สร้าง dump ที่เข้ารหัส AES-256-GCM พร้อม SHA-256 manifest:
 
-To learn more about Next.js, take a look at the following resources:
+```powershell
+npm run db:backup
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+ระบบเขียนไฟล์ลง `BACKUP_DIRECTORY` (ค่าเริ่มต้น `backups`) ให้คัดลอกทั้ง `.sql.enc` และ `.manifest.json` ไปยังพื้นที่ offsite ที่จำกัดสิทธิ์
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+ตรวจ checksum, manifest และถอดรหัสแบบ dry-run โดยไม่แตะฐานข้อมูล:
 
-## Deploy on Vercel
+```powershell
+npm run db:restore -- --backup "backups/<file>.sql.enc" --manifest "backups/<file>.sql.enc.manifest.json"
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Restore จริงทำได้เฉพาะฐานข้อมูลชื่อเดียวกับ manifest และต้องเปิด flag ชั่วคราวพร้อมพิมพ์คำยืนยันตรงตัว:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```powershell
+try {
+  $env:BACKUP_RESTORE_ENABLED = "true"
+  npm run db:restore -- --backup "backups/<file>.sql.enc" --manifest "backups/<file>.sql.enc.manifest.json" --execute --confirm "RESTORE <database>"
+} finally {
+  Remove-Item Env:BACKUP_RESTORE_ENABLED -ErrorAction SilentlyContinue
+}
+```
 
-# fitness-management
+ควรทดสอบ restore กับฐานข้อมูลที่แยกจาก production ตาม runbook ก่อนใช้ในเหตุฉุกเฉิน และเก็บ key/dump ตามนโยบาย PDPA ขององค์กร
+
+## Notification Providers
+
+ระบบปิดการส่งออกภายนอกเป็นค่าเริ่มต้น (`NOTIFICATION_PROVIDER_MODE=disabled`) ใช้ `simulate` เพื่อทดสอบ state โดยไม่ส่งข้อมูลจริง และใช้ `live` เฉพาะเมื่อกำหนด secret ผ่าน environment/secret manager ครบแล้ว
+
+- SMS ใช้ HTTPS webhook และ bearer token
+- LINE OA ยังไม่พร้อมใช้งาน เพราะระบบยังไม่มี lifecycle สำหรับผูกและยกเลิก LINE User ID ของสมาชิก; การตั้งค่า token อย่างเดียวจะไม่แสดงสถานะพร้อมใช้
+- อีเมลรองรับ SMTP implicit TLS เท่านั้น (`NOTIFICATION_SMTP_SECURE=true`) เพื่อไม่ส่ง credential ผ่าน connection ที่ไม่เข้ารหัส
+- ผู้ดูแลตรวจสถานะ ส่งคิว และ retry เฉพาะ error ที่แก้ได้จากหน้า “ตั้งค่า → การแจ้งเตือน” โดยหน้าเว็บจะไม่แสดง URL, token, username หรือ password
+
+ก่อนเปิด `live` ให้ทดสอบด้วยบัญชี sandbox ของ provider และตรวจ consent การตลาดของสมาชิก ห้ามใส่ secret ลง Git หรือ log
+
+## Access Hardware
+
+`ACCESS_HARDWARE_MODE` มีค่า `disabled` (ค่าเริ่มต้น), `simulate` และ `webhook` เมื่อใช้ webhook ต้องเป็น HTTPS และกำหนด token ผ่าน secret manager ระบบจะ commit ผลตรวจสิทธิ์กับ access log ก่อนขอเปิดประตู และจะแสดง “ประตูยังไม่เปิด” หาก controller ไม่ตอบหรือไม่ยืนยัน `opened=true` ห้ามใช้ simulator กับประตูจริง
+
+## ตรวจคุณภาพก่อนส่งงาน
+
+```powershell
+npm test -- --maxWorkers=1 --pool=forks
+npx tsc --noEmit
+npm run lint
+npm run build
+```
+
+สถานะและขอบเขตงานถัดไปอยู่ใน [Fitness Plan.md](./Fitness%20Plan.md) ส่วนแผนส่งมอบ Integrated MVP อยู่ใน `docs/superpowers/plans/`

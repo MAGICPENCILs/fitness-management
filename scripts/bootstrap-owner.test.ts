@@ -1,7 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -246,24 +244,25 @@ describe("Owner bootstrap", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("CLI entrypoint โหลด server-only dependency ได้และคืน error แบบไม่เผยข้อมูล", () => {
+  // การโหลด npm + tsx บน Windows filesystem แบบ cold cache อาจเกิน 15 วินาที แม้ process ทำงานถูกต้อง
+  it("CLI entrypoint โหลด server-only dependency ได้และคืน error แบบไม่เผยข้อมูล", { timeout: 60_000 }, () => {
     const environment = { ...process.env };
     delete environment.DATABASE_URL;
     delete environment.BOOTSTRAP_OWNER_PASSWORD;
     delete environment.BOOTSTRAP_OWNER_ROTATE;
 
-    const packageJson = JSON.parse(
-      readFileSync(join(process.cwd(), "package.json"), "utf8"),
-    ) as { scripts?: Record<string, string> };
-    expect(packageJson.scripts?.["auth:bootstrap-owner"]).toBe(
-      "tsx --conditions=react-server scripts/bootstrap-owner.ts",
+    const npmCli = join(
+      dirname(process.execPath),
+      "node_modules",
+      "npm",
+      "bin",
+      "npm-cli.js",
     );
-
-    // เรียก CLI ของ tsx โดยตรงเพื่อตรวจ entrypoint จริง โดยไม่รวมเวลาเริ่มต้นของ npm ที่ผันผวนตามโหลดของ test suite
-    const tsxCli = createRequire(import.meta.url).resolve("tsx/cli");
     const result = spawnSync(
-      process.execPath,
-      [tsxCli, "--conditions=react-server", "scripts/bootstrap-owner.ts"],
+      process.platform === "win32" ? process.execPath : "npm",
+      process.platform === "win32"
+        ? [npmCli, "run", "--silent", "auth:bootstrap-owner"]
+        : ["run", "--silent", "auth:bootstrap-owner"],
       {
         cwd: process.cwd(),
         encoding: "utf8",

@@ -4,6 +4,8 @@ import { AuthError } from "@/lib/auth/auth-errors";
 import { AUTH_COOKIE_NAME } from "@/lib/auth/constants";
 
 const mocks = vi.hoisted(() => ({
+  SchemaNotReadyError: class SchemaNotReadyError extends Error {},
+  assertSchemaReady: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
   changeOwnPassword: vi.fn(),
@@ -13,6 +15,10 @@ const mocks = vi.hoisted(() => ({
   cookieDelete: vi.fn(),
 }));
 
+vi.mock("@/lib/system-readiness", () => ({
+  SchemaNotReadyError: mocks.SchemaNotReadyError,
+  assertSchemaReady: mocks.assertSchemaReady,
+}));
 vi.mock("@/lib/auth/auth-service", () => ({
   login: mocks.login,
   logout: mocks.logout,
@@ -66,6 +72,7 @@ describe("authentication route handlers", () => {
     process.env.APP_ORIGIN = APP_ORIGIN;
     process.env.TRUST_PROXY = "false";
     mocks.cookieGet.mockReturnValue({ value: "signed-session" });
+    mocks.assertSchemaReady.mockResolvedValue(undefined);
     mocks.requireSession.mockResolvedValue(SESSION);
     mocks.login.mockResolvedValue({
       sessionCookie: "new-signed-session",
@@ -133,6 +140,26 @@ describe("authentication route handlers", () => {
     );
   });
 
+  it("คืน SCHEMA_NOT_READY และไม่แตะ auth service เมื่อฐานข้อมูลยังไม่พร้อม", async () => {
+    mocks.assertSchemaReady.mockRejectedValueOnce(
+      new mocks.SchemaNotReadyError(),
+    );
+
+    const response = await loginPost(
+      post("/api/auth/login", {
+        staffCode: "OWNER001",
+        password: "ValidPass#2026",
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      code: "SCHEMA_NOT_READY",
+      error: "ฐานข้อมูลระบบยังไม่พร้อมใช้งาน กรุณาติดต่อผู้ดูแลระบบ",
+    });
+    expect(mocks.login).not.toHaveBeenCalled();
+  });
+
   it("returns generic validation and origin errors without calling login", async () => {
     const invalid = await loginPost(post("/api/auth/login", { staffCode: "" }));
     const untrusted = await loginPost(
@@ -151,6 +178,7 @@ describe("authentication route handlers", () => {
     await expect(untrusted.json()).resolves.toEqual({
       error: "ไม่สามารถดำเนินการได้",
     });
+    expect(mocks.assertSchemaReady).not.toHaveBeenCalled();
     expect(mocks.login).not.toHaveBeenCalled();
   });
 

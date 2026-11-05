@@ -36,6 +36,7 @@ export const consentEvents = mysqlTable(
       "FRONT_DESK",
       "MIGRATION",
       "PRIVACY_REQUEST",
+      "ONLINE",
     ]).notNull(),
     note: text("note"),
     createdAt: timestamp("created_at").defaultNow(),

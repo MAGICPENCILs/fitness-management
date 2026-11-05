@@ -21,6 +21,7 @@ import {
   type RateLimitState,
 } from "@/lib/auth/rate-limit-core";
 import { createAuthSubjectFingerprint } from "@/lib/auth/request-security";
+import { calculateTotp, encryptTotpSecret, hashRecoveryCode } from "@/lib/totp";
 
 vi.mock("@/lib/auth/password", { spy: true });
 
@@ -50,6 +51,8 @@ class FakeAuthRepository implements AuthRepository {
   failLoginAudit = false;
   failSessionFinalization = false;
   maxConcurrentFailureCalls = 0;
+  claimedTotpSteps: number[] = [];
+  recoveryCodeHashes = new Set<string>();
 
   private limits = new Map<string, RateLimitState>();
   private revokedTokenHashes = new Set<string>();
@@ -169,6 +172,16 @@ class FakeAuthRepository implements AuthRepository {
     throw new Error("Not used by login/logout tests");
   }
 
+  async claimTotpStep(_staffId: number, step: number) {
+    if (this.claimedTotpSteps.includes(step)) return false;
+    this.claimedTotpSteps.push(step);
+    return true;
+  }
+
+  async consumeTotpRecoveryCode(_staffId: number, codeHash: string) {
+    return this.recoveryCodeHashes.delete(codeHash);
+  }
+
   setLimit(scope: RateLimitScope, subjectHash: string, state: RateLimitState) {
     this.limits.set(this.key(scope, subjectHash), state);
   }
@@ -188,6 +201,7 @@ class FakeAuthRepository implements AuthRepository {
 
 const originalSessionSecret = process.env.AUTH_SESSION_SECRET;
 const originalFingerprintSecret = process.env.AUTH_FINGERPRINT_SECRET;
+const originalTotpKey = process.env.AUTH_TOTP_ENCRYPTION_KEY;
 let passwordHash: string;
 let repo: FakeAuthRepository;
 
@@ -196,6 +210,7 @@ describe("auth service", () => {
     process.env.AUTH_SESSION_SECRET = "test-session-secret-that-is-at-least-32-bytes";
     process.env.AUTH_FINGERPRINT_SECRET =
       "test-fingerprint-secret-that-is-at-least-32-bytes";
+    process.env.AUTH_TOTP_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
     passwordHash = await hashPassword("ValidPass#2026");
   });
 
@@ -203,6 +218,7 @@ describe("auth service", () => {
     process.env.AUTH_SESSION_SECRET = "test-session-secret-that-is-at-least-32-bytes";
     process.env.AUTH_FINGERPRINT_SECRET =
       "test-fingerprint-secret-that-is-at-least-32-bytes";
+    process.env.AUTH_TOTP_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
     vi.clearAllMocks();
     repo = new FakeAuthRepository();
     repo.staff = {
@@ -220,6 +236,33 @@ describe("auth service", () => {
     else process.env.AUTH_SESSION_SECRET = originalSessionSecret;
     if (originalFingerprintSecret === undefined) delete process.env.AUTH_FINGERPRINT_SECRET;
     else process.env.AUTH_FINGERPRINT_SECRET = originalFingerprintSecret;
+    if (originalTotpKey === undefined) delete process.env.AUTH_TOTP_ENCRYPTION_KEY;
+    else process.env.AUTH_TOTP_ENCRYPTION_KEY = originalTotpKey;
+  });
+
+  it("ต้องยืนยัน TOTP หลังรหัสผ่านและใช้ time step เดิมซ้ำไม่ได้", async () => {
+    const secret = "JBSWY3DPEHPK3PXP";
+    repo.staff = {
+      ...repo.staff!,
+      totpStatus: "ENABLED",
+      encryptedTotpSecret: encryptTotpSecret(secret, process.env.AUTH_TOTP_ENCRYPTION_KEY!),
+      lastUsedTotpStep: null,
+    };
+    const service = createAuthService(repo, { now: () => NOW });
+    const code = calculateTotp(secret, Math.floor(NOW.getTime() / 1000));
+
+    await expect(service.login({ staffCode: "OWNER001", password: "ValidPass#2026", totpCode: code }, REQUEST_WITHOUT_IP)).resolves.toMatchObject({ claims: { staffId: 1 } });
+    await expect(service.login({ staffCode: "OWNER001", password: "ValidPass#2026", totpCode: code }, REQUEST_WITHOUT_IP)).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
+  });
+
+  it("ใช้ recovery code ได้ครั้งเดียวหลังรหัสผ่านถูกต้อง", async () => {
+    const recoveryCode = "RECOVERY-CODE-01";
+    repo.staff = { ...repo.staff!, totpStatus: "ENABLED", encryptedTotpSecret: "unused", lastUsedTotpStep: null };
+    repo.recoveryCodeHashes.add(hashRecoveryCode(recoveryCode));
+    const service = createAuthService(repo, { now: () => NOW });
+
+    await expect(service.login({ staffCode: "OWNER001", password: "ValidPass#2026", totpCode: recoveryCode }, REQUEST_WITHOUT_IP)).resolves.toMatchObject({ claims: { staffId: 1 } });
+    await expect(service.login({ staffCode: "OWNER001", password: "ValidPass#2026", totpCode: recoveryCode }, REQUEST_WITHOUT_IP)).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
   });
 
   it("returns generic failure, consumes both opaque buckets and audits invalid password", async () => {
@@ -371,6 +414,24 @@ describe("auth service", () => {
     expect(repo.audits.at(-1)).toMatchObject({
       action: "LOGIN_SUCCESS",
       result: "SUCCESS",
+    });
+  });
+
+  it("ตัด milliseconds ก่อนเซ็นและเก็บ session เพื่อไม่ให้ MySQL ปัดเวลา claims ต่างกันหนึ่งวินาที", async () => {
+    const fractionalNow = new Date("2026-08-10T04:00:00.900Z");
+    const service = createAuthService(repo, { now: () => fractionalNow });
+
+    const result = await service.login(
+      { staffCode: "OWNER001", password: "ValidPass#2026", returnTo: "/" },
+      REQUEST_WITHOUT_IP,
+    );
+
+    expect(result.claims.expiresAt).toBe(1786363200);
+    expect(repo.createdSessions[0]).toMatchObject({
+      createdAt: new Date("2026-08-10T04:00:00.000Z"),
+      lastSeenAt: new Date("2026-08-10T04:00:00.000Z"),
+      absoluteExpiresAt: new Date("2026-08-10T12:00:00.000Z"),
+      idleExpiresAt: new Date("2026-08-10T04:30:00.000Z"),
     });
   });
 

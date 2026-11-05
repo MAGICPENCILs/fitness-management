@@ -16,6 +16,12 @@ import {
   members,
   notifications,
   payments,
+  receipts,
+  freezeRecords,
+  memberAccessTokens,
+  memberAccounts,
+  memberSessions,
+  memberApplications,
   privacyFileCleanups,
   privacyRequests,
   ptPackages,
@@ -638,6 +644,46 @@ async function executeAnonymizationOperation(
         .update(payments)
         .set({ note: null })
         .where(eq(payments.memberId, memberId));
+      return;
+    case "receipts":
+      // คงยอด ภาษี เลขเอกสาร และข้อมูลผู้ขายไว้ตามข้อกำหนดบัญชี แต่ล้างตัวระบุผู้ซื้อทั้งหมด
+      await tx
+        .update(receipts)
+        .set({
+          buyerName: "ANONYMIZED",
+          buyerTaxId: null,
+          buyerAddress: null,
+        })
+        .where(
+          inArray(
+            receipts.paymentId,
+            tx
+              .select({ id: payments.id })
+              .from(payments)
+              .where(eq(payments.memberId, memberId)),
+          ),
+        );
+      return;
+    case "freeze_records":
+      await tx
+        .update(freezeRecords)
+        .set({ reason: "ANONYMIZED" })
+        .where(eq(freezeRecords.memberId, memberId));
+      return;
+    case "member_access_tokens":
+      await tx
+        .update(memberAccessTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(memberAccessTokens.memberId, memberId));
+      return;
+    case "member_accounts":
+      await tx.update(memberAccounts).set({ email: sql`concat('anon-', ${memberAccounts.memberId}, '@invalid.local')`, passwordHash: "ANONYMIZED", status: "INACTIVE" }).where(eq(memberAccounts.memberId, memberId));
+      return;
+    case "member_sessions":
+      await tx.update(memberSessions).set({ revokedAt: new Date() }).where(inArray(memberSessions.memberAccountId, tx.select({ id: memberAccounts.id }).from(memberAccounts).where(eq(memberAccounts.memberId, memberId))));
+      return;
+    case "member_applications":
+      await tx.update(memberApplications).set({ firstName: "ANONYMIZED", lastName: "ANONYMIZED", phone: "", email: sql`concat('anon-app-', ${memberApplications.id}, '@invalid.local')`, passwordHash: "ANONYMIZED", reviewNote: null }).where(eq(memberApplications.memberId, memberId));
       return;
     case "locker_rentals":
       await tx

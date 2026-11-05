@@ -1,0 +1,5 @@
+import { NextResponse } from "next/server"; import { z } from "zod";
+import { assertTrustedOrigin } from "@/lib/auth/request-security"; import { getCurrentBranchId } from "@/lib/branch-service"; import { requirePermission } from "@/lib/staff-service"; import { saveCompensation } from "@/lib/workforce-service";
+const schema = z.object({ baseSalary: z.string().regex(/^\d{1,10}(?:\.\d{1,2})?$/), commissionRateBasisPoints: z.number().int().min(0).max(10000) });
+/** บันทึก compensation profile เฉพาะ Staff ในสาขา */
+export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) { try { assertTrustedOrigin(request); const branchId = await getCurrentBranchId(); const actor = await requirePermission("staff.manage", branchId); await saveCompensation(actor, branchId, Number((await params).id), schema.parse(await request.json())); return NextResponse.json({ success: true }); } catch { return NextResponse.json({ error: "บันทึกค่าตอบแทนไม่สำเร็จ" }, { status: 400 }); } }

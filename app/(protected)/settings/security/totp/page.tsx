@@ -1,0 +1,3 @@
+import { TotpSettings } from "@/components/security/totp-settings"; import { getStaffContext } from "@/lib/staff-service"; import { getTotpStatus } from "@/lib/totp-service";
+/** โหลดเฉพาะสถานะ TOTP ของบัญชีใน session ปัจจุบัน */
+export default async function TotpPage() { const context = await getStaffContext(); const status = await getTotpStatus(context.staff.id); return <div className="w-full max-w-4xl space-y-6 p-4 sm:p-6 lg:p-8"><header><p className="text-sm font-medium text-primary">Strong authentication</p><h1 className="text-2xl font-bold">ตั้งค่า 2FA</h1><p className="text-sm text-muted-foreground">ใช้ Authenticator code หลังรหัสผ่านทุกครั้งที่ Login</p></header><TotpSettings initialStatus={status.status} /></div>; }

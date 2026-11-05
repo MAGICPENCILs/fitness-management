@@ -8,6 +8,13 @@ const LOGIN_REQUIRED_MESSAGE = "กรุณาเข้าสู่ระบบ
 const PASSWORD_CHANGE_REQUIRED_MESSAGE =
   "กรุณาเปลี่ยนรหัสผ่านก่อนใช้งานระบบ";
 
+/** บันทึกเฉพาะสถานะของ auth boundary ใน development โดยไม่แตะ cookie, claims หรือข้อมูลพนักงาน */
+function logAuthDiagnostic(status: string): void {
+  if (process.env.NODE_ENV === "development") {
+    console.info("[auth-diagnostic]", status);
+  }
+}
+
 /** สร้าง returnTo จาก path/query ภายใน request เท่านั้น จึงไม่รับ origin ภายนอกหรือค่าจาก input โดยตรง */
 function currentReturnPath(request: NextRequest): string {
   return `${request.nextUrl.pathname}${request.nextUrl.search}`;
@@ -18,6 +25,14 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const cookie = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   const claims = cookie ? await verifySessionClaims(cookie) : null;
   const pathname = request.nextUrl.pathname;
+
+  logAuthDiagnostic(
+    !cookie
+      ? "PROXY_COOKIE_MISSING"
+      : claims
+        ? "PROXY_CLAIMS_VALID"
+        : "PROXY_CLAIMS_INVALID",
+  );
 
   const decision = decideRouteAccess(pathname, claims);
   if (decision.type === "ALLOW") return NextResponse.next();

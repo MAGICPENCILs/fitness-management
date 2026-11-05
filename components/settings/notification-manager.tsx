@@ -27,19 +27,22 @@ type NotificationHistory = {
   memberLastName: string;
   type: "EXPIRY_REMINDER" | "INACTIVITY" | "SCAN_WARNING";
   channel: "IN_APP" | "SMS" | "LINE" | "EMAIL";
-  status: "QUEUED" | "SENT" | "FAILED" | "SKIPPED";
+  status: "QUEUED" | "PROCESSING" | "SENT" | "FAILED" | "SKIPPED";
   title: string;
   message: string;
   scheduledFor: string;
   errorMessage: string | null;
+  failureKind: "RETRYABLE" | "PERMANENT" | "CONFIG" | null;
+  attemptCount: number;
+  lastAttemptAt: string | null;
   createdAt: string | null;
 };
 
 const channelOptions = [
   { key: "enableInApp", label: "ภายในระบบ", description: "แสดงและบันทึกข้อความในระบบทันที" },
-  { key: "enableSms", label: "SMS", description: "สร้างคิวจากเบอร์โทรศัพท์ของสมาชิก" },
-  { key: "enableLine", label: "LINE OA", description: "พร้อมเชื่อมต่อเมื่อกำหนด LINE User ID" },
-  { key: "enableEmail", label: "อีเมล", description: "สร้างคิวจากอีเมลของสมาชิก" },
+  { key: "enableSms", label: "SMS", description: "ส่งผ่าน webhook ที่ผู้ดูแลระบบกำหนด" },
+  { key: "enableLine", label: "LINE OA", description: "ยังไม่พร้อมใช้: ระบบยังไม่มี LINE User ID ของสมาชิก", disabled: true },
+  { key: "enableEmail", label: "อีเมล", description: "ส่งผ่าน SMTP แบบ TLS" },
 ] as const;
 
 const typeLabel = {
@@ -49,26 +52,38 @@ const typeLabel = {
 } as const;
 
 const channelLabel = { IN_APP: "ในระบบ", SMS: "SMS", LINE: "LINE OA", EMAIL: "อีเมล" } as const;
-const statusLabel = { QUEUED: "รอส่ง", SENT: "แสดงแล้ว", FAILED: "ส่งไม่สำเร็จ", SKIPPED: "ข้าม" } as const;
+const statusLabel = { QUEUED: "รอส่ง", PROCESSING: "กำลังส่ง", SENT: "ส่งแล้ว", FAILED: "ส่งไม่สำเร็จ", SKIPPED: "ข้าม" } as const;
+
+type ProviderHealth = {
+  mode: "disabled" | "simulate" | "live";
+  inApp: "READY";
+  sms: "READY" | "DISABLED";
+  line: "UNAVAILABLE";
+  email: "READY" | "DISABLED";
+};
 
 /** แสดงค่าตั้ง ช่องทาง สถิติ และประวัติของ Notification Engine ในหน้าเดียว */
 export function NotificationManager({
   settings,
   history,
+  providerHealth,
 }: {
   settings: NotificationSettingsForm;
   history: NotificationHistory[];
+  providerHealth: ProviderHealth;
 }) {
   const router = useRouter();
   const [form, setForm] = useState(settings);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [delivering, setDelivering] = useState(false);
+  const [retryingId, setRetryingId] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   const stats = useMemo(() => ({
     total: history.length,
     sent: history.filter((item) => item.status === "SENT").length,
-    queued: history.filter((item) => item.status === "QUEUED").length,
+    queued: history.filter((item) => item.status === "QUEUED" || item.status === "PROCESSING").length,
     attention: history.filter((item) => item.status === "FAILED" || item.status === "SKIPPED").length,
   }), [history]);
 
@@ -76,6 +91,40 @@ export function NotificationManager({
   const updateForm = <Key extends keyof NotificationSettingsForm>(key: Key, value: NotificationSettingsForm[Key]) => {
     setForm((current) => ({ ...current, [key]: value }));
     setFeedback(null);
+  };
+
+  /** ส่งรายการที่รอหรือ retry ได้ผ่าน provider โดยสรุปเฉพาะจำนวนและไม่แสดงข้อมูลผู้รับ */
+  const handleDeliver = async () => {
+    setDelivering(true);
+    setFeedback(null);
+    try {
+      const response = await fetch("/api/notifications/deliver", { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "ไม่สามารถส่งคิวได้");
+      setFeedback({ type: "success", message: `ประมวลผล ${result.processed} รายการ · ส่งสำเร็จ ${result.sent} รายการ` });
+      router.refresh();
+    } catch (error) {
+      setFeedback({ type: "error", message: error instanceof Error ? error.message : "ไม่สามารถส่งคิวได้" });
+    } finally {
+      setDelivering(false);
+    }
+  };
+
+  /** retry เฉพาะรายการที่ service ยืนยันว่าเป็นความล้มเหลวชั่วคราวหรือ config ที่แก้แล้ว */
+  const handleRetry = async (notificationId: number) => {
+    setRetryingId(notificationId);
+    setFeedback(null);
+    try {
+      const response = await fetch(`/api/notifications/${notificationId}/retry`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "ไม่สามารถส่งซ้ำได้");
+      setFeedback({ type: "success", message: "ประมวลผลรายการซ้ำแล้ว" });
+      router.refresh();
+    } catch (error) {
+      setFeedback({ type: "error", message: error instanceof Error ? error.message : "ไม่สามารถส่งซ้ำได้" });
+    } finally {
+      setRetryingId(null);
+    }
   };
 
   /** บันทึกค่าตั้งและใช้ผลที่เซิร์ฟเวอร์จัดรูปแบบแล้วเป็นค่าปัจจุบัน */
@@ -154,7 +203,7 @@ export function NotificationManager({
             <div className="grid gap-3 sm:grid-cols-2">
               {channelOptions.map((channel) => (
                 <label key={channel.key} className="flex min-h-20 cursor-pointer items-start gap-3 rounded-lg border p-3 hover:bg-muted/50">
-                  <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-primary" checked={form[channel.key]} onChange={(event) => updateForm(channel.key, event.target.checked)} />
+                  <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-primary" checked={form[channel.key]} disabled={"disabled" in channel && channel.disabled} onChange={(event) => updateForm(channel.key, event.target.checked)} />
                   <span>
                     <span className="block text-sm font-medium">{channel.label}</span>
                     <span className="mt-0.5 block text-xs text-muted-foreground">{channel.description}</span>
@@ -181,6 +230,10 @@ export function NotificationManager({
               {generating ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
               ประมวลผลตอนนี้
             </Button>
+            <Button type="button" variant="outline" disabled={delivering} onClick={handleDeliver}>
+              {delivering ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
+              ส่งคิวตอนนี้
+            </Button>
           </div>
           {feedback ? (
             <p className={feedback.type === "error" ? "text-sm text-destructive" : "text-sm text-primary"} role={feedback.type === "error" ? "alert" : "status"}>{feedback.message}</p>
@@ -190,9 +243,10 @@ export function NotificationManager({
         <aside className="rounded-xl border bg-card p-4 shadow-sm sm:p-6" aria-labelledby="delivery-status-heading">
           <h2 id="delivery-status-heading" className="text-lg font-semibold">สถานะการเชื่อมต่อ</h2>
           <div className="mt-4 space-y-4 text-sm">
-            <div className="flex items-start justify-between gap-3"><div><p className="font-medium">ข้อความในระบบ</p><p className="text-muted-foreground">พร้อมแสดงและเก็บประวัติ</p></div><Badge>พร้อมใช้</Badge></div>
-            <div className="flex items-start justify-between gap-3"><div><p className="font-medium">SMS / อีเมล</p><p className="text-muted-foreground">คิวพร้อม รอ provider credentials</p></div><Badge variant="outline">Provider-ready</Badge></div>
-            <div className="flex items-start justify-between gap-3"><div><p className="font-medium">LINE OA</p><p className="text-muted-foreground">ต้องเพิ่ม LINE User ID ให้สมาชิก</p></div><Badge variant="secondary">รอเชื่อมต่อ</Badge></div>
+            <div className="rounded-lg bg-muted/50 p-3"><p className="font-medium">โหมด {providerHealth.mode === "live" ? "ส่งจริง" : providerHealth.mode === "simulate" ? "จำลอง" : "ปิด"}</p><p className="text-muted-foreground">ค่าเริ่มต้นปิด และไม่แสดง credential ในหน้านี้</p></div>
+            {([['inApp', 'ข้อความในระบบ'], ['sms', 'SMS webhook'], ['line', 'LINE OA'], ['email', 'อีเมล SMTP']] as const).map(([key, label]) => (
+              <div key={key} className="flex items-center justify-between gap-3"><p className="font-medium">{label}</p><Badge variant={providerHealth[key] === "READY" ? "default" : "outline"}>{providerHealth[key] === "READY" ? "พร้อมใช้" : providerHealth[key] === "UNAVAILABLE" ? "ยังไม่รองรับ" : "ปิด/ยังไม่ครบ"}</Badge></div>
+            ))}
           </div>
         </aside>
       </div>
@@ -222,6 +276,13 @@ export function NotificationManager({
                     <p className="mt-1 text-sm text-muted-foreground">{item.memberCode} — {item.memberName} {item.memberLastName}</p>
                     <p className="mt-2 text-pretty text-sm">{item.message}</p>
                     {item.errorMessage ? <p className="mt-2 text-xs text-muted-foreground">หมายเหตุ: {item.errorMessage}</p> : null}
+                    <p className="mt-1 text-xs text-muted-foreground">พยายามส่ง {item.attemptCount}/5 ครั้ง</p>
+                    {((item.status === "FAILED" && item.failureKind === "RETRYABLE") || (item.status === "SKIPPED" && item.failureKind === "CONFIG")) && item.attemptCount < 5 ? (
+                      <Button type="button" size="sm" variant="outline" className="mt-3" disabled={retryingId === item.id} onClick={() => handleRetry(item.id)}>
+                        {retryingId === item.id ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-4" aria-hidden="true" />}
+                        ส่งซ้ำ
+                      </Button>
+                    ) : null}
                   </div>
                   <div className="shrink-0 text-left text-xs text-muted-foreground sm:text-right">
                     <p>{channelLabel[item.channel]}</p>

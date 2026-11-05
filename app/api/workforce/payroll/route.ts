@@ -1,0 +1,5 @@
+import { NextResponse } from "next/server"; import { z } from "zod";
+import { assertTrustedOrigin } from "@/lib/auth/request-security"; import { getCurrentBranchId } from "@/lib/branch-service"; import { requirePermission } from "@/lib/staff-service"; import { createPayrollDraft } from "@/lib/workforce-service";
+const schema = z.object({ staffId: z.number().int().positive(), periodStart: z.string().date(), periodEnd: z.string().date() }).refine((value) => value.periodStart <= value.periodEnd);
+/** สร้าง payroll draft ที่ยังไม่รวมภาษีและต้องอนุมัติ manual */
+export async function POST(request: Request) { try { assertTrustedOrigin(request); const branchId = await getCurrentBranchId(); const actor = await requirePermission("staff.manage", branchId); const input = schema.parse(await request.json()); const id = await createPayrollDraft(actor, branchId, input.staffId, input.periodStart, input.periodEnd); return NextResponse.json({ id }, { status: 201 }); } catch { return NextResponse.json({ error: "สร้าง payroll draft ไม่สำเร็จ" }, { status: 400 }); } }

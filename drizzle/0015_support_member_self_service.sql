@@ -1,0 +1,2 @@
+ALTER TABLE `member_access_tokens` MODIFY COLUMN `issued_by_staff_id` int;--> statement-breakpoint
+ALTER TABLE `consent_events` MODIFY COLUMN `source` enum('FRONT_DESK','MIGRATION','PRIVACY_REQUEST','ONLINE') NOT NULL;

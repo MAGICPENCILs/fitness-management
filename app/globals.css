@@ -287,3 +287,34 @@ body {
   background-color: var(--popover) !important;
   color: var(--popover-foreground);
 }
+
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .receipt-print-page,
+  .receipt-print-page *,
+  .report-print-page,
+  .report-print-page * {
+    visibility: visible;
+  }
+
+  .receipt-print-page,
+  .report-print-page {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    min-height: auto;
+    box-shadow: none;
+  }
+
+  .print-hidden {
+    display: none !important;
+  }
+}

@@ -1,9 +1,9 @@
 import "server-only";
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 
 import { db } from "@/db";
-import { auditLogs, authLoginLimits, authSessions, staff } from "@/db/schema";
+import { auditLogs, authLoginLimits, authSessions, staff, staffTotp, staffTotpRecoveryCodes } from "@/db/schema";
 import { AuthError } from "@/lib/auth/auth-errors";
 import type { UserAgentCategory } from "@/lib/auth/types";
 import {
@@ -30,6 +30,9 @@ export type LoginStaff = {
   status: "ACTIVE" | "INACTIVE";
   passwordHash: string | null;
   mustChangePassword: boolean;
+  totpStatus?: "PENDING" | "ENABLED" | "DISABLED" | null;
+  encryptedTotpSecret?: string | null;
+  lastUsedTotpStep?: number | null;
 };
 
 type AuthAuditRequest = {
@@ -99,6 +102,8 @@ export interface AuthRepository {
   changePasswordAndRotateSession(
     input: ChangePasswordSessionInput,
   ): Promise<void>;
+  claimTotpStep?(staffId: number, step: number): Promise<boolean>;
+  consumeTotpRecoveryCode?(staffId: number, codeHash: string, usedAt: Date): Promise<boolean>;
 }
 
 type AuthDbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -172,11 +177,27 @@ class DrizzleAuthRepository implements AuthRepository {
         status: staff.status,
         passwordHash: staff.passwordHash,
         mustChangePassword: staff.mustChangePassword,
+        totpStatus: staffTotp.status,
+        encryptedTotpSecret: staffTotp.encryptedSecret,
+        lastUsedTotpStep: staffTotp.lastUsedStep,
       })
       .from(staff)
+      .leftJoin(staffTotp, eq(staffTotp.staffId, staff.id))
       .where(eq(staff.staffCode, staffCode))
       .limit(1);
     return row ?? null;
+  }
+
+  /** claim time step แบบ atomic เพื่อให้ TOTP code เดียวสร้าง session ได้เพียงครั้งเดียว */
+  async claimTotpStep(staffId: number, step: number) {
+    const result = await db.update(staffTotp).set({ lastUsedStep: step }).where(and(eq(staffTotp.staffId, staffId), eq(staffTotp.status, "ENABLED"), or(isNull(staffTotp.lastUsedStep), lt(staffTotp.lastUsedStep, step))));
+    return result[0].affectedRows === 1;
+  }
+
+  /** consume recovery code ครั้งเดียวหลัง password ผ่านแล้ว */
+  async consumeTotpRecoveryCode(staffId: number, codeHash: string, usedAt: Date) {
+    const result = await db.update(staffTotpRecoveryCodes).set({ usedAt }).where(and(eq(staffTotpRecoveryCodes.staffId, staffId), eq(staffTotpRecoveryCodes.codeHash, codeHash), isNull(staffTotpRecoveryCodes.usedAt)));
+    return result[0].affectedRows === 1;
   }
 
   /** ตรวจ lock ปัจจุบันโดยไม่เพิ่ม attempt เพื่อให้รหัสผ่านที่ถูกต้องไม่ข้าม lock เดิม */
