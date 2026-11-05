@@ -138,6 +138,37 @@ describe("LoginForm", () => {
     expect(screen.getByRole("button", { name: "เข้าสู่ระบบ" })).toBeEnabled();
   });
 
+  it("แสดงข้อผิดพลาด schema ตรงไปตรงมาโดยไม่กล่าวโทษ credential", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: "SCHEMA_NOT_READY",
+          error: "ฐานข้อมูลระบบยังไม่พร้อมใช้งาน กรุณาติดต่อผู้ดูแลระบบ",
+        }),
+        {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    const user = userEvent.setup();
+    render(<LoginForm returnTo="/" />);
+
+    await user.type(screen.getByLabelText("รหัสพนักงาน"), "OWNER001");
+    await user.type(screen.getByLabelText("รหัสผ่าน"), "ValidPass#2026");
+    await user.click(screen.getByRole("button", { name: "เข้าสู่ระบบ" }));
+
+    expect(
+      await screen.findByText(
+        "ฐานข้อมูลระบบยังไม่พร้อมใช้งาน กรุณาติดต่อผู้ดูแลระบบ",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(/กรุณาตรวจสอบข้อมูลแล้วลองอีกครั้ง/),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "เข้าสู่ระบบ" })).toBeEnabled();
+  });
+
   it.each([
     {
       name: "invalid JSON",

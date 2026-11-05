@@ -93,6 +93,7 @@ describe("auth route policy", () => {
     expect(decideRouteAccess("/api/auth/login", null)).toEqual({
       type: "ALLOW",
     });
+    expect(decideRouteAccess("/api/health", null)).toEqual({ type: "ALLOW" });
     expect(decideRouteAccess("/forbidden", null)).toEqual({ type: "ALLOW" });
     expect(decideRouteAccess("/signup", null)).toEqual({ type: "ALLOW" });
     expect(decideRouteAccess("/member-login", null)).toEqual({ type: "ALLOW" });

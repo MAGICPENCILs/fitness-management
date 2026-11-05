@@ -21,6 +21,7 @@ export function LoginForm({
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");
 
   /** ใช้ FormData แบบ uncontrolled เพื่อให้ plaintext อยู่เฉพาะ DOM ระหว่างที่ผู้ใช้กรอกและตอนส่ง request */
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -29,6 +30,7 @@ export function LoginForm({
     const formData = new FormData(form);
     setPending(true);
     setError("");
+    setErrorCode("");
 
     try {
       const response = await fetch("/api/auth/login", {
@@ -45,6 +47,7 @@ export function LoginForm({
       if (!response.ok || !result) {
         form.reset();
         setError(result?.error ?? LOGIN_UNAVAILABLE_MESSAGE);
+        setErrorCode(result?.code ?? "");
         setPending(false);
         return;
       }
@@ -150,7 +153,9 @@ export function LoginForm({
           {pending
             ? "กำลังตรวจสอบข้อมูล..."
             : error
-              ? `${error} กรุณาตรวจสอบข้อมูลแล้วลองอีกครั้ง`
+              ? errorCode === "SCHEMA_NOT_READY"
+                ? error
+                : `${error} กรุณาตรวจสอบข้อมูลแล้วลองอีกครั้ง`
               : ""}
         </p>
 

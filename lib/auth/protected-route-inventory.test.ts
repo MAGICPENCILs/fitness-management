@@ -14,6 +14,7 @@ const HTTP_METHODS = new Set([
   "OPTIONS",
 ]);
 const PUBLIC_METHODS = new Set([
+  "app/api/health/route.ts:GET",
   "app/api/auth/login/route.ts:POST",
   "app/api/auth/logout/route.ts:POST",
   "app/api/auth/change-password/route.ts:POST",

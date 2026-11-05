@@ -15,6 +15,7 @@ const PUBLIC_PATHS = [
   "/member-login",
   "/member",
   "/api/auth",
+  "/api/health",
   "/api/member-auth",
   "/api/member-applications",
   "/api/member-portal",
