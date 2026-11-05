@@ -1,4 +1,4 @@
-import { bigint, date, decimal, index, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import { bigint, date, decimal, foreignKey, index, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 import { branches } from "./branches";
 import { payments } from "./payments";
 import { staff } from "./staff";
@@ -32,13 +32,20 @@ export const attendancePunches = mysqlTable("attendance_punches", {
 
 export const attendanceCorrections = mysqlTable("attendance_corrections", {
   id: int("id").autoincrement().primaryKey(),
-  attendancePunchId: int("attendance_punch_id").notNull().references(() => attendancePunches.id),
+  attendancePunchId: int("attendance_punch_id").notNull(),
   correctedByStaffId: int("corrected_by_staff_id").notNull().references(() => staff.id),
   originalPunchedAt: timestamp("original_punched_at").notNull(),
   correctedPunchedAt: timestamp("corrected_punched_at").notNull(),
   reason: text("reason").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  // กำหนดชื่อเองเพื่อไม่ให้ชื่ออัตโนมัติเกินขีดจำกัด 64 ตัวอักษรของ MySQL
+  foreignKey({
+    name: "attendance_corrections_punch_fk",
+    columns: [table.attendancePunchId],
+    foreignColumns: [attendancePunches.id],
+  }),
+]);
 
 export const compensationProfiles = mysqlTable("compensation_profiles", {
   staffId: int("staff_id").primaryKey().references(() => staff.id),

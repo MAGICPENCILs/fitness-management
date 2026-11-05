@@ -1,4 +1,5 @@
 export type AuthClientResponse = {
+  code?: "SCHEMA_NOT_READY";
   error?: string;
   returnTo?: string;
 };
@@ -15,6 +16,7 @@ export async function readAuthClientResponse(
 
     const record = value as Record<string, unknown>;
     return {
+      ...(record.code === "SCHEMA_NOT_READY" ? { code: record.code } : {}),
       ...(typeof record.error === "string" ? { error: record.error } : {}),
       ...(typeof record.returnTo === "string"
         ? { returnTo: record.returnTo }
