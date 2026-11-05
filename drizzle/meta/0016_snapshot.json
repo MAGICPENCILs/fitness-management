@@ -1817,8 +1817,8 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "attendance_corrections_attendance_punch_id_attendance_punches_id_fk": {
-          "name": "attendance_corrections_attendance_punch_id_attendance_punches_id_fk",
+        "attendance_corrections_punch_fk": {
+          "name": "attendance_corrections_punch_fk",
           "tableFrom": "attendance_corrections",
           "tableTo": "attendance_punches",
           "columnsFrom": [

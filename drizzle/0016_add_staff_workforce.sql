@@ -77,7 +77,7 @@ CREATE TABLE `staff_totp_recovery_codes` (
 	CONSTRAINT `staff_totp_recovery_codes_code_hash_unique` UNIQUE(`code_hash`)
 );
 --> statement-breakpoint
-ALTER TABLE `attendance_corrections` ADD CONSTRAINT `attendance_corrections_attendance_punch_id_attendance_punches_id_fk` FOREIGN KEY (`attendance_punch_id`) REFERENCES `attendance_punches`(`id`) ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `attendance_corrections` ADD CONSTRAINT `attendance_corrections_punch_fk` FOREIGN KEY (`attendance_punch_id`) REFERENCES `attendance_punches`(`id`) ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `attendance_corrections` ADD CONSTRAINT `attendance_corrections_corrected_by_staff_id_staff_id_fk` FOREIGN KEY (`corrected_by_staff_id`) REFERENCES `staff`(`id`) ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `attendance_punches` ADD CONSTRAINT `attendance_punches_staff_id_staff_id_fk` FOREIGN KEY (`staff_id`) REFERENCES `staff`(`id`) ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `attendance_punches` ADD CONSTRAINT `attendance_punches_branch_id_branches_id_fk` FOREIGN KEY (`branch_id`) REFERENCES `branches`(`id`) ON DELETE no action ON UPDATE no action;--> statement-breakpoint
