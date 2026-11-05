@@ -1,7 +1,12 @@
-import { sql } from "drizzle-orm";
+import { max } from "drizzle-orm";
+import { bigint, mysqlTable } from "drizzle-orm/mysql-core";
 
 import { db } from "@/db";
 import migrationJournal from "@/drizzle/meta/_journal.json";
+
+const drizzleMigrations = mysqlTable("__drizzle_migrations", {
+  createdAt: bigint("created_at", { mode: "number" }),
+});
 
 const requiredEntry = migrationJournal.entries.at(-1);
 
@@ -30,21 +35,21 @@ export class SchemaNotReadyError extends Error {
 
 /** อ่านเฉพาะรุ่น migration ล่าสุด โดยไม่ดึง SQL หรือข้อมูลเชื่อมต่อออกจากฐานข้อมูล */
 async function readLatestAppliedMigration(): Promise<number | null> {
-  const [rows] = await db.execute<{ latestCreatedAt: number | string | null }>(
-    sql`SELECT MAX(created_at) AS latestCreatedAt FROM __drizzle_migrations`,
-  );
-  const value = rows[0]?.latestCreatedAt;
-  return value === null || value === undefined ? null : Number(value);
+  const [row] = await db
+    .select({ latestCreatedAt: max(drizzleMigrations.createdAt) })
+    .from(drizzleMigrations);
+  return row?.latestCreatedAt ?? null;
 }
 
-/** แยกกรณียังไม่มี migration journal ออกจากปัญหาการเชื่อมต่อ โดยไม่เผยรายละเอียด error ภายใน */
+/** ตรวจ error และ cause ไม่เกิน 3 ชั้น เพื่อรองรับ Drizzle wrapper โดยไม่เสี่ยงวนลูปจาก cause ที่อ้างกลับตัวเอง */
 function isMissingJournal(error: unknown): boolean {
-  return Boolean(
-    error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ER_NO_SUCH_TABLE",
-  );
+  let current = error;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (!current || typeof current !== "object") return false;
+    if ("code" in current && current.code === "ER_NO_SUCH_TABLE") return true;
+    current = "cause" in current ? current.cause : undefined;
+  }
+  return false;
 }
 
 /** เทียบ migration journal กับรุ่นที่โค้ดต้องการ และลดรายละเอียดความล้มเหลือให้เหลือสถานะที่เปิดเผยได้ */

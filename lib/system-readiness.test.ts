@@ -41,6 +41,23 @@ describe("system readiness", () => {
     });
   });
 
+  it("ตรวจ error code ที่ Drizzle ห่อไว้ใน cause", async () => {
+    const missingTable = Object.assign(new Error("internal mysql detail"), {
+      code: "ER_NO_SUCH_TABLE",
+    });
+
+    await expect(
+      getSystemReadiness(async () => {
+        throw Object.assign(new Error("Failed query"), {
+          cause: missingTable,
+        });
+      }),
+    ).resolves.toEqual({
+      status: "OUTDATED",
+      requiredMigration: REQUIRED_MIGRATION.tag,
+    });
+  });
+
   it("รายงาน UNAVAILABLE โดยไม่ส่งรายละเอียดภายใน เมื่อ query ล้มเหลว", async () => {
     const readiness = await getSystemReadiness(async () => {
       throw new Error("mysql://secret@database/internal");
