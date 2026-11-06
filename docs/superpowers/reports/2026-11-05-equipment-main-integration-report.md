@@ -23,6 +23,7 @@ Commands below were run sequentially in the worktree. Test counts are from this 
 | `npm run lint` | PASS with warnings, exit 0; 0 errors, 4 warnings (listed below). |
 | `npm run build` | FAIL / environment-blocked, exit 1; SWC native load fails before compilation. Not a pass and not a timeout. |
 | `npm run build` (after controller's isolated SWC binary repair) | FAIL, exit 1; native loading succeeds, but Turbopack stops with `Missing field additionalRoots`. No timeout. |
+| `npm run build` (after controller's complete local dependency copy) | PASS, exit 0; Next/SWC 16.4.4, compiled in 94s, TypeScript in 87s, static generation 73/73 in 963ms, route generation and final optimization complete. |
 | `npx drizzle-kit check` | PASS, exit 0; `Everything's fine`. Offline migration metadata only. |
 | `git diff --check` | PASS, exit 0; no output. |
 | `git diff --check main...HEAD` (additional branch-wide check) | FAIL, exit 1; old equipment design whitespace at lines 3, 4, 450. |
@@ -40,7 +41,7 @@ All four files are unchanged versus main. They were recorded without unrelated e
 
 ### Build blocker and nonzero outcomes
 
-The build printed that `@next/swc-win32-x64-msvc/next-swc.win32-x64-msvc.node` is not a valid Win32 application, that `@next/swc-wasm-nodejs` and `@next/swc-wasm-web` are not installed, and that SWC/`next.config.ts` could not load. It exited 1 before application compilation; therefore production output and prerendering remain unverified.
+The initial build printed that `@next/swc-win32-x64-msvc/next-swc.win32-x64-msvc.node` is not a valid Win32 application, that `@next/swc-wasm-nodejs` and `@next/swc-wasm-web` are not installed, and that SWC/`next.config.ts` could not load. It exited 1 before application compilation; production output and prerendering were not verified by that attempt.
 
 Minimal independent reproduction:
 
@@ -52,7 +53,17 @@ Result: exit 1, `Node platform/arch: win32 x64`, `SWC native load failed: ERR_DL
 
 The controller subsequently replaced only the isolated worktree's corrupted SWC native binary with the known-good binary from main's `node_modules`. Controller-provided evidence: matching SHA-256 (reported digest prefix/suffix `F97A38E...A367A`), length 110,266,368 bytes, and a direct native `require` probe exiting 0. The implementer did not independently rerun that probe or change source/package files.
 
-The authorized build-only rerun still exited 1 (approximately 5.1s). The SWC loader failure disappeared, Next.js reported `16.2.11 (Turbopack)`, and compilation started with `Creating an optimized production build ...` before failing with `Error: Missing field additionalRoots`. It also warned that multiple lockfiles caused the workspace root to be inferred as `D:/Project/nextjs/fitness-management`, with the worktree lockfile listed as an additional lockfile. This is a distinct unresolved build failure; the exact cause was not established, and no source/config workaround or additional heavy checks were run. The manifest declares Next.js `16.4.4`, so the differing CLI version is recorded for dependency-runtime investigation, not treated as proof of a specific cause.
+The first authorized build-only rerun still exited 1 (approximately 5.1s). The SWC loader failure disappeared, Next.js reported `16.2.11 (Turbopack)`, and compilation started with `Creating an optimized production build ...` before failing with `Error: Missing field additionalRoots`. It also warned that multiple lockfiles caused the workspace root to be inferred as `D:/Project/nextjs/fitness-management`, with the worktree lockfile listed as an additional lockfile. The manifest declares Next.js `16.4.4`; the differing CLI version was recorded rather than attributed to an unproven source defect.
+
+The controller then replaced the entire isolated worktree `node_modules` from the known-good main `node_modules` using a completed local multi-threaded copy (Robocopy), without changing source, manifests or lockfiles. This operational repair provenance is controller-reported. The implementer independently verified installed package versions with:
+
+```powershell
+node -e "console.log('next:',require('next/package.json').version);console.log('swc:',require('@next/swc-win32-x64-msvc/package.json').version)"
+```
+
+Result: exit 0, `next: 16.4.4`, `swc: 16.4.4`. The subsequent `npm run build` passed with exit 0: configuration loaded in 5.4s, compilation in 94s, TypeScript in 87s, static generation 73/73 in 963ms, then final page optimization and complete route output. The output includes `/equipment`, `/api/equipment`, `/api/equipment/[id]`, `/api/equipment/[id]/maintenance`, `/api/equipment/[id]/retire` and Proxy. No invalid-native, `additionalRoots` or multiple-lockfile warning appeared in this successful run. No network dependency installation or source/config workaround was performed by the implementer.
+
+The final build result supersedes the build acceptance blocker, but does not erase the two earlier failed attempts. Only package-version verification and the build were rerun after the full dependency copy; focused/full tests, standalone typecheck, lint and Drizzle results above belong to the original sequential run. Live DB/runtime/browser acceptance remains unverified.
 
 The branch-wide whitespace failure is confined to `docs/superpowers/specs/2026-08-21-equipment-production-ready-design.md`: trailing whitespace at lines 3 and 4, and an added blank line at EOF at line 450. This matches the older readiness report and was not introduced by Task 3. The plain working-tree check passing does not mean the branch-wide check passed.
 
@@ -66,7 +77,7 @@ The review traced the page and API inputs through authoritative branch/session/p
 - Concurrency/audit: existing-row writes lock by equipment ID plus branch, compare the supplied version, perform compare-and-set, and require exactly one affected row. Maintenance insertion, equipment update, and SUCCESS audit share a transaction. Failed audit writes roll back business writes. Duplicate-code insertion races are normalized against the exact global unique constraint. Stale/failed requests cannot create a SUCCESS audit.
 - Lifecycle: retirement preserves equipment and history; later mutations are rejected. Retired records are excluded from actionable maintenance SQL predicates and UI urgency. Completed maintenance updates meter and next schedule under the same versioned transaction.
 - UI: fixed error copy, explicit stale-versus-code-conflict handling, single refresh without automatic mutation retry, permission-based controls, accessible dialog labels/live regions, semantic desktop tables, mobile lists, and URL-owned filter/pagination state are present. This is source/DOM-test review, not visual or authenticated browser acceptance.
-- No deterministic integration defect was established during this review; no production code, tests, fixtures, interfaces, exports, or dependencies were changed by Task 3.
+- No deterministic integration defect was established during this review; no production code, tests, fixtures, interfaces, exports, manifests or lockfiles were changed by the implementer. The controller's isolated dependency-runtime repairs are documented above.
 
 Review status: implementer whole-branch review completed; independent review remains a separate controller gate. This report alone does not claim production acceptance.
 
@@ -80,7 +91,7 @@ Review status: implementer whole-branch review completed; independent review rem
 
 ## Remaining gates and known limits
 
-1. Resolve the remaining build-runtime failure (`Missing field additionalRoots` after the isolated SWC native-load repair) and obtain a successful full production build; separately decide whether the old design-document whitespace must be cleaned up before branch acceptance.
+1. Production build acceptance now passes after the local dependency-runtime repair. Decide separately whether the old design-document whitespace must be cleaned up before branch acceptance; the branch-wide diff check remains recorded as failing.
 2. Complete the independent whole-branch review and close any Critical/Important findings before database work.
 3. In a controlled write-free window, perform aggregate-only DB preflight, verify migration journal `0016`, and check schema/invariants without exposing row data. Create the encrypted backup and pass dry-run restore verification before DDL.
 4. Apply `0017` once, then verify journal, enum/columns/indexes/defaults, invariant counts and unchanged business row counts. MySQL DDL auto-commits: a partial failure requires inspection and forward repair, never blind retry.
