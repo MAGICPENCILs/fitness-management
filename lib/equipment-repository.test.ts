@@ -261,6 +261,22 @@ function makeDuplicateErrorForKey(keyReference: string, wrapped: boolean) {
 describe("production equipment mutation repository", () => {
   beforeEach(() => database.reset());
 
+  it.each([
+    ["ตั้งรอบแรก", null, null, 200, 200, 300],
+    ["ล้างรอบ", 250, 350, null, null, null],
+  ])("%s บันทึก interval/threshold และ version พร้อมกัน", async (_label, oldInterval, oldThreshold, interval, expectedInterval, expectedThreshold) => {
+    database.reset({ maintenanceIntervalHours: oldInterval, nextMaintenanceHours: oldThreshold });
+    const service = createEquipmentMutationService(equipmentMutationRepository);
+    await runAuditedMutation({
+      actorStaffId: 2, branchId: 10, action: "EQUIPMENT_MASTER_UPDATED", entityType: "EQUIPMENT", entityId: 7,
+    }, (tx) => service.updateEquipmentMaster(7, 10, { maintenanceIntervalHours: interval, expectedVersion: 3 }, tx));
+    expect(database.state.equipment).toMatchObject({
+      maintenanceIntervalHours: expectedInterval, nextMaintenanceHours: expectedThreshold, version: 4,
+    });
+    expect(database.state.audits).toEqual([expect.objectContaining({ result: "SUCCESS" })]);
+    expect(database.updates).toHaveLength(1);
+  });
+
   it.each(["OVERDUE", "DUE_SOON", "SCHEDULED", "NOT_SCHEDULED"])(
     "maintenance filter %s ตัด RETIRED ออกจาก SQL predicate",
     (state) => {

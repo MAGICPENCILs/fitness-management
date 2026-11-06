@@ -31,7 +31,7 @@ function masterPayload(form: HTMLFormElement, item?: EquipmentDto) {
     purchaseDate: clearable("purchaseDate"),
     warrantyEndDate: clearable("warrantyEndDate"),
     ...(item ? {} : { currentUsageHours: data.get("currentUsageHours") }),
-    maintenanceIntervalHours: optional("maintenanceIntervalHours"),
+    maintenanceIntervalHours: optional("maintenanceIntervalHours") ?? (item ? null : undefined),
     nextMaintenanceDate: clearable("nextMaintenanceDate"),
     note: clearable("note"),
     ...(item ? { expectedVersion: item.version } : {}),
@@ -52,14 +52,16 @@ function issueMap(issues: { path: PropertyKey[]; message: string }[]) {
 export function EquipmentFormDialog({ item, onSuccess }: { item?: EquipmentDto; onSuccess: (message: string) => void }) {
   const router = useRouter();
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const draftItem = useRef(item);
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
   const editing = Boolean(item);
 
-  /** ไม่ยอมปิดระหว่างส่งคำขอ เพื่อไม่ให้ผู้ใช้เข้าใจว่าการบันทึกถูกยกเลิกแล้ว */
+  /** ตรึงข้อมูลต้นฉบับทุกครั้งที่เปิดเพื่อไม่จับ draft เก่าคู่กับ version ใหม่ และไม่ยอมปิดระหว่างส่ง */
   function changeOpen(next: boolean) {
     if (!pending) {
+      if (next) draftItem.current = item;
       setOpen(next);
       if (!next) setErrors({});
     }
@@ -69,8 +71,9 @@ export function EquipmentFormDialog({ item, onSuccess }: { item?: EquipmentDto; 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
-    const payload = masterPayload(event.currentTarget, item);
-    const parsed = (item ? updateEquipmentMasterSchema : createEquipmentSchema).safeParse(payload);
+    const original = draftItem.current;
+    const payload = masterPayload(event.currentTarget, original);
+    const parsed = (original ? updateEquipmentMasterSchema : createEquipmentSchema).safeParse(payload);
     if (!parsed.success) {
       setErrors(issueMap(parsed.error.issues));
       return;
@@ -78,15 +81,15 @@ export function EquipmentFormDialog({ item, onSuccess }: { item?: EquipmentDto; 
     setErrors({});
     setPending(true);
     const result = await sendEquipmentMutation({
-      url: item ? `/api/equipment/${item.id}` : "/api/equipment",
-      method: item ? "PUT" : "POST",
+      url: original ? `/api/equipment/${original.id}` : "/api/equipment",
+      method: original ? "PUT" : "POST",
       body: parsed.data,
-      flow: item ? "edit" : "create",
+      flow: original ? "edit" : "create",
     });
     setPending(false);
     if (result.kind === "success") {
       setOpen(false);
-      onSuccess(item ? "แก้ไขทะเบียนอุปกรณ์เรียบร้อยแล้ว" : "เพิ่มอุปกรณ์เรียบร้อยแล้ว");
+      onSuccess(original ? "แก้ไขทะเบียนอุปกรณ์เรียบร้อยแล้ว" : "เพิ่มอุปกรณ์เรียบร้อยแล้ว");
       router.refresh();
     } else if (result.kind === "stale") {
       setOpen(false);

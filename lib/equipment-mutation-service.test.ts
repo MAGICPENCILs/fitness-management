@@ -96,6 +96,29 @@ function createHarness(row = makeEquipmentRow()) {
 }
 
 describe("equipment mutation service", () => {
+  it("คืน STALE_VERSION ก่อนตรวจมิเตอร์ที่ถูกเพิ่มโดยคำขออื่น", async () => {
+    const { repository, service } = createHarness(
+      makeEquipmentRow({ currentUsageHours: 120, version: 4 }),
+    );
+    await expect(service.updateEquipmentOperation(7, 10, {
+      currentUsageHours: 110, status: "OPERATIONAL", expectedVersion: 3,
+    }, tx)).rejects.toMatchObject({ status: 409, code: "STALE_VERSION" });
+    expect(repository.compareAndSetEquipment).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["เริ่มรอบแรก", null, null, { maintenanceIntervalHours: 200 }, { maintenanceIntervalHours: 200, nextMaintenanceHours: 300 }],
+    ["ล้างรอบ", 250, 350, { maintenanceIntervalHours: null }, { maintenanceIntervalHours: null, nextMaintenanceHours: null }],
+    ["คงรอบเมื่อไม่ได้ส่ง", 250, 350, {}, {}],
+    ["ไม่เลื่อนกำหนดเดิมเมื่อแก้ interval", 250, 350, { maintenanceIntervalHours: 200 }, { maintenanceIntervalHours: 200 }],
+  ])("%s ผ่านข้อมูลทะเบียน", async (_label, interval, threshold, input, changes) => {
+    const { repository, service } = createHarness(makeEquipmentRow({
+      maintenanceIntervalHours: interval, nextMaintenanceHours: threshold,
+    }));
+    await service.updateEquipmentMaster(7, 10, { ...input, expectedVersion: 3 }, tx);
+    expect(repository.compareAndSetEquipment).toHaveBeenCalledWith(7, 10, 3, changes, tx);
+  });
+
   it.each([
     [
       "แก้เฉพาะวันซื้อ",

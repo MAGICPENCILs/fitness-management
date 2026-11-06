@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EquipmentDashboard } from "@/components/equipment/equipment-dashboard";
 import type {
@@ -117,6 +117,42 @@ function hrefParams(link: HTMLElement) {
 }
 
 describe("equipment dashboard", () => {
+  it("equipment filters เปลี่ยนค่าที่แสดงและส่งหลัง Reset/client navigation", () => {
+    const view = (applied: EquipmentDashboardFilters) => <EquipmentDashboard {...dashboard} filters={applied} today="2026-08-21" canManage={false} />;
+    const { rerender } = render(view(filters));
+    fireEvent.change(screen.getByLabelText("สถานะอุปกรณ์"), { target: { value: "MAINTENANCE" } });
+    const reset = { ...filters, search: "", status: "ALL" as const, category: "ALL" as const, maintenance: "ALL" as const };
+    rerender(view(reset));
+    expect(screen.getByLabelText("ค้นหาอุปกรณ์")).toHaveValue("");
+    expect(screen.getByLabelText("สถานะอุปกรณ์")).toHaveValue("ALL");
+    expect(screen.getByLabelText("หมวดหมู่")).toHaveValue("ALL");
+    expect(screen.getByLabelText("กำหนดบำรุง")).toHaveValue("ALL");
+    const form = screen.getByRole("form", { name: "ตัวกรองทะเบียนอุปกรณ์" }) as HTMLFormElement;
+    expect(new FormData(form).get("status")).toBe("ALL");
+    rerender(view({ ...reset, status: "RETIRED", category: "OTHER", maintenance: "NONE", search: "NEW" }));
+    expect(screen.getByLabelText("สถานะอุปกรณ์")).toHaveValue("RETIRED");
+    expect(screen.getByLabelText("หมวดหมู่")).toHaveValue("OTHER");
+    expect(screen.getByLabelText("กำหนดบำรุง")).toHaveValue("NONE");
+    expect(screen.getByLabelText("ค้นหาอุปกรณ์")).toHaveValue("NEW");
+  });
+
+  it("history filters เปลี่ยนค่าที่แสดงและส่งหลัง Reset/client navigation", () => {
+    const view = (applied: EquipmentDashboardFilters) => <EquipmentDashboard {...dashboard} filters={applied} today="2026-08-21" canManage={false} />;
+    const { rerender } = render(view({ ...filters, tab: "history" }));
+    fireEvent.change(screen.getByLabelText("ประเภทงาน"), { target: { value: "INSPECTION" } });
+    const reset = { ...filters, tab: "history" as const, historyEquipmentId: null, historyType: "ALL" as const, historyStatus: "ALL" as const };
+    rerender(view(reset));
+    expect(screen.getByLabelText("อุปกรณ์ ID")).toHaveValue(null);
+    expect(screen.getByLabelText("ประเภทงาน")).toHaveValue("ALL");
+    expect(screen.getByLabelText("สถานะงาน")).toHaveValue("ALL");
+    const form = screen.getByRole("form", { name: "ตัวกรองประวัติการบำรุงรักษา" }) as HTMLFormElement;
+    expect(new FormData(form).get("historyType")).toBe("ALL");
+    rerender(view({ ...reset, historyEquipmentId: 8, historyType: "PREVENTIVE", historyStatus: "SCHEDULED" }));
+    expect(screen.getByLabelText("อุปกรณ์ ID")).toHaveValue(8);
+    expect(screen.getByLabelText("ประเภทงาน")).toHaveValue("PREVENTIVE");
+    expect(screen.getByLabelText("สถานะงาน")).toHaveValue("SCHEDULED");
+  });
+
   it("แสดง summary ทั้งสาขาพร้อม label โดยไม่คำนวณใหม่จากแถวหน้าปัจจุบัน", () => {
     render(
       <EquipmentDashboard

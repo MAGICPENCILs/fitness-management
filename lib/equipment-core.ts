@@ -158,7 +158,7 @@ export const createEquipmentSchema = z
     },
   );
 
-/** จำกัด master update ไว้เฉพาะข้อมูลทะเบียน เพื่อกันการย้ายสาขาหรือแก้สถานะผ่านช่องทางผิด */
+/** จำกัด master update ให้แก้ทะเบียนเท่านั้น; interval ที่ละไว้คงเดิม ส่วน null ใช้ล้างรอบชั่วโมง */
 export const updateEquipmentMasterSchema = z
   .object({
     code: codeSchema.optional(),
@@ -168,7 +168,7 @@ export const updateEquipmentMasterSchema = z
     serialNumber: z.string().trim().max(100).optional(),
     purchaseDate: optionalDateSchema,
     warrantyEndDate: optionalDateSchema,
-    maintenanceIntervalHours: maintenanceIntervalHoursSchema.optional(),
+    maintenanceIntervalHours: maintenanceIntervalHoursSchema.nullable().optional(),
     nextMaintenanceDate: optionalDateSchema,
     note: z.string().trim().max(1000).optional(),
     expectedVersion: expectedVersionSchema,

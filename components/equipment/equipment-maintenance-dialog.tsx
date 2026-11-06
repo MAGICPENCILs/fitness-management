@@ -16,14 +16,16 @@ import { Label } from "@/components/ui/label";
 export function EquipmentMaintenanceDialog({ item, today, onSuccess }: { item: EquipmentDto; today: string; onSuccess: (message: string) => void }) {
   const router = useRouter();
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const draftItem = useRef(item);
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<MaintenanceStatus>("COMPLETED");
   const [pending, setPending] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<string, string>>>({});
 
-  /** คง dialog ไว้ระหว่าง pending เพื่อให้สถานะการส่งคำขอชัดเจนและไม่ซ้ำ */
+  /** ตรึง meter/version ของ draft ตอนเปิด และคง dialog ไว้ระหว่าง pending เพื่อกันคำขอซ้ำ */
   function changeOpen(next: boolean) {
     if (!pending) {
+      if (next) draftItem.current = item;
       setOpen(next);
       if (!next) setErrors({});
     }
@@ -33,6 +35,7 @@ export function EquipmentMaintenanceDialog({ item, today, onSuccess }: { item: E
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
+    const original = draftItem.current;
     const data = new FormData(event.currentTarget);
     const optional = (name: string) => String(data.get(name) ?? "").trim() || undefined;
     const parsed = maintenanceSchema.safeParse({
@@ -40,7 +43,7 @@ export function EquipmentMaintenanceDialog({ item, today, onSuccess }: { item: E
       completedDate: status === "COMPLETED" ? data.get("completedDate") : undefined,
       usageHoursAtService: data.get("usageHoursAtService"), cost: data.get("cost"),
       technician: optional("technician"), nextMaintenanceDate: optional("nextMaintenanceDate"),
-      note: optional("note"), expectedVersion: item.version,
+      note: optional("note"), expectedVersion: original.version,
     });
     if (!parsed.success) {
       const nextErrors: Partial<Record<string, string>> = {};
@@ -51,13 +54,13 @@ export function EquipmentMaintenanceDialog({ item, today, onSuccess }: { item: E
       setErrors(nextErrors);
       return;
     }
-    if ((parsed.data.usageHoursAtService ?? item.currentUsageHours) < item.currentUsageHours) {
+    if ((parsed.data.usageHoursAtService ?? original.currentUsageHours) < original.currentUsageHours) {
       setErrors({ usageHoursAtService: "ชั่วโมง ณ วันที่บำรุงต้องไม่น้อยกว่ามิเตอร์ปัจจุบัน" });
       return;
     }
     setErrors({});
     setPending(true);
-    const result = await sendEquipmentMutation({ url: `/api/equipment/${item.id}/maintenance`, method: "POST", body: parsed.data, flow: "maintenance" });
+    const result = await sendEquipmentMutation({ url: `/api/equipment/${original.id}/maintenance`, method: "POST", body: parsed.data, flow: "maintenance" });
     setPending(false);
     if (result.kind === "success") {
       setOpen(false);

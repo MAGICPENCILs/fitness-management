@@ -102,6 +102,32 @@ describe("equipment action visibility", () => {
 });
 
 describe("create and edit equipment", () => {
+  it("PUT edit คง version ของ draft เมื่อ props refresh ระหว่างเปิด และรับ version ใหม่เมื่อเปิดรอบถัดไป", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ version: 6 }));
+    const success = vi.fn();
+    const { rerender } = render(<EquipmentFormDialog item={item} onSuccess={success} />);
+    fireEvent.click(screen.getByRole("button", { name: "แก้ไขทะเบียน BIKE-007" }));
+    fireEvent.change(screen.getByLabelText("ชื่ออุปกรณ์"), { target: { value: "draft เก่า" } });
+    rerender(<EquipmentFormDialog item={{ ...item, version: 5, name: "ข้อมูลใหม่" }} onSuccess={success} />);
+    fireEvent.click(screen.getByRole("button", { name: "บันทึกการแก้ไข" }));
+    await waitFor(() => expect(success).toHaveBeenCalledOnce());
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ name: "draft เก่า", expectedVersion: 4 });
+    fireEvent.click(screen.getByRole("button", { name: "แก้ไขทะเบียน BIKE-007" }));
+    fireEvent.click(screen.getByRole("button", { name: "บันทึกการแก้ไข" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({ name: "ข้อมูลใหม่", expectedVersion: 5 });
+  });
+
+  it("PUT edit ส่ง explicit null เมื่อล้าง interval", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ version: 5 }));
+    render(<EquipmentFormDialog item={item} onSuccess={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "แก้ไขทะเบียน BIKE-007" }));
+    fireEvent.change(screen.getByLabelText("รอบบำรุง (ชั่วโมง)"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "บันทึกการแก้ไข" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ maintenanceIntervalHours: null });
+  });
+
   it.each([
     ["create", undefined, "บันทึกอุปกรณ์"],
     ["edit", item, "บันทึกการแก้ไข"],
@@ -171,6 +197,7 @@ describe("create and edit equipment", () => {
     expect(createBody).not.toHaveProperty("warrantyEndDate");
     expect(createBody).not.toHaveProperty("nextMaintenanceDate");
     expect(createBody).not.toHaveProperty("note");
+    expect(createBody).not.toHaveProperty("maintenanceIntervalHours");
     deferred.resolve(jsonResponse({ message: "SERVER-RAW-DO-NOT-RENDER", id: 9, version: 1 }, 201));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(success).toHaveBeenCalledWith("เพิ่มอุปกรณ์เรียบร้อยแล้ว");
@@ -228,6 +255,25 @@ describe("create and edit equipment", () => {
 });
 
 describe("operation, maintenance and retirement", () => {
+  it.each(["operation", "maintenance", "retire"] as const)("%s ผูก draft กับ version เดิมแม้ props refresh", async (flow) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ version: 6 }));
+    const success = vi.fn();
+    const dialog = (current: EquipmentDto) => flow === "operation"
+      ? <EquipmentOperationDialog item={current} onSuccess={success} />
+      : flow === "maintenance"
+        ? <EquipmentMaintenanceDialog item={current} today="2026-08-21" onSuccess={success} />
+        : <EquipmentRetireDialog item={current} onSuccess={success} />;
+    const { rerender } = render(dialog(item));
+    const trigger = flow === "operation" ? "อัปเดตมิเตอร์และสถานะ BIKE-007" : flow === "maintenance" ? "บันทึกงานบำรุง BIKE-007" : "เลิกใช้งาน BIKE-007";
+    fireEvent.click(screen.getByRole("button", { name: trigger }));
+    if (flow === "retire") fireEvent.change(screen.getByLabelText("เหตุผลที่เลิกใช้งาน"), { target: { value: "ชำรุดถาวร" } });
+    else fireEvent.change(screen.getByLabelText(flow === "operation" ? "ชั่วโมงใช้งาน" : "ชั่วโมง ณ วันที่บำรุง"), { target: { value: "110" } });
+    rerender(dialog({ ...item, version: 5, currentUsageHours: 120 }));
+    fireEvent.click(screen.getByRole("button", { name: flow === "operation" ? "บันทึกสถานะ" : flow === "maintenance" ? "บันทึกงานบำรุง" : "ยืนยันเลิกใช้งาน" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ expectedVersion: 4 });
+  });
+
   it("PATCH operation จำกัดสถานะ ส่งมิเตอร์และ expectedVersion", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ version: 5 }));

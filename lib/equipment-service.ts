@@ -376,7 +376,7 @@ export type UpdateEquipmentMasterInput = {
   serialNumber?: string;
   purchaseDate?: string;
   warrantyEndDate?: string;
-  maintenanceIntervalHours?: number;
+  maintenanceIntervalHours?: number | null;
   nextMaintenanceDate?: string;
   note?: string;
   expectedVersion: number;
@@ -436,7 +436,7 @@ function assertExpectedVersion(currentVersion: number, expectedVersion: number) 
     );
 }
 
-/** เลือกเฉพาะ master fields ที่อนุญาตและแปลงค่าว่าง nullable โดยไม่เปิดทางแก้สาขา มิเตอร์ หรือ lifecycle */
+/** เลือกเฉพาะ master fields และคง explicit null ของ interval เพื่อแยกคำสั่งล้างออกจาก field ที่ละไว้ */
 function getMasterChanges(input: UpdateEquipmentMasterInput) {
   const prohibitedKey = Object.keys(input).find(
     (key) => !masterInputKeys.has(key),
@@ -465,7 +465,7 @@ function getMasterChanges(input: UpdateEquipmentMasterInput) {
   return changes;
 }
 
-/** แยกกฎ lifecycle ออกจาก Drizzle แต่ใช้ repository เดิมกับ transaction ของ caller ตลอด lock/CAS */
+/** ใช้ locked state ตรวจ lifecycle/version และกำหนดรอบชั่วโมงแรกหรือการล้างภายใน transaction เดียวกับ CAS */
 export function createEquipmentMutationService(
   repository: EquipmentMutationRepository,
 ) {
@@ -480,6 +480,10 @@ export function createEquipmentMutationService(
       const current = await repository.lockEquipment(equipmentId, branchId, tx);
       assertMutableLifecycle(current.status);
       assertExpectedVersion(current.version, input.expectedVersion);
+      // เริ่ม threshold เฉพาะเมื่อยังไม่มีกำหนดเดิม; การล้าง interval ต้องล้าง threshold ด้วยเพื่อหยุดการเตือน.
+      if (changes.maintenanceIntervalHours === null) changes.nextMaintenanceHours = null;
+      else if (changes.maintenanceIntervalHours !== undefined && current.nextMaintenanceHours === null)
+        changes.nextMaintenanceHours = current.currentUsageHours + changes.maintenanceIntervalHours;
       /** ตรวจวันจากค่าที่จะมีผลจริงหลัง merge เพื่อให้ partial API update ทำ invariant เสียไม่ได้ */
       const effectivePurchaseDate =
         changes.purchaseDate !== undefined
@@ -508,7 +512,7 @@ export function createEquipmentMutationService(
       return { equipmentId, version: input.expectedVersion + 1 };
     },
 
-    /** ปฏิเสธมิเตอร์ย้อนหลังและ RETIRED จาก locked state ก่อน CAS เพื่อไม่ให้ค่าปัจจุบันถูกเขียนทับ */
+    /** ตรวจ version ก่อนมิเตอร์จาก locked state เพื่อแยก stale 409 ออกจากการลดมิเตอร์จริงที่ต้องเป็น 400 */
     async updateEquipmentOperation(
       equipmentId: number,
       branchId: number,
@@ -517,11 +521,11 @@ export function createEquipmentMutationService(
     ) {
       const current = await repository.lockEquipment(equipmentId, branchId, tx);
       assertMutableLifecycle(current.status);
+      assertExpectedVersion(current.version, input.expectedVersion);
       if (input.currentUsageHours < current.currentUsageHours)
         throw new EquipmentOperationError(
           "ชั่วโมงใช้งานใหม่ต้องไม่น้อยกว่าค่าปัจจุบัน",
         );
-      assertExpectedVersion(current.version, input.expectedVersion);
       await repository.compareAndSetEquipment(
         equipmentId,
         branchId,

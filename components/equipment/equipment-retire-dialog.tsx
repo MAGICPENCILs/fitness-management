@@ -14,13 +14,15 @@ import { Label } from "@/components/ui/label";
 export function EquipmentRetireDialog({ item, onSuccess }: { item: EquipmentDto; onSuccess: (message: string) => void }) {
   const router = useRouter();
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const draftItem = useRef(item);
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
-  /** ไม่ยอม dismiss ระหว่าง pending เพื่อไม่ทำให้ผลของคำสั่งถาวรคลุมเครือ */
+  /** ตรึง version ตอนเริ่ม draft และไม่ยอมปิดระหว่าง pending เพื่อให้คำสั่งถาวรมีฐานข้อมูลชัดเจน */
   function changeOpen(next: boolean) {
     if (!pending) {
+      if (next) draftItem.current = item;
       setOpen(next);
       if (!next) setError("");
     }
@@ -30,15 +32,16 @@ export function EquipmentRetireDialog({ item, onSuccess }: { item: EquipmentDto;
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
+    const original = draftItem.current;
     const data = new FormData(event.currentTarget);
-    const parsed = retireEquipmentSchema.safeParse({ reason: data.get("reason"), expectedVersion: item.version });
+    const parsed = retireEquipmentSchema.safeParse({ reason: data.get("reason"), expectedVersion: original.version });
     if (!parsed.success) {
       setError("กรุณาระบุเหตุผลอย่างน้อย 2 ตัวอักษร");
       return;
     }
     setError("");
     setPending(true);
-    const result = await sendEquipmentMutation({ url: `/api/equipment/${item.id}/retire`, method: "POST", body: parsed.data, flow: "retire" });
+    const result = await sendEquipmentMutation({ url: `/api/equipment/${original.id}/retire`, method: "POST", body: parsed.data, flow: "retire" });
     setPending(false);
     if (result.kind === "success") {
       setOpen(false);

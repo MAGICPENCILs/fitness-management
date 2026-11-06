@@ -47,6 +47,7 @@ vi.mock("@/lib/audit-service", () => ({
 }));
 
 import { EquipmentOperationError } from "@/lib/equipment-service";
+import type { EquipmentRow } from "@/lib/equipment-repository";
 import { AuthorizationError } from "@/lib/staff-service";
 
 const APP_ORIGIN = "https://fitness.example";
@@ -477,6 +478,33 @@ describe("equipment API routes", () => {
     });
     expect(mocks.runAuditedMutation).toHaveBeenCalledOnce();
     expect(mocks.updateEquipmentOperation).toHaveBeenCalledOnce();
+  });
+
+  it.each([[3, 409], [4, 400]])("PATCH มิเตอร์เก่ากับ expectedVersion %s คืน HTTP %s จาก service จริง", async (version, expectedStatus) => {
+    const actual = await vi.importActual<typeof import("@/lib/equipment-service")>("@/lib/equipment-service");
+    const compareAndSetEquipment = vi.fn();
+    const service = actual.createEquipmentMutationService({
+      lockEquipment: vi.fn(async () => ({ ...detailDto.equipment, branchId: 10, version: 4, currentUsageHours: 120, retiredAt: null, createdAt: null, updatedAt: null } as EquipmentRow)),
+      compareAndSetEquipment,
+      insertMaintenance: vi.fn(),
+    });
+    mocks.updateEquipmentOperation.mockImplementation(service.updateEquipmentOperation);
+    const response = await callRoute(loadDetailRoute, "PATCH", mutationRequest(
+      "/api/equipment/7", "PATCH", JSON.stringify({ currentUsageHours: 110, status: "OPERATIONAL", expectedVersion: version }),
+    ), params("7"));
+    expect(response.status).toBe(expectedStatus);
+    const body = await response.json();
+    if (version === 3) expect(body.code).toBe("STALE_VERSION");
+    else expect(body).not.toHaveProperty("code");
+    expect(compareAndSetEquipment).not.toHaveBeenCalled();
+  });
+
+  it("PUT master ส่ง explicit null interval ผ่าน schema ไปยัง service", async () => {
+    const response = await callRoute(loadDetailRoute, "PUT", mutationRequest(
+      "/api/equipment/7", "PUT", JSON.stringify({ maintenanceIntervalHours: null, expectedVersion: 3 }),
+    ), params("7"));
+    expect(response.status).toBe(200);
+    expect(mocks.updateEquipmentMaster).toHaveBeenCalledWith(7, 10, { maintenanceIntervalHours: null, expectedVersion: 3 }, auditedTransaction);
   });
 
   it("duplicate code คืน 409 fixed copy พร้อม machine code ที่ allowlist", async () => {

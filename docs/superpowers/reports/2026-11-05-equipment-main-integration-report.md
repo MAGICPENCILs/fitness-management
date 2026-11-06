@@ -100,3 +100,34 @@ Review status: implementer whole-branch review completed; independent review rem
 7. Previously documented limits remain: dashboard out-of-range pagination is not normalized to the last page; repeated detail `historyPage` query parameters are resolved with `URLSearchParams.get()`; legacy indexes have ongoing storage/write cost. No restore-from-retirement or branch-transfer feature was added.
 
 No environment files or credential values were read, logged, or changed. Hardware/provider acceptance and live production readiness are outside this code-verification task.
+
+## Independent review fix round 1/5
+
+Review/fix base: `d84de97`. The controller supplied four Important findings after the initial implementer review. The initial statement that no deterministic defect was established is historical; the following new regression tests reproduce and close these four cases.
+
+1. Open equipment edit, operation, maintenance and retirement dialogs now capture their original item/version when opened. A prop refresh cannot attach a newer version to an older uncontrolled draft; meter validation uses the same captured meter. The next open captures the new item. Existing stale-conflict handling still refreshes once without retry.
+2. Operational updates check the locked version before the monotonic-meter rule. A draft for 110 hours at version 3 against current 120/version 4 produces `STALE_VERSION`/409; a genuine decrease using version 4 remains 400. API regression tests exercise the real mutation service rather than faking the conflict.
+3. Master interval updates distinguish omitted (leave unchanged), explicit `null` (clear interval plus hour threshold), and positive interval. Setting an interval when no hour threshold exists initializes it from locked current usage plus interval. An existing threshold is not shifted when editing interval. Blank create fields remain omitted; blank edit interval submits null. Create validation and positive bounds remain intact.
+4. Equipment/history filter forms remount only when their applied filter values change, so Reset/client navigation updates displayed and submitted values without discarding a draft during an ordinary unchanged rerender. Regression tests cover both reset-to-default and navigation to another non-default filter set.
+
+Scope: 13 source/test files, reusing existing refs, Zod schema, lock/CAS transaction and form markup. No dependency, SQL, schema, migration, route-handler implementation, RBAC, audit policy, DB, environment, server or browser change. Thai comments explain the changed business rules. The deferred retired-detail Minor was not addressed.
+
+Focused RED/GREEN command:
+
+```powershell
+npm test -- lib/equipment-mutation-service.test.ts lib/equipment-repository.test.ts lib/equipment-core.test.ts app/api/equipment/equipment-routes.test.ts components/equipment/equipment-actions.test.tsx components/equipment/equipment-dashboard.test.tsx --maxWorkers=1 --pool=forks
+```
+
+| Check | Exact result |
+| --- | --- |
+| Focused RED, tests added before implementation | Exit 1, 6 files failed, 15 failed / 143 passed (158 total), 31.49s. Expected failures: live draft versions/validation, stale meter 400 instead of 409, missing interval/threshold coupling and null support, and stale filter controls. |
+| Same focused command GREEN | Exit 0, 6 files / 158 tests passed, 27.18s. |
+| `npm test -- --maxWorkers=1 --pool=forks` | Exit 0, 82 files / 582 tests passed, 171.77s. |
+| `npx tsc --noEmit --incremental false --pretty false` | Exit 0; no diagnostics. |
+| `npm run lint` | Exit 0; 0 errors, same 4 unrelated warnings listed above; no warning in changed files. |
+| `npm run build` | Exit 0; Next.js 16.4.4, compiled in 13.3s, TypeScript in 12.1s, generated 73/73 static pages in 1257ms and finalized route optimization. |
+| `npx drizzle-kit check` | Exit 0; `Everything's fine`; offline metadata only. |
+| `git diff --check` | Exit 0; only LF/CRLF informational warnings. |
+| `git diff --check main...HEAD` | Exit 1; same pre-existing old-design whitespace at lines 3, 4 and 450, not changed in this round. |
+
+All heavy checks were sequential. Apart from the deliberate RED run and previously known branch-wide whitespace, there was no failed verification, timeout or cancellation in this fix round. The focused and full GREEN runs use the aligned dependencies documented above. Self-review traced every changed caller and verified that branch scope, lifecycle guards, input bounds, CAS, transactional audit behavior, fixed response handling, labels, focus restoration and pending guards remain in place. No shared abstraction or dependency was added. The four Important cases are implemented with regression evidence; controller/independent re-review remains the acceptance gate, and DB/browser checks remain outside scope.

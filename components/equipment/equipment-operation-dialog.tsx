@@ -18,13 +18,15 @@ const mutableStatuses: MutableEquipmentStatus[] = ["OPERATIONAL", "MAINTENANCE",
 export function EquipmentOperationDialog({ item, onSuccess }: { item: EquipmentDto; onSuccess: (message: string) => void }) {
   const router = useRouter();
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const draftItem = useRef(item);
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<{ field?: "currentUsageHours" | "status"; message: string }>({ message: "" });
 
-  /** ป้องกันการ dismiss ระหว่าง request เพื่อไม่เปิดทางส่งซ้ำจาก trigger เดิม */
+  /** ตรึง meter/version ตอนเปิดเพื่อไม่ให้ props refresh เปลี่ยนฐานของ draft และกันปิดระหว่าง request */
   function changeOpen(next: boolean) {
     if (!pending) {
+      if (next) draftItem.current = item;
       setOpen(next);
       if (!next) setError({ message: "" });
     }
@@ -34,24 +36,25 @@ export function EquipmentOperationDialog({ item, onSuccess }: { item: EquipmentD
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
+    const original = draftItem.current;
     const data = new FormData(event.currentTarget);
     const parsed = updateEquipmentOperationSchema.safeParse({
       currentUsageHours: data.get("currentUsageHours"),
       status: data.get("status"),
-      expectedVersion: item.version,
+      expectedVersion: original.version,
     });
     if (!parsed.success) {
       const first = parsed.error.issues[0];
       setError({ field: first?.path[0] === "status" ? "status" : "currentUsageHours", message: first?.message ?? "ข้อมูลสถานะไม่ถูกต้อง" });
       return;
     }
-    if (parsed.data.currentUsageHours < item.currentUsageHours) {
+    if (parsed.data.currentUsageHours < original.currentUsageHours) {
       setError({ field: "currentUsageHours", message: "ชั่วโมงใช้งานต้องไม่น้อยกว่าค่าปัจจุบัน" });
       return;
     }
     setError({ message: "" });
     setPending(true);
-    const result = await sendEquipmentMutation({ url: `/api/equipment/${item.id}`, method: "PATCH", body: parsed.data, flow: "operation" });
+    const result = await sendEquipmentMutation({ url: `/api/equipment/${original.id}`, method: "PATCH", body: parsed.data, flow: "operation" });
     setPending(false);
     if (result.kind === "success") {
       setOpen(false);

@@ -68,6 +68,7 @@ function CrossTabEquipmentFields({
   );
 }
 
+/** remount เฉพาะเมื่อ applied filter เปลี่ยน เพื่อให้ Reset/navigation ตรง URL โดยไม่ล้าง draft ระหว่าง render ปกติ */
 export function EquipmentFilters({
   filters,
 }: {
@@ -75,6 +76,7 @@ export function EquipmentFilters({
 }) {
   return (
     <form
+      key={JSON.stringify([filters.search, filters.status, filters.category, filters.maintenance])}
       action="/equipment"
       method="get"
       aria-label="ตัวกรองทะเบียนอุปกรณ์"
@@ -171,6 +173,7 @@ export function EquipmentFilters({
   );
 }
 
+/** เปลี่ยนชุด control เมื่อ applied history filter เปลี่ยน เพื่อไม่ส่งค่าค้างหลัง Reset/navigation */
 export function MaintenanceHistoryFilters({
   filters,
 }: {
@@ -178,6 +181,7 @@ export function MaintenanceHistoryFilters({
 }) {
   return (
     <form
+      key={JSON.stringify([filters.historyEquipmentId, filters.historyType, filters.historyStatus])}
       action="/equipment"
       method="get"
       aria-label="ตัวกรองประวัติการบำรุงรักษา"

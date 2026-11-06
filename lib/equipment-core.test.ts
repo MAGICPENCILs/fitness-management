@@ -15,6 +15,14 @@ import {
 import type { DbTransaction } from "@/lib/audit-service";
 
 describe("equipment core", () => {
+  it("master interval แยก omission และ explicit null โดยยังห้ามศูนย์/ติดลบ", () => {
+    expect(updateEquipmentMasterSchema.parse({ expectedVersion: 3 })).not.toHaveProperty("maintenanceIntervalHours");
+    expect(updateEquipmentMasterSchema.parse({ expectedVersion: 3, maintenanceIntervalHours: null })).toMatchObject({ maintenanceIntervalHours: null });
+    for (const value of [0, -1, ""]) {
+      expect(updateEquipmentMasterSchema.safeParse({ expectedVersion: 3, maintenanceIntervalHours: value }).success).toBe(false);
+    }
+    expect(createEquipmentSchema.safeParse({ code: "BIKE-1", name: "Bike", category: "CARDIO", location: "A", currentUsageHours: 0, maintenanceIntervalHours: null }).success).toBe(false);
+  });
   it("จัดระดับ OVERDUE เมื่อชั่วโมงเกินกำหนดแม้เพียงหนึ่งชั่วโมง", () => {
     expect(
       getMaintenanceState(
