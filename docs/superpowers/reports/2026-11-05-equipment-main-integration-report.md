@@ -201,3 +201,9 @@ Controller rulings made during integration:
 - Do not apply DDL until encrypted backup and dry-run verification pass; MySQL partial DDL requires reviewed forward repair, never blind retry.
 - Permit the schema index rename to `equipment_branch_maintenance_idx` because Drizzle generates the contract name from schema; index columns and query behavior remain unchanged.
 - Do not invent provider credentials, statutory payroll rules, vendor protocols or hardware evidence. These remain separate implementation/acceptance work with explicit external inputs.
+
+## Post-merge quality cleanup
+
+Completed 2026-11-06 after the reviewed equipment branch was merged and pushed to `main` at `fca1353`. The two non-blocking findings above are now closed: retired equipment DTOs return `maintenanceState: "NONE"` with null remaining values while retaining historical schedule fields, and the design document no longer has trailing/EOF whitespace. The cleanup also replaced the two remaining raw member `<img>` elements with dimensioned, accessible Next.js images and removed two unused schema imports; no dependency or database change was added.
+
+Verification after the cleanup: 82 test files / 583 tests passed serially, TypeScript passed, ESLint passed with zero warnings, Drizzle schema check passed, `git diff --check` passed, and a production build on merged `main` compiled successfully with 73/73 static pages generated. An independent review found no Critical or Important issue and approved the cleanup for merge. Authenticated multi-role browser acceptance, real MySQL concurrency, external providers, hardware calibration and recovery drill remain separate gates as stated above.
