@@ -22,6 +22,7 @@ Commands below were run sequentially in the worktree. Test counts are from this 
 | `npx tsc --noEmit --incremental false --pretty false` | PASS, exit 0; no diagnostics. |
 | `npm run lint` | PASS with warnings, exit 0; 0 errors, 4 warnings (listed below). |
 | `npm run build` | FAIL / environment-blocked, exit 1; SWC native load fails before compilation. Not a pass and not a timeout. |
+| `npm run build` (after controller's isolated SWC binary repair) | FAIL, exit 1; native loading succeeds, but Turbopack stops with `Missing field additionalRoots`. No timeout. |
 | `npx drizzle-kit check` | PASS, exit 0; `Everything's fine`. Offline migration metadata only. |
 | `git diff --check` | PASS, exit 0; no output. |
 | `git diff --check main...HEAD` (additional branch-wide check) | FAIL, exit 1; old equipment design whitespace at lines 3, 4, 450. |
@@ -47,7 +48,11 @@ Minimal independent reproduction:
 node -e "console.log('Node platform/arch:',process.platform,process.arch);try{require('@next/swc-win32-x64-msvc');console.log('SWC native load passed')}catch(e){console.error('SWC native load failed:',e.code);process.exitCode=1}"
 ```
 
-Result: exit 1, `Node platform/arch: win32 x64`, `SWC native load failed: ERR_DLOPEN_FAILED`. `git diff --quiet main...HEAD -- package.json package-lock.json next.config.ts` exited 0: these inputs are unchanged from main. This establishes an installed native-runtime blocker, not a demonstrated equipment source defect; the underlying binary damage/compatibility cause was not repaired or guessed. There was no elevated build retry or dependency installation.
+Result: exit 1, `Node platform/arch: win32 x64`, `SWC native load failed: ERR_DLOPEN_FAILED`. `git diff --quiet main...HEAD -- package.json package-lock.json next.config.ts` exited 0: these inputs are unchanged from main. This established an installed native-runtime blocker, not a demonstrated equipment source defect. The initial pass did not attempt an elevated build retry or dependency installation.
+
+The controller subsequently replaced only the isolated worktree's corrupted SWC native binary with the known-good binary from main's `node_modules`. Controller-provided evidence: matching SHA-256 (reported digest prefix/suffix `F97A38E...A367A`), length 110,266,368 bytes, and a direct native `require` probe exiting 0. The implementer did not independently rerun that probe or change source/package files.
+
+The authorized build-only rerun still exited 1 (approximately 5.1s). The SWC loader failure disappeared, Next.js reported `16.2.11 (Turbopack)`, and compilation started with `Creating an optimized production build ...` before failing with `Error: Missing field additionalRoots`. It also warned that multiple lockfiles caused the workspace root to be inferred as `D:/Project/nextjs/fitness-management`, with the worktree lockfile listed as an additional lockfile. This is a distinct unresolved build failure; the exact cause was not established, and no source/config workaround or additional heavy checks were run. The manifest declares Next.js `16.4.4`, so the differing CLI version is recorded for dependency-runtime investigation, not treated as proof of a specific cause.
 
 The branch-wide whitespace failure is confined to `docs/superpowers/specs/2026-08-21-equipment-production-ready-design.md`: trailing whitespace at lines 3 and 4, and an added blank line at EOF at line 450. This matches the older readiness report and was not introduced by Task 3. The plain working-tree check passing does not mean the branch-wide check passed.
 
@@ -75,7 +80,7 @@ Review status: implementer whole-branch review completed; independent review rem
 
 ## Remaining gates and known limits
 
-1. Resolve the installed SWC runtime blocker and obtain a successful full production build; separately decide whether the old design-document whitespace must be cleaned up before branch acceptance.
+1. Resolve the remaining build-runtime failure (`Missing field additionalRoots` after the isolated SWC native-load repair) and obtain a successful full production build; separately decide whether the old design-document whitespace must be cleaned up before branch acceptance.
 2. Complete the independent whole-branch review and close any Critical/Important findings before database work.
 3. In a controlled write-free window, perform aggregate-only DB preflight, verify migration journal `0016`, and check schema/invariants without exposing row data. Create the encrypted backup and pass dry-run restore verification before DDL.
 4. Apply `0017` once, then verify journal, enum/columns/indexes/defaults, invariant counts and unchanged business row counts. MySQL DDL auto-commits: a partial failure requires inspection and forward repair, never blind retry.
