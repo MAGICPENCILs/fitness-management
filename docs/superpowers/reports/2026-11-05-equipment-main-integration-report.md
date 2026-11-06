@@ -159,3 +159,31 @@ The standard reviewed worktree `node node_modules/drizzle-kit/bin.cjs migrate` e
 | Second standard migrate command | Exit 0, no timeout; fresh postflight still 18 journal entries and unchanged 1/1 business counts; no pending work |
 
 No partial DDL failure, blind retry, restore execution, seed, business-data mutation, server start, merge or push occurred. Raw rows, codes, serials, notes, PII, URLs, credentials, tokens and digest values were not emitted. Full operational evidence is in the ignored SDD `task-4-report.md`; only this report amendment is tracked. Dry-run integrity verification is not a disposable-server recovery drill; runtime/browser, concurrency and real transaction/locking acceptance remain Task 5 or separately authorized checks.
+
+## Task 5: anonymous runtime smoke and delivery handoff
+
+Verified 2026-11-06 (Asia/Bangkok) on `codex/equipment-production-ready`, starting clean at Task 4 report commit `447477b` (reviewed product source `2472c95`, database migration `0017`). This section supersedes the pending anonymous runtime gate only. It does not turn the earlier code/DB evidence into authenticated browser or production acceptance.
+
+The existing ignored main `.env` was loaded process-only with Node `process.loadEnvFile`; no secret was printed/copied and no environment file changed. Port 3005 was free. The reviewed Next.js 16.4.4 CLI ran hidden/noninteractively, bound to loopback `127.0.0.1:3005`. The first sandboxed run returned the fixed health 503/unavailable response; a safe connection-only probe confirmed `EACCES`, without exposing DB details. Default process-tree termination was also permission-denied. Scoped approved termination stopped only that run's root PID `26708` and descendants. The scoped internal-network restart used root PID `45120`; all checks below then passed with a fresh server log.
+
+| HTTP request (no session credentials) | Observed result |
+| --- | --- |
+| `GET /api/health` | 200; exact JSON `status: ok`, `checks.database: ok`, `checks.schema: ok` |
+| `GET /login` | 200; HTML/form present (not a visual acceptance check) |
+| `GET /equipment` | 307 to same-origin `/login`; decoded `returnTo` exactly `/equipment` |
+| `GET /equipment?status=RETIRED&page=2` | 307 to same-origin `/login`; decoded `returnTo` exactly preserves that local path/query |
+| `GET /api/equipment/2147483647` | 401; exact single-field fixed login error only |
+| `POST /api/equipment` | 401; same fixed login error only |
+| `PUT` and `PATCH /api/equipment/2147483647` | Both 401; same fixed login error only |
+| `POST /api/equipment/2147483647/maintenance` | 401; same fixed login error only |
+| `POST /api/equipment/2147483647/retire` | 401; same fixed login error only |
+
+Ten request assertions passed, including exact error-body equality (no stack, SQL, internal detail or business data). Mutation-boundary probes sent only `{}`, no cookie/authorization and a local Origin; no valid equipment mutation payload or real equipment identifier was used. The fresh server log confirmed Next.js 16.4.4 and zero unhandled/uncaught/error/connectivity markers for the successful run. This tests the anonymous proxy boundary, not authenticated route-handler RBAC, validation or transactions.
+
+Browser inventory returned no browser sessions; native app inventory timed out. Authenticated equipment render/filter/detail, role/branch checks and visual/keyboard/mobile/theme acceptance were skipped. No credentials, cookies or tokens were inspected, extracted or synthesized, and no login or business mutation was attempted.
+
+Fresh focused verification: `npm test -- proxy.test.ts app/api/equipment/equipment-routes.test.ts --maxWorkers=1 --pool=forks` exited 0: 2 files / 62 tests passed, 6.76s. `git diff --check` passed. Task 5 changes only this report and `Fitness Plan.md`: Next.js 16.4.4, implemented Integrated MVP/equipment scope, migration/runtime evidence and explicit acceptance limits. README already correctly documents port/version/run commands and required no change. No product source, tests, migration, manifest, dependency or run instruction changed; no full test/typecheck/lint/build rerun was needed for this docs-only diff (earlier results remain historical).
+
+The approved run's root PID `45120` and its descendants were stopped explicitly after smoke; a fresh bind probe reported `PORT_3005_FREE`. The docs-only commit follows `447477b`; final controller review, merge/push and main-server startup remain pending and were not performed here. The ignored SDD `task-5-report.md` holds detailed task-local evidence. Previously recorded branch-wide historical design whitespace is unchanged; this task's working/staged diff check passes.
+
+External SMS/SMTP sandbox acceptance, LINE OA member-link lifecycle, real door/card-reader calibration, offsite backup and disposable-server recovery drill remain blockers. Real MySQL rollback/locking/concurrency and authenticated browser behavior remain unverified. Native mobile app is not implemented; manual payroll excludes statutory tax/social security and payment initiation. No simulation or anonymous smoke result is claimed as acceptance of those areas.
