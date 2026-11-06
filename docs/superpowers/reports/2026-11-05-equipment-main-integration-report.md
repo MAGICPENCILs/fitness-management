@@ -131,3 +131,31 @@ npm test -- lib/equipment-mutation-service.test.ts lib/equipment-repository.test
 | `git diff --check main...HEAD` | Exit 1; same pre-existing old-design whitespace at lines 3, 4 and 450, not changed in this round. |
 
 All heavy checks were sequential. Apart from the deliberate RED run and previously known branch-wide whitespace, there was no failed verification, timeout or cancellation in this fix round. The focused and full GREEN runs use the aligned dependencies documented above. Self-review traced every changed caller and verified that branch scope, lifecycle guards, input bounds, CAS, transactional audit behavior, fixed response handling, labels, focus restoration and pending guards remain in place. No shared abstraction or dependency was added. The four Important cases are implemented with regression evidence; controller/independent re-review remains the acceptance gate, and DB/browser checks remain outside scope.
+
+## Task 4: live database backup, migration and postflight
+
+Completed 2026-11-06 (Asia/Bangkok), against reviewed source `2472c95`. This section supersedes only the earlier pending live-DB gate; it does not claim runtime/browser acceptance. No product, schema, migration, dependency or environment file changed. Port 3005 had no listener initially, before migration and at handoff; the application remains stopped for Task 5.
+
+Aggregate preflight passed: journal `0016_add_staff_workforce` / `1793712135432`, 17 entries and exactly one matching expected timestamp/local SQL digest (digest value not emitted); equipment 1, maintenance 1; binary/global duplicate-code groups 0/0. `retired_at`, `retired_reason`, `version` and all three new branch indexes were absent. Initial sandbox connectivity failed with safe `EACCES`; the approved internal-network escalation succeeded before mutation.
+
+Invariant violation counts were all 0 before and after migration: warranty before purchase; current usage outside 0–10,000,000; non-null interval outside 1–1,000,000; non-null next-service threshold outside 0–11,000,000; completed maintenance missing completion date; completion before schedule; cost outside 0–99,999,999.99; non-null service usage outside 0–10,000,000.
+
+The existing main backup service created ignored `backups/fitness-backup-20261106-085757.sql.enc` plus `.manifest.json`, labeled `0016_add_staff_workforce`, AES-256-GCM, 109,250 ciphertext bytes. Existing restore service dry-run passed manifest/checksum/authenticated-metadata/GCM/target checks and returned `restored: false`. No restore executor or plaintext restore artifact was used. Existing main `.env` and encryption key were loaded process-only without copying or printing their values. `git check-ignore` confirmed both artifacts remain ignored.
+
+The standard reviewed worktree `node node_modules/drizzle-kit/bin.cjs migrate` exited 0 with no timeout after an immediately repeated guarded preflight. Postflight passed:
+
+| Check | Exact result |
+| --- | --- |
+| Latest journal | `0017_equipment_production_ready` / `1793874445717`; 18 entries, exactly one expected timestamp/local SQL digest match |
+| Business counts | Equipment 1, maintenance 1; unchanged |
+| `status` | `enum('OPERATIONAL','MAINTENANCE','OUT_OF_SERVICE','RETIRED')`, NOT NULL, default `OPERATIONAL` |
+| `retired_at` / `retired_reason` | `timestamp` / `varchar(500)`; both nullable, default NULL |
+| `version` | `int`, NOT NULL, default 1; zero existing rows with a different version |
+| Retirement data | Zero non-null dates and zero non-null reasons |
+| `equipment_branch_status_idx` | Non-unique, ordered `branch_id`, `status` |
+| `equipment_branch_category_idx` | Non-unique, ordered `branch_id`, `category` |
+| `equipment_branch_maintenance_idx` | Non-unique, ordered `branch_id`, `next_maintenance_date` |
+| Duplicate groups / invariant violations | 0 throughout |
+| Second standard migrate command | Exit 0, no timeout; fresh postflight still 18 journal entries and unchanged 1/1 business counts; no pending work |
+
+No partial DDL failure, blind retry, restore execution, seed, business-data mutation, server start, merge or push occurred. Raw rows, codes, serials, notes, PII, URLs, credentials, tokens and digest values were not emitted. Full operational evidence is in the ignored SDD `task-4-report.md`; only this report amendment is tracked. Dry-run integrity verification is not a disposable-server recovery drill; runtime/browser, concurrency and real transaction/locking acceptance remain Task 5 or separately authorized checks.
