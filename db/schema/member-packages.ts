@@ -1,4 +1,4 @@
-import { mysqlTable, int, date, datetime, mysqlEnum, timestamp } from "drizzle-orm/mysql-core";
+import { mysqlTable, int, date, mysqlEnum, timestamp } from "drizzle-orm/mysql-core";
 import { members } from "./members";
 import { packages } from "./packages";
 

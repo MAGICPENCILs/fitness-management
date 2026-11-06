@@ -212,6 +212,36 @@ describe("equipment read service", () => {
     expect(() => JSON.stringify(result)).not.toThrow();
   });
 
+  it("ไม่ส่งสถานะเร่งด่วนหรือค่าคงเหลือของอุปกรณ์ที่เลิกใช้งานแล้ว", async () => {
+    const repo = new FakeEquipmentReadRepository();
+    repo.equipmentRows = [
+      makeEquipmentRow({
+        status: "RETIRED",
+        nextMaintenanceHours: 50,
+        nextMaintenanceDate: "2026-08-01",
+      }),
+    ];
+    const service = createEquipmentReadService(repo);
+
+    const result = await service.getEquipmentDashboard("2026-08-21", 10, {
+      search: "",
+      status: "RETIRED",
+      category: "ALL",
+      maintenance: "ALL",
+      tab: "equipment",
+      page: 1,
+      historyPage: 1,
+      pageSize: 20,
+    });
+
+    expect(result.equipment[0]).toMatchObject({
+      status: "RETIRED",
+      maintenanceState: "NONE",
+      remainingHours: null,
+      remainingDays: null,
+    });
+  });
+
   it("ค้น detail ด้วย branch และ id พร้อมแบ่งประวัติของอุปกรณ์โดยเฉพาะ", async () => {
     const repo = new FakeEquipmentReadRepository();
     const service = createEquipmentReadService(repo);

@@ -164,7 +164,7 @@ export function parseEquipmentDashboardFilters(
   };
 }
 
-/** แปลงแถวอุปกรณ์เป็น DTO แบบ explicit เพื่อไม่เผลอส่ง branchId หรือ Date object ข้ามไป client */
+/** แปลงแถวอุปกรณ์เป็น DTO และปิดสถานะเร่งด่วนของ RETIRED เพราะไม่มีรอบบำรุงเพิ่มเติมแล้ว */
 function mapEquipmentDto(item: EquipmentRow, today: string): EquipmentDto {
   return {
     id: item.id,
@@ -185,7 +185,9 @@ function mapEquipmentDto(item: EquipmentRow, today: string): EquipmentDto {
     nextMaintenanceDate: item.nextMaintenanceDate,
     lastMaintenanceDate: item.lastMaintenanceDate,
     note: item.note,
-    ...getMaintenanceState(item, today),
+    ...(item.status === "RETIRED"
+      ? { maintenanceState: "NONE" as const, remainingHours: null, remainingDays: null }
+      : getMaintenanceState(item, today)),
     createdAt: item.createdAt?.toISOString() ?? null,
     updatedAt: item.updatedAt?.toISOString() ?? null,
   };
