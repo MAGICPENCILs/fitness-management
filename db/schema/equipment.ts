@@ -57,7 +57,7 @@ export const equipment = mysqlTable(
     index("equipment_next_maintenance_date_idx").on(table.nextMaintenanceDate),
     index("equipment_branch_status_idx").on(table.branchId, table.status),
     index("equipment_branch_category_idx").on(table.branchId, table.category),
-    index("equipment_branch_next_maintenance_date_idx").on(
+    index("equipment_branch_maintenance_idx").on(
       table.branchId,
       table.nextMaintenanceDate,
     ),
