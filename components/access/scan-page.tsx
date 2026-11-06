@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScanLine, Loader2, CheckCircle2, DoorOpen, Radio, TriangleAlert, XCircle } from "lucide-react";
@@ -150,9 +151,11 @@ export function ScanPage({
           {scanResult.member && (
             <div className="flex items-center gap-4 border-t border-success/25 pt-2">
               {scanResult.member.photoUrl ? (
-                <img
+                <Image
                   src={scanResult.member.photoUrl}
-                  alt="photo"
+                  alt={`รูปสมาชิก ${scanResult.member.firstName} ${scanResult.member.lastName}`}
+                  width={64}
+                  height={64}
                   className="w-16 h-16 rounded-full border-2 border-success/40 object-cover"
                 />
               ) : (

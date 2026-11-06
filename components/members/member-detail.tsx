@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,8 +147,14 @@ export function MemberDetail({
           <button type="button" disabled={isAnonymized} aria-label="อัปโหลดรูปสมาชิก" className="relative w-full aspect-square rounded-2xl overflow-hidden bg-muted border cursor-pointer disabled:cursor-not-allowed disabled:opacity-70"
             onClick={() => fileRef.current?.click()}>
             {photoPreview ? (
-              <img src={photoPreview} alt="photo"
-                className="w-full h-full object-cover" />
+              <Image
+                src={photoPreview}
+                alt={`รูปสมาชิก ${member.firstName} ${member.lastName}`}
+                width={512}
+                height={512}
+                sizes="(min-width: 768px) 33vw, 100vw"
+                className="w-full h-full object-cover"
+              />
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
                 <Camera className="w-8 h-8" />

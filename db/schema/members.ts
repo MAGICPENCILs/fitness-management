@@ -1,4 +1,4 @@
-import { mysqlTable, varchar, text, date, datetime, mysqlEnum, int, timestamp } from "drizzle-orm/mysql-core";
+import { mysqlTable, varchar, text, date, mysqlEnum, int, timestamp } from "drizzle-orm/mysql-core";
 import { branches } from "./branches";
 
 export const members = mysqlTable("members", {

@@ -273,7 +273,7 @@ branches             — สาขา
 - **พัฒนา Integrated MVP แล้ว (ยังไม่ใช่การรับรองเปิดใช้งานจริง):** ใบเสร็จ/ใบกำกับภาษีและหน้าพิมพ์, notification/hardware adapters แบบ config-gated, Freeze, Dynamic QR, สมัครออนไลน์/member portal แบบ responsive, Staff TOTP 2FA/เวลาเข้างาน/ค่าตอบแทนแบบอนุมัติ manual และรายงานขั้นสูงพร้อม CSV/หน้าพิมพ์
 - **อุปกรณ์:** ทะเบียน/สถานะ/มิเตอร์, filter และ pagination ฝั่ง server, detail/ประวัติซ่อม, maintenance ตามวัน/ชั่วโมง, เลิกใช้งานถาวร, RBAC/ขอบเขตสาขา และ optimistic version conflict พัฒนาแล้ว; migration `0017` ใช้จริงแล้ว วันที่ 6 พฤศจิกายน 2569 และ smoke แบบไม่ Login ผ่าน health/login/redirect/API rejection บนพอร์ต 3005; ยังไม่ผ่าน authenticated browser/หลายบทบาท/ภาพหน้าจอ/การทำงานพร้อมกันกับ MySQL จริง
 - **ยังเป็นข้อจำกัด/เกณฑ์รับรองที่ค้าง:** SMS/SMTP sandbox acceptance, LINE OA member-link lifecycle, ประตู/เครื่องอ่านบัตรจริงและ calibration, พื้นที่ backup นอกเครื่องและ disposable-server recovery drill; ไม่มี native mobile app และ payroll ไม่รวมภาษี/ประกันสังคม/การสั่งจ่ายเงิน
-- รายละเอียดหลักฐานและข้อจำกัดอยู่ใน [รายงาน Equipment Main Integration](docs/superpowers/reports/2026-11-05-equipment-main-integration-report.md); รอ controller ตรวจรับก่อน merge/push
+- รายละเอียดหลักฐานและข้อจำกัดอยู่ใน [รายงาน Equipment Main Integration](docs/superpowers/reports/2026-11-05-equipment-main-integration-report.md); controller ตรวจรับแล้ว และ merge/push เข้า `main` ที่ `fca1353`
 
 ### Phase 1 — Core MVP
 - [x] ระบบสมาชิก (สมัคร / แก้ไข / ดูข้อมูล)
