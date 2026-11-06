@@ -64,6 +64,12 @@ describe("auth route policy", () => {
     });
   });
 
+  it("allows Counter to open the equipment page", () => {
+    expect(decideRouteAccess("/equipment", claims("COUNTER"))).toEqual({
+      type: "ALLOW",
+    });
+  });
+
   it("ให้พนักงานทุกบทบาทเข้าหน้าตั้งค่า 2FA ของบัญชีตนเองหลัง login", () => {
     expect(decideRouteAccess("/settings/security/totp", claims("TRAINER"))).toEqual({ type: "ALLOW" });
     expect(decideRouteAccess("/settings/security/totp", null)).toEqual({ type: "LOGIN" });

@@ -16,7 +16,7 @@ vi.mock("next-themes", () => ({
 }));
 
 import { Sidebar } from "@/components/sidebar";
-import type { Permission } from "@/lib/rbac";
+import { getPermissionSnapshot, type Permission } from "@/lib/rbac";
 
 afterEach(cleanup);
 
@@ -33,6 +33,34 @@ const currentStaff = {
 };
 
 describe("Sidebar auth controls", () => {
+  it.each(["COUNTER", "TRAINER"] as const)(
+    "แสดงเมนูอุปกรณ์ให้ %s แต่ซ่อนเมนูตั้งค่าที่ต้องจัดการระบบ",
+    (role) => {
+      render(
+        <Sidebar
+          branches={[{ id: 1, code: "BKK", name: "สำนักงานใหญ่" }]}
+          currentBranchId={1}
+          currentStaff={{ ...currentStaff, role }}
+          availableStaff={[]}
+          devSwitcherEnabled={false}
+          permissions={getPermissionSnapshot({
+            staffId: 1,
+            role,
+            homeBranchId: 1,
+          })}
+        />,
+      );
+
+      expect(screen.getByRole("link", { name: "อุปกรณ์" })).toHaveAttribute(
+        "href",
+        "/equipment",
+      );
+      expect(
+        screen.queryByRole("link", { name: "ตั้งค่าระบบ" }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
   it("แสดงเมนูความปลอดภัยเฉพาะผู้มี auth.security.read", () => {
     const deniedPermissions = new Proxy(
       {},

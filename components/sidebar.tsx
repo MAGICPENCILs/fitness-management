@@ -53,7 +53,7 @@ const menuItems = [
   { href: "/reports", label: "รายงาน", icon: BarChart3, requiredPermission: "audit.read" },
   { href: "/accounting", label: "บัญชี", icon: BookOpenText, requiredPermission: "accounting.manage" },
   { href: "/lockers", label: "ล็อกเกอร์", icon: LockKeyhole, requiredPermission: "access.manage" },
-  { href: "/equipment", label: "อุปกรณ์", icon: Wrench, requiredPermission: "settings.manage" },
+  { href: "/equipment", label: "อุปกรณ์", icon: Wrench, requiredPermission: "equipment.read" },
   { href: "/classes", label: "เทรนเนอร์และคลาส", icon: CalendarDays, requiredPermission: "classes.manage" },
   { href: "/personal-training", label: "PT และผลการฝึก", icon: ClipboardPlus, requiredPermission: "pt.manage" },
   { href: "/crm", label: "CRM และคะแนน", icon: HeartHandshake, requiredPermission: "members.manage" },

@@ -254,14 +254,14 @@ branches             — สาขา
 
 | ส่วน | เทคโนโลยีปัจจุบัน |
 |---|---|
-| Full stack | Next.js 16.3.8 App Router + React 19 + TypeScript |
+| Full stack | Next.js 16.4.4 App Router + React 19 + TypeScript |
 | UI | Tailwind CSS 4 + Radix UI + Recharts |
 | Database | MySQL + Drizzle ORM |
 | QR Generate | `qrcode` library |
 | Auth | Argon2 password hash + signed server session cookie + RBAC |
 | Hosting | Node.js server รองรับ Cloud หรือ On-premise |
 | Member Portal | Responsive web/PWA-ready ใน repository เดียวกัน; ยังไม่ทำ native app |
-| Backup | Operator CLI พร้อม checksum/restore guard (อยู่ในรอบ Integrated MVP) |
+| Backup | Operator CLI เข้ารหัส AES-256-GCM พร้อม checksum/restore guard; ผ่าน dry-run แต่ยังไม่ผ่าน recovery drill บนฐานข้อมูลแยก |
 
 ---
 
@@ -270,24 +270,28 @@ branches             — สาขา
 ### สถานะ ณ พฤศจิกายน 2569
 
 - **พร้อมทดสอบแล้ว:** สมาชิกและแพ็กเกจ, static card pool, สแกนเข้าใช้, ชำระเงิน, โปรโมชั่น/คูปอง, บัญชี, Dashboard, ล็อกเกอร์, อุปกรณ์/ซ่อมบำรุง, คลาส/PT, CRM/loyalty, หลายสาขา, PDPA anonymization, พนักงาน/RBAC, Login/Session/Rate limit, Audit log และ Backup/Restore สำหรับผู้ดูแลระบบ
-- **กำลังปิดงาน Integrated MVP:** ใบเสร็จ/ใบกำกับภาษี, provider แจ้งเตือน, hardware adapter, Freeze, Dynamic QR, member portal, 2FA/เวลาเข้างาน/ค่าตอบแทน และรายงานขั้นสูง
-- **ต้องมีระบบภายนอกก่อนเปิดจริง:** SMS/LINE/SMTP credentials, ตัวควบคุมประตู/เครื่องอ่านบัตร และพื้นที่เก็บ backup นอกเครื่อง
+- **พัฒนา Integrated MVP แล้ว (ยังไม่ใช่การรับรองเปิดใช้งานจริง):** ใบเสร็จ/ใบกำกับภาษีและหน้าพิมพ์, notification/hardware adapters แบบ config-gated, Freeze, Dynamic QR, สมัครออนไลน์/member portal แบบ responsive, Staff TOTP 2FA/เวลาเข้างาน/ค่าตอบแทนแบบอนุมัติ manual และรายงานขั้นสูงพร้อม CSV/หน้าพิมพ์
+- **อุปกรณ์:** ทะเบียน/สถานะ/มิเตอร์, filter และ pagination ฝั่ง server, detail/ประวัติซ่อม, maintenance ตามวัน/ชั่วโมง, เลิกใช้งานถาวร, RBAC/ขอบเขตสาขา และ optimistic version conflict พัฒนาแล้ว; migration `0017` ใช้จริงแล้ว วันที่ 6 พฤศจิกายน 2569 และ smoke แบบไม่ Login ผ่าน health/login/redirect/API rejection บนพอร์ต 3005; ยังไม่ผ่าน authenticated browser/หลายบทบาท/ภาพหน้าจอ/การทำงานพร้อมกันกับ MySQL จริง
+- **ยังเป็นข้อจำกัด/เกณฑ์รับรองที่ค้าง:** SMS/SMTP sandbox acceptance, LINE OA member-link lifecycle, ประตู/เครื่องอ่านบัตรจริงและ calibration, พื้นที่ backup นอกเครื่องและ disposable-server recovery drill; ไม่มี native mobile app และ payroll ไม่รวมภาษี/ประกันสังคม/การสั่งจ่ายเงิน
+- รายละเอียดหลักฐานและข้อจำกัดอยู่ใน [รายงาน Equipment Main Integration](docs/superpowers/reports/2026-11-05-equipment-main-integration-report.md); รอ controller ตรวจรับก่อน merge/push
 
 ### Phase 1 — Core MVP
 - [x] ระบบสมาชิก (สมัคร / แก้ไข / ดูข้อมูล)
 - [ ] อ่านบัตรประชาชน
-- [ ] ระบบบัตร QR ทั้ง 2 แบบ
+- [x] ระบบบัตร QR ทั้ง 2 แบบ (ซอฟต์แวร์ static pool / Dynamic QR; ฮาร์ดแวร์จริงยังไม่รับรอง)
 - [x] ระบบสแกนเข้า-ออก + ตัดวัน
-- [ ] ระบบชำระเงิน + ใบเสร็จ
+- [x] ระบบชำระเงิน + ใบเสร็จ/ใบกำกับภาษีและหน้าพิมพ์ (ไม่ใช่การรับรองอุปกรณ์/provider จริง)
 
 ### Phase 2 — Business Operations
 - [x] ระบบโปรโมชั่น + คูปองโค้ด
-- [ ] ระบบแจ้งเตือน (SMS/LINE)
+- [x] ระบบแจ้งเตือน/คิวและ config-gated adapters (การส่ง SMS/LINE/SMTP จริงยังไม่รับรอง)
 - [x] ระบบบัญชีพื้นฐานและกระทบยอด
-- [ ] Dashboard + รายงาน
+- [x] Dashboard + รายงานขั้นสูง/CSV/หน้าพิมพ์
+- [x] อุปกรณ์/ซ่อมบำรุงและเลิกใช้งาน พร้อม version/RBAC/ขอบเขตสาขา (ดูข้อจำกัดการทดสอบด้านบน)
 
 ### Phase 3 — Advanced Features
-- [ ] Mobile App สมาชิก
+- [x] Member portal แบบ responsive web และสมัครออนไลน์
+- [ ] Native Mobile App สมาชิก
 - [x] ระบบเทรนเนอร์ + จองคลาส
 - [x] CRM + Loyalty Points
 - [x] Multi-branch support

@@ -1,72 +1,43 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  EquipmentOperationError,
-  recordMaintenance,
-} from "@/lib/equipment-service";
+import { recordMaintenance } from "@/lib/equipment-service";
+import { maintenanceSchema } from "@/lib/equipment-core";
 import { getCurrentBranchId } from "@/lib/branch-service";
 import { runAuditedMutation } from "@/lib/audit-service";
-import { AuthorizationError, requirePermission } from "@/lib/staff-service";
+import { requirePermission } from "@/lib/staff-service";
+import { assertTrustedOrigin } from "@/lib/auth/request-security";
+import { equipmentErrorResponse } from "@/lib/equipment-http";
 
-const optionalDate = z
-  .union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)])
-  .optional();
+const idSchema = z.coerce.number().int().positive().max(2_147_483_647);
 
-const maintenanceSchema = z
-  .object({
-    type: z.enum(["INSPECTION", "PREVENTIVE", "REPAIR"]),
-    status: z.enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED"]),
-    scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    completedDate: optionalDate,
-    usageHoursAtService: z.coerce
-      .number()
-      .int()
-      .min(0)
-      .max(10_000_000)
-      .optional(),
-    cost: z.coerce.number().min(0).max(99_999_999.99),
-    technician: z.string().trim().max(120).optional(),
-    nextMaintenanceDate: optionalDate,
-    note: z.string().trim().max(1000).optional(),
-  })
-  .refine(
-    (value) => value.status !== "COMPLETED" || Boolean(value.completedDate),
-    {
-      message: "งานที่เสร็จแล้วต้องระบุวันที่เสร็จ",
-      path: ["completedDate"],
-    },
-  )
-  .refine(
-    (value) =>
-      !value.completedDate || value.completedDate >= value.scheduledDate,
-    {
-      message: "วันที่เสร็จต้องไม่ก่อนวันที่นัดหมาย",
-      path: ["completedDate"],
-    },
-  );
-
-/** บันทึกงานซ่อมหรือตรวจเช็ก และให้ service เปลี่ยนสถานะกับรอบถัดไปใน transaction เดียว */
+/** บันทึกงานซ่อมพร้อม equipment version และใช้ maintenance id เป็น Audit entity ใน transaction เดียว */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    assertTrustedOrigin(request);
     const branchId = await getCurrentBranchId();
-    const actor = await requirePermission("settings.manage", branchId, {
+    const actor = await requirePermission("equipment.manage", branchId, {
       action: "MAINTENANCE_RECORDED",
       entityType: "MAINTENANCE",
     });
-    const { id } = await params;
-    const equipmentId = z.coerce.number().int().positive().parse(id);
+    const equipmentId = idSchema.parse((await params).id);
     const validated = maintenanceSchema.parse(await request.json());
-    const maintenanceId = await runAuditedMutation<number>(
+    const result = await runAuditedMutation<{
+      maintenanceId: number;
+      equipmentVersion: number;
+    }>(
       {
         actorStaffId: actor.staffId,
         branchId,
         action: "MAINTENANCE_RECORDED",
         entityType: "MAINTENANCE",
-        metadata: { entityId: equipmentId, status: validated.status },
-        success: (entityId) => ({ entityId }),
+        metadata: {
+          maintenanceType: validated.type,
+          maintenanceStatus: validated.status,
+        },
+        success: (value) => ({ entityId: value.maintenanceId }),
       },
       (tx) => recordMaintenance(equipmentId, branchId, {
         ...validated,
@@ -74,26 +45,14 @@ export async function POST(
       }, tx),
     );
     return NextResponse.json(
-      { message: "บันทึกงานบำรุงรักษาแล้ว", maintenanceId },
+      {
+        message: "บันทึกงานบำรุงรักษาแล้ว",
+        id: result.maintenanceId,
+        version: result.equipmentVersion,
+      },
       { status: 201 },
     );
   } catch (error) {
-    if (error instanceof z.ZodError)
-      return NextResponse.json(
-        { error: error.issues[0]?.message ?? "ข้อมูลงานบำรุงไม่ถูกต้อง" },
-        { status: 400 },
-      );
-    if (error instanceof EquipmentOperationError)
-      return NextResponse.json(
-        { error: error.message },
-        { status: error.status },
-      );
-    if (error instanceof AuthorizationError)
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    console.error(error);
-    return NextResponse.json(
-      { error: "ไม่สามารถบันทึกงานบำรุงรักษาได้" },
-      { status: 500 },
-    );
+    return equipmentErrorResponse(error);
   }
 }

@@ -12,6 +12,8 @@ const ALLOWED_KEYS = new Set([
   "source",
   "rotated",
   "scope",
+  "maintenanceType",
+  "maintenanceStatus",
 ]);
 
 const PROHIBITED_PII_KEYS = new Set([
@@ -61,9 +63,30 @@ const ALLOWED_FIELD_NAMES = new Set([
   "birthDate",
   "gender",
   "photoUrl",
+  "code",
+  "name",
+  "category",
+  "location",
+  "serialNumber",
+  "purchaseDate",
+  "warrantyEndDate",
+  "maintenanceIntervalHours",
+  "nextMaintenanceDate",
+  "retiredAt",
+  "retiredReason",
 ]);
 
 const ENUM_LIKE_VALUE = /^[A-Z0-9_.-]+$/;
+const MAINTENANCE_TYPE_VALUES = new Set([
+  "INSPECTION",
+  "PREVENTIVE",
+  "REPAIR",
+]);
+const MAINTENANCE_STATUS_VALUES = new Set([
+  "SCHEDULED",
+  "IN_PROGRESS",
+  "COMPLETED",
+]);
 const SHA256_FINGERPRINT = /^[a-f0-9]{64}$/i;
 const READ_ALLOWED_KEYS = new Set([
   ...ALLOWED_KEYS,
@@ -87,6 +110,16 @@ export function sanitizeAuditMetadataForRead(
   const sanitized: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value)) {
     if (!READ_ALLOWED_KEYS.has(key)) continue;
+    if (key === "maintenanceType") {
+      if (typeof item === "string" && MAINTENANCE_TYPE_VALUES.has(item))
+        sanitized[key] = item;
+      continue;
+    }
+    if (key === "maintenanceStatus") {
+      if (typeof item === "string" && MAINTENANCE_STATUS_VALUES.has(item))
+        sanitized[key] = item;
+      continue;
+    }
     if (key === "ipFingerprint") {
       const fingerprint = truncateAuthFingerprint(item);
       if (fingerprint) sanitized[key] = fingerprint;
@@ -130,6 +163,17 @@ export function sanitizeAuditMetadata(
       throw new Error(`PII key ${key} is prohibited in audit metadata`);
     if (!ALLOWED_KEYS.has(key))
       throw new Error(`audit metadata key ${key} is not allowed`);
+
+    if (
+      key === "maintenanceType" &&
+      (typeof item !== "string" || !MAINTENANCE_TYPE_VALUES.has(item))
+    )
+      throw new Error(`audit metadata value for ${key} is not allowed`);
+    if (
+      key === "maintenanceStatus" &&
+      (typeof item !== "string" || !MAINTENANCE_STATUS_VALUES.has(item))
+    )
+      throw new Error(`audit metadata value for ${key} is not allowed`);
 
     if (
       item === null ||

@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
-import { EquipmentManager } from "@/components/equipment/equipment-manager";
-import { getEquipmentDashboard } from "@/lib/equipment-service";
+import { EquipmentDashboard } from "@/components/equipment/equipment-dashboard";
+import {
+  getEquipmentDashboard,
+  parseEquipmentDashboardFilters,
+  type EquipmentSearchParams,
+} from "@/lib/equipment-service";
 import { getCurrentBranchId } from "@/lib/branch-service";
+import { hasPermission } from "@/lib/rbac";
+import { requirePermission } from "@/lib/staff-service";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +27,18 @@ function getBangkokToday() {
   }).format(new Date());
 }
 
-/** โหลดทะเบียนและประวัติจากฝั่งเซิร์ฟเวอร์ก่อนส่งข้อมูลที่ serializable ให้หน้าจอจัดการ */
-export default async function EquipmentPage() {
+/** ตรวจสิทธิ์อ่านจากสาขาที่เลือก แล้ว parse async searchParams เป็น allowlist ก่อนโหลดข้อมูลแบบแบ่งหน้าจาก server */
+export default async function EquipmentPage({
+  searchParams,
+}: {
+  searchParams: Promise<EquipmentSearchParams>;
+}) {
   const today = getBangkokToday();
-  const dashboard = await getEquipmentDashboard(today, await getCurrentBranchId());
+  const branchId = await getCurrentBranchId();
+  const actor = await requirePermission("equipment.read", branchId);
+  const canManage = hasPermission(actor, "equipment.manage", branchId);
+  const filters = parseEquipmentDashboardFilters(await searchParams);
+  const dashboard = await getEquipmentDashboard(today, branchId, filters);
 
   return (
     <div className="w-full max-w-7xl space-y-8 p-4 sm:p-6 lg:p-8">
@@ -40,7 +54,12 @@ export default async function EquipmentPage() {
           พร้อมประวัติงานที่ตรวจสอบย้อนหลังได้
         </p>
       </header>
-      <EquipmentManager {...dashboard} today={today} />
+      <EquipmentDashboard
+        {...dashboard}
+        filters={filters}
+        today={today}
+        canManage={canManage}
+      />
     </div>
   );
 }
