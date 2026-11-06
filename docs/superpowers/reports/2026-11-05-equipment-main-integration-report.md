@@ -187,3 +187,17 @@ Fresh focused verification: `npm test -- proxy.test.ts app/api/equipment/equipme
 The approved run's root PID `45120` and its descendants were stopped explicitly after smoke; a fresh bind probe reported `PORT_3005_FREE`. The docs-only commit follows `447477b`; final controller review, merge/push and main-server startup remain pending and were not performed here. The ignored SDD `task-5-report.md` holds detailed task-local evidence. Previously recorded branch-wide historical design whitespace is unchanged; this task's working/staged diff check passes.
 
 External SMS/SMTP sandbox acceptance, LINE OA member-link lifecycle, real door/card-reader calibration, offsite backup and disposable-server recovery drill remain blockers. Real MySQL rollback/locking/concurrency and authenticated browser behavior remain unverified. Native mobile app is not implemented; manual payroll excludes statutory tax/social security and payment initiation. No simulation or anonymous smoke result is claimed as acceptance of those areas.
+
+## Final independent review
+
+Final whole-branch review at `28f49e5` found no Critical or Important issue and approved the branch for merge. The review confirmed current Auth/Health/Member/TOTP behavior, branch-scoped RBAC, transaction/CAS/Audit boundaries, retirement rules, four concurrency/UI fixes, and the exact additive migration `0017` contract.
+
+Two non-blocking cleanup items remain explicit: retired equipment DTOs may still expose historical schedule-derived urgency to future API consumers even though SQL and current UI suppress it, and the original equipment design document contains historical whitespace that makes a branch-wide diff check noisy. Neither changes current authorization, mutation safety, database state or rendered behavior; both are carried into the post-merge quality cleanup rather than silently discarded.
+
+Controller rulings made during integration:
+
+- Retain `main` migration history through `0016` and regenerate equipment as `0017`; renaming the old migration would corrupt the live lineage.
+- Preserve all current public Member/Health routes and TOTP rules; only `/equipment` changes to `equipment.read`.
+- Do not apply DDL until encrypted backup and dry-run verification pass; MySQL partial DDL requires reviewed forward repair, never blind retry.
+- Permit the schema index rename to `equipment_branch_maintenance_idx` because Drizzle generates the contract name from schema; index columns and query behavior remain unchanged.
+- Do not invent provider credentials, statutory payroll rules, vendor protocols or hardware evidence. These remain separate implementation/acceptance work with explicit external inputs.
