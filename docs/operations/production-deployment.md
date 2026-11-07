@@ -1,0 +1,158 @@
+# Production deployment runbook
+
+คู่มือสำหรับ operator: Next.js 16.4.4 แบบ single-instance Node.js หลัง trusted TLS reverse proxy ใช้พอร์ตภายใน `3005` เท่านั้น ยังไม่ได้เลือก vendor, process manager หรือ reverse proxy จึงไม่มีคำสั่งติดตั้ง infrastructure ในเอกสารนี้ และไม่ได้รับรองว่า production ผ่าน acceptance แล้ว
+
+## Pre-deploy — เงื่อนไขก่อนเริ่ม
+
+1. ระบุผู้รับผิดชอบ deploy/อนุมัติ rollback, maintenance window, เวลาหยุดรับงาน และเกณฑ์ยกเลิกการ deploy หาก gate ใดไม่ผ่านให้หยุด ไม่ข้ามไปขั้นถัดไป
+2. ต้องมี GitHub Actions job `quality` สำเร็จสำหรับ commit SHA ที่จะปล่อย เก็บ SHA, CI run ID และ checksum/รหัส artifact ใน release record ที่จำกัดสิทธิ์ ห้าม deploy จาก branch ที่เปลี่ยนได้หรือ working tree ที่มีงานค้าง CI ไม่เชื่อมต่อฐาน production และไม่ใช้ production secret
+3. เตรียม release directory แยกจากตัวที่ให้บริการเดิม ใช้ Node.js 20.19+ ในสาย 20 ตาม engine ของ jsdom ที่ล็อกไว้ และใช้ patch version เดียวกับที่ทดสอบผ่าน CI พร้อม lockfile เดียวกัน เก็บ source/artifact เดิมสำหรับ rollback และตรวจว่า dependency/native binary ใช้ได้กับ OS/architecture เป้าหมาย CI นี้ยังไม่ได้ publish deploy artifact อัตโนมัติ
+4. ผู้ดูแลต้องยอมรับ topology, TLS, supervisor, monitoring, backup และ restore drill ตามหัวข้อ External blockers ก่อนอนุญาต production
+
+### Release gates
+
+รันใน checkout ของ revision ที่เลือก บน build environment ที่ไม่ชี้ฐานจริง ลำดับต้องตรงกับ `.github/workflows/ci.yml` และทุกคำสั่งต้อง exit 0:
+
+```powershell
+npm ci
+npm test -- --no-file-parallelism --maxWorkers=1
+npx tsc --noEmit
+npm run lint
+npx drizzle-kit check
+npm run build
+```
+
+`drizzle-kit check` ตรวจไฟล์ migration ไม่ได้ตรวจว่าฐาน production พร้อมแล้ว หากสร้าง artifact เองต้องบันทึกผล build และ checksum โดยผูกกับ SHA ที่ผ่าน `quality`; ห้าม rebuild ทับ directory ที่กำลังให้บริการ
+
+### Secret และ environment validation
+
+ให้ secret manager inject ค่าเข้า process ของ server และ CLI แต่ละงานโดยตรง ห้ามพิมพ์ secret ลง command line/shell history, repository, CI, log หรือ ticket และห้าม dump environment เพื่อ debug สคริปต์ backup/restore อ่าน `process.env` โดยตรง ไม่ควรสมมติว่าจะโหลด `.env` ให้ เก็บ production URL และรายละเอียด connection ไว้นอก repository/log เช่นกัน
+
+- `NODE_ENV=production`; `DATABASE_URL` ต้องเป็น MySQL target ที่ยืนยันแล้ว; `APP_ORIGIN` ต้องเป็น HTTPS origin ที่ผู้ใช้เข้าจริง ไม่มี path หรือ slash ต่อท้าย
+- `AUTH_SESSION_SECRET` และ `AUTH_FINGERPRINT_SECRET` เป็นค่าสุ่มคนละค่าอย่างน้อย 32 bytes; `AUTH_TOTP_ENCRYPTION_KEY` เป็น base64 ของ key สุ่ม 32 bytes เก็บ key เดิมให้กู้คืน TOTP ได้ ห้ามหมุน key โดยไม่มีแผนย้ายข้อมูล
+- `BACKUP_ENCRYPTION_KEY` เป็น base64 ของ key สุ่ม 32 bytes แยกการเก็บ key จาก backup; กำหนด `BACKUP_DIRECTORY` บนพื้นที่จำกัดสิทธิ์ที่ไม่ถูกเสิร์ฟผ่านเว็บ
+- `ENABLE_DEV_STAFF_SWITCHER=false`, `BACKUP_RESTORE_ENABLED=false`; ไม่คง `BOOTSTRAP_OWNER_PASSWORD` ใน server process การ bootstrap owner เป็นงานแยกที่ได้รับอนุมัติ ไม่ใช่ขั้นตอน deploy ทุกครั้ง
+- เปิด `TRUST_PROXY=true` เฉพาะเมื่อ proxy ที่เชื่อถือได้ลบ/แทน forwarded headers จาก client โดยเฉพาะ `X-Forwarded-For` และ backend รับ traffic จาก proxy เท่านั้น มิฉะนั้นใช้ `TRUST_PROXY=false` ห้ามเชื่อ header ที่ client ปลอมได้
+- ตั้ง `NOTIFICATION_PROVIDER_MODE=disabled` และ `ACCESS_HARDWARE_MODE=disabled` จนกว่าจะผ่าน sandbox/controller acceptance แล้ว จึงเปิด mode ที่อนุมัติพร้อม secret ตาม [README](../../README.md) ห้ามใช้ simulate กับประตูจริง
+
+ตัวตรวจด้านล่างรันหลัง inject environment ใน PowerShell พิมพ์เฉพาะผลรวม ไม่มีค่าหรือชื่อ host/ฐานข้อมูล ตรวจรูปแบบเบื้องต้นเท่านั้น ไม่พิสูจน์ entropy, target ที่ถูกต้อง หรือ TLS:
+
+```powershell
+$validation = @'
+let valid = true;
+const env = process.env;
+const required = ['DATABASE_URL', 'APP_ORIGIN', 'AUTH_SESSION_SECRET', 'AUTH_FINGERPRINT_SECRET', 'AUTH_TOTP_ENCRYPTION_KEY', 'BACKUP_ENCRYPTION_KEY', 'BACKUP_DIRECTORY'];
+valid = required.every(name => Boolean(env[name]?.trim()));
+valid &&= env.NODE_ENV === 'production' && env.ENABLE_DEV_STAFF_SWITCHER === 'false';
+valid &&= env.BACKUP_RESTORE_ENABLED === 'false' && !env.BOOTSTRAP_OWNER_PASSWORD;
+valid &&= ['true', 'false'].includes(env.TRUST_PROXY);
+valid &&= ['disabled', 'simulate', 'live'].includes(env.NOTIFICATION_PROVIDER_MODE);
+valid &&= ['disabled', 'simulate', 'webhook'].includes(env.ACCESS_HARDWARE_MODE);
+valid &&= Buffer.byteLength(env.AUTH_SESSION_SECRET || '') >= 32;
+valid &&= Buffer.byteLength(env.AUTH_FINGERPRINT_SECRET || '') >= 32;
+valid &&= env.AUTH_SESSION_SECRET !== env.AUTH_FINGERPRINT_SECRET;
+for (const name of ['AUTH_TOTP_ENCRYPTION_KEY', 'BACKUP_ENCRYPTION_KEY']) {
+  const value = env[name] || '';
+  valid &&= /^[A-Za-z0-9+/]{43}=$/.test(value) && Buffer.from(value, 'base64').length === 32;
+}
+try {
+  const db = new URL(env.DATABASE_URL);
+  const origin = new URL(env.APP_ORIGIN);
+  valid &&= db.protocol === 'mysql:' && Boolean(db.hostname && db.username && db.pathname.length > 1);
+  valid &&= origin.protocol === 'https:' && origin.origin === env.APP_ORIGIN;
+} catch { valid = false; }
+console.log(valid ? 'Environment validation passed' : 'Environment validation failed');
+process.exitCode = valid ? 0 : 1;
+'@
+node -e $validation
+```
+
+หากตรวจไม่ผ่านให้หยุดและแก้ใน secret manager โดยไม่พิมพ์ค่าออกมา กรณีเปิด provider/hardware จริงต้องตรวจ config ที่เกี่ยวข้องและการเชื่อมต่อแยกต่างหากด้วย
+
+### Photo access model — production blocker
+
+`/member-photos/<opaque.ext>` ปัจจุบันเป็น **public capability URL**: ผู้ที่ทราบ URL อ่านรูปได้โดยไม่ต้อง login; handler ไม่ตรวจ auth/session, DB reference หรือ RBAC และ header `private, no-store` ไม่ใช่ access control ดังนั้นการเปิดรูปสำเร็จขณะ signed-in ไม่ได้พิสูจน์ authorization ห้าม deploy production จนกว่า privacy/access model นี้ได้รับการอนุมัติอย่างชัดเจน หรือเพิ่มการป้องกันที่ผ่าน acceptance แล้ว ห้ามถือว่ารูปถูกป้องกันด้วยสิทธิ์สมาชิก/สาขาเพียงเพราะชื่อไฟล์เดายาก
+
+Raw path ใต้ `/uploads/members/*` ที่มี extension bypass proxy matcher ได้ ส่วน `/uploads/privacy-cleanup/*` ที่ไม่มี extension ผ่านเพียง generic login ไม่ใช่ privacy RBAC ไม่มีการรับรองว่า app ปัจจุบันปิด raw paths เหล่านี้แล้ว ต้องมีการป้องกันที่ยอมรับได้และ negative checks ใน Verify ก่อนปล่อยจริง โดยห้าม reverse proxy/static server เปิด directory เหล่านี้โดยตรง
+
+### Persistent uploads และ recovery set — production blocker
+
+`public/uploads/members` และ `public/uploads/privacy-cleanup` เป็น runtime files/PII ไม่ใช่ build artifact ฐานข้อมูลเก็บเพียง reference และ **`npm run db:backup` ไม่ได้สำรองไฟล์เหล่านี้** ห้าม deploy production จนกว่า operator จะจัด persistent storage ที่ release ใหม่/เก่าเข้าถึงได้ และ encrypted snapshot/backup ของทั้งสอง directory ที่จับคู่กับ DB backup โดยมี restore verification หรือระบบ persistent shared storage ที่มี recovery/backup contract เทียบเท่าซึ่งผ่านการยอมรับแล้ว
+
+ต้องบันทึก DB artifact, manifest, upload snapshot ID, เวลาที่สอดคล้องกัน และ revision ใน recovery set เดียวกัน หยุดงานเขียนที่เกี่ยวข้องระหว่างจับ snapshot/backup เพื่อไม่ให้รูปกับ reference เหลื่อมกัน คัดลอก recovery set ไป offsite ด้วย encryption, access control และ retention/การลบตาม PDPA แยก key ออกจากข้อมูล ห้ามให้ snapshot/quarantine directory เข้าถึงผ่าน public/static URL โดยตรง
+
+ทดสอบ restore ทั้ง DB และ uploads บน isolated disposable environment ตรวจว่า reference อ่านรูปได้และ privacy-cleanup ไม่สูญหายตาม state ใน DB รวมถึงไม่ทำให้ข้อมูลที่ลบตาม PDPA กลับมาเผยแพร่ เก็บหลักฐานไม่ใส่ PII ห้ามถือว่ามี backup DB อย่างเดียวแล้วกู้ระบบได้ครบ
+
+## Deploy — backup → dry-run → migrate → build/start
+
+1. หลัง release gates ผ่าน ให้หยุดรับ traffic/งานเขียนผ่าน maintenance control ที่ operator เตรียมไว้ รวมงาน background ที่แตะ DB/uploads สำรองและ snapshot จากสถานะเดียวกัน เก็บ release เดิมและ persistent uploads ไว้ ห้ามลบทับ
+2. ให้ DBA/ผู้ดูแลอีกคนยืนยัน host, port, database, account และ migration ที่จะรันกับ inventory ผ่านช่องทางปลอดภัย ไม่ใช้เพียงค่าจาก shell เป็นหลักฐาน ห้ามใส่ production URL ลง log พิจารณา SQL/lock/ระยะเวลาของ MySQL DDL ก่อนเริ่ม
+3. ใช้ MySQL client ที่มี `mysqldump` และ `mysql` พร้อม transport/TLS ที่ผ่านการยอมรับแล้ว กำหนด `BACKUP_SCHEMA_VERSION` ให้ตรงกับ migration ที่ apply จริงในฐานก่อน deploy จากหลักฐาน DBA: CLI ใช้ tag ล่าสุดใน source journal เป็นค่าเริ่มต้น ซึ่งอาจเป็นรุ่นใหม่ที่ยังไม่ได้ apply จึงห้ามใช้ค่าเริ่มต้นโดยไม่ตรวจ
+
+```powershell
+npm run db:backup
+```
+
+4. ต้อง exit 0 และได้ทั้ง `.sql.enc` กับ `.sql.enc.manifest.json` (AES-256-GCM + SHA-256 manifest) จัด uploads snapshot เป็น recovery set ตามข้างต้น แล้วคัดลอกไป offsite ตรวจว่าอ่านกลับได้และ retention/access policy ถูกต้อง ชื่อไฟล์ด้านล่างเป็น placeholder ให้แทนด้วยไฟล์ของรอบนี้เท่านั้น:
+
+```powershell
+npm run db:restore -- --backup "backups/<file>.sql.enc" --manifest "backups/<file>.sql.enc.manifest.json"
+```
+
+ใช้ path ใน `BACKUP_DIRECTORY` จริงถ้าต่างจาก `backups` dry-run เป็นค่าเริ่มต้น ตรวจ manifest/checksum/GCM และชื่อฐานให้ตรงกับ `DATABASE_URL` โดยไม่เชื่อมต่อหรือเขียน DB **ไม่ใช่การ restore SQL เข้า MySQL และไม่ยืนยันว่า host เป็นเป้าหมายที่ถูกต้อง** คำสั่งอาจพิมพ์ชื่อฐาน จึงใช้ restricted operator console ไม่ส่ง stdout นี้เข้า public/CI log
+
+5. หาก backup/offsite copy/uploads snapshot/dry-run หรือ disposable restore drill ยังไม่ผ่าน ห้าม migrate ยืนยัน target อิสระอีกครั้งและให้เฉพาะ migration process รับสิทธิ์ DDL เท่าที่จำเป็น จาก release revision ที่ตรวจแล้วรัน:
+
+```powershell
+npx drizzle-kit migrate
+```
+
+ต้อง exit 0 หากล้มเหลวให้คง maintenance และให้ DBA ตรวจ actual schema/journal ก่อนตัดสินใจ ห้าม rerun แบบเดาหรือ rollback schema อัตโนมัติ MySQL DDL อาจ commit ไปบางส่วนแล้ว
+
+6. ใช้ artifact ที่สร้างจาก revision ที่ผ่าน gate หรือ build ใน release directory แยกด้วย environment ที่ผ่านการตรวจและไม่เปิดเผย secret:
+
+```powershell
+npm run build
+```
+
+ต้อง exit 0 และบันทึก artifact/checksum ที่จะ start หาก build ล้มหลัง migration ให้คง maintenance และใช้แผน Rollback ที่ตรวจ schema compatibility แล้ว ห้ามเปลี่ยน SHA ระหว่างขั้นตอน
+
+7. Drain instance เดิม: หยุดรับ request ใหม่ ส่ง `SIGTERM` หรือ `SIGINT` ให้ Node server ผ่าน supervisor ที่เลือก ให้เวลาจบ in-flight requests/`after()` **10–30 วินาที** ก่อน force stop และตรวจว่า signal ไปถึง Node ไม่ติดอยู่ที่ npm wrapper ต้องทดสอบกับ platform จริง ไม่ใช้ `next dev` หรือเพิ่ม custom signal handler โดยไม่จำเป็น
+8. ให้ supervisor เปิด release ใหม่ด้วย working directory ที่ถูกต้อง (path uploads อิง `process.cwd()`), persistent upload mounts/permissions และ production environment:
+
+```powershell
+npm run start
+```
+
+คำสั่งนี้คือ `next start -p 3005` ไม่ใช่ daemon/supervisor ในตัว ให้ operator ตั้ง restart policy, startup-after-reboot, resource limits และ log destination แบบไม่บันทึก secret/PII ปิดพอร์ต `3005` จากอินเทอร์เน็ตด้วย network policy อนุญาตเฉพาะ reverse proxy/monitor ที่กำหนด
+
+## Verify — ก่อนคืน traffic
+
+- ตรวจ process/TCP `3005` เป็น **liveness** เท่านั้น ไม่ใช้ความล้มเหลวของ DB เป็นเหตุ restart loop
+- เรียก readiness ภายใน: `Invoke-WebRequest -Uri 'http://127.0.0.1:3005/api/health'` ต้อง HTTP 200 พร้อม `status: "ok"`, database/schema `"ok"` ตรวจซ้ำผ่าน HTTPS origin จริงจาก monitoring ที่เก็บ URL ไว้นอก repository/log ก่อนคืน traffic
+- `/api/health` คืน HTTP 503 เมื่อ schema outdated (`degraded`) หรือ DB ใช้งานไม่ได้ (`unavailable`) ห้ามนำเข้ารับ traffic สถานะ READY เทียบ journal เท่านั้น ไม่ใช่ full schema/data integrity หรือ provider/hardware acceptance
+- Smoke login/logout ด้วยบัญชี operator/test ที่อนุมัติ (รวม 2FA ตามบัญชี) ตรวจ HTTPS, secure cookie, origin และสิทธิ์ จากนั้นอ่านรูป fixture/test member ที่ได้รับอนุญาตผ่าน `/member-photos/<opaque.ext>` เพื่อตรวจ mount/การอ่านไฟล์เท่านั้น ไม่ใช่หลักฐาน photo authorization ต้องทดสอบแบบไม่มี cookie ด้วยและเทียบกับ privacy/access model ที่อนุมัติ: public capability model อาจคืนรูปให้ผู้ทราบ URL ส่วน model ที่เพิ่มการป้องกันต้องปฏิเสธผู้ไม่มีสิทธิ์ โดย **ไม่แก้ข้อมูลสมาชิกจริง ไม่ upload/ลบรูปจริง ไม่ส่ง notification หรือเปิดประตูจริง** login อาจสร้าง session/audit ตามปกติ
+- ทำ **negative direct-URL checks** สำหรับ raw `/uploads/members/*` และ `/uploads/privacy-cleanup/*` ด้วยชื่อไฟล์ fixture ที่มีอยู่จริง (รวมสมาชิกที่มี extension และ quarantine token ที่ไม่มี extension) ทั้งผ่าน TLS proxy และ backend ที่เข้าถึงได้ในเครือข่ายควบคุม ทดสอบไม่มี cookie และบัญชีที่ไม่มีสิทธิ์ privacy: **ต้องไม่คืน bytes** ไม่ใช่ใช้ไฟล์ที่ไม่มีอยู่แล้วได้ 404 ทำซ้ำ **หลัง restart** server โดยมี fixtures อยู่ก่อนเริ่ม process เพราะ Next.js index ไฟล์ใน `public` ตอนเริ่มทำงาน หากรั่วแม้แต่ทางเดียวให้ block production; signed-in positive smoke หรือ login redirect อย่างเดียวไม่พิสูจน์ privacy RBAC เก็บ URL/หลักฐานในช่องทางจำกัดสิทธิ์ไม่ส่งเข้า log สาธารณะ
+- เมื่อทั้งหมดผ่านจึงคืน traffic และเฝ้าดู readiness, error rate, latency, DB pool, disk/uploads capacity และ restart count ตาม monitoring window ที่อนุมัติ เก็บเฉพาะหลักฐานที่ไม่มี secret/PII หากไม่ผ่านให้หยุดและใช้ Rollback
+
+## Rollback — source/artifact ไม่ใช่ schema
+
+1. เมื่อ start/readiness/smoke ไม่ผ่าน หรือ error เกินเกณฑ์ที่อนุมัติ ให้ปิด traffic/งานเขียนและเก็บ incident evidence ที่ redacted แล้ว Drain instance ใหม่ด้วยขั้นตอน 10–30 วินาทีเดิม
+2. ตรวจโดย DBA ว่า source/artifact เดิมเข้ากับ schema ปัจจุบันได้ก่อนสลับกลับ ใช้ revision/artifact เดิมที่บันทึกไว้พร้อม working directory, environment และ persistent uploads เดิม ไม่คัดลอกไฟล์ build ทับ instance ที่ยังทำงาน
+3. **ห้าม blind schema rollback หลัง MySQL DDL** และห้าม restore DB เก่าทับ production เพื่อแก้ deployment โดยอัตโนมัติ เพราะอาจทำให้ข้อมูลหลัง backup หาย หาก schema ไม่เข้ากับโค้ดเก่าให้คง maintenance และให้ DBA เลือก forward fix หรือ recovery ที่อนุมัติอย่างชัดเจน
+4. การ recovery จริงต้องยืนยัน target และขอบเขตข้อมูลสูญหาย/RPO, หยุด writers และกู้ DB พร้อม uploads จาก recovery set เดียวกันผ่านแผนที่ซ้อมแล้ว ดู guard `BACKUP_RESTORE_ENABLED=true`, `--execute`, `--confirm "RESTORE <database>"` ใน [README](../../README.md) เปิด flag ชั่วคราวเฉพาะ restore process แล้วล้างทันที ไม่เปิดค้างใน server environment
+5. Restore drill ต้องใช้ **isolated disposable MySQL server ที่ใช้ชื่อ database เดียวกับ manifest** เพราะสคริปต์บังคับชื่อตรงกัน เปลี่ยน host ผ่าน secret manager ตรวจแยกจาก production และห้ามแก้ manifest เพื่อข้าม guard; dry-run อย่างเดียวไม่ทดแทน drill
+6. หลัง rollback/recovery ต้องผ่าน Verify อีกครั้งก่อนคืน traffic บันทึก revision ที่ให้บริการจริง, schema state และ recovery set โดยไม่เก็บ secret/ข้อมูลสมาชิกลง incident log
+
+## External blockers — ต้องมี operator acceptance ก่อน production
+
+- Photo privacy/access model ต้องอนุมัติ public capability URL ของ `/member-photos/<opaque.ext>` อย่างชัดเจน หรือมี protection ที่ผ่าน acceptance ก่อน production; ต้องผ่าน negative raw-path checks ทั้งก่อนและหลัง restart ด้วย ห้ามอ้างว่ามี photo RBAC จาก positive smoke หรือ generic login
+- Reverse proxy/TLS topology: certificate/renewal, forwarded-header replacement, private backend port, request limits, streaming, ไม่ cache response ส่วนบุคคล และต้องป้องกัน raw uploads/quarantine ตามผล negative checks ไม่ใช่สมมติว่า app มี authorization ครบแล้ว
+- MySQL network/CA/TLS เมื่อฐานอยู่ remote: ตรวจ certificate chain และ hostname สำหรับ runtime, Drizzle migration และ MySQL backup/restore clients แยกกัน โค้ดปัจจุบันไม่ได้กำหนด CA/verify policy ครบทุกเส้นทาง และ backup parser ไม่ส่งต่อ TLS query options จาก URL ห้ามถือว่าใส่ URL แล้วได้ TLS ที่ตรวจสอบแล้ว หรือปิด verification เพื่อให้ผ่าน หากพิสูจน์ transport ที่ปลอดภัยไม่ได้ให้ block deploy และออกแบบ/อนุมัติงานเพิ่ม
+- Process supervisor/platform: restart policy, signal propagation, drain 10–30 วินาที, reboot recovery, resource limits และ working directory/mounts ต้องเลือกและซ้อมบน host จริง
+- Persistent uploads + encrypted paired backup, offsite storage, retention, key custody/access control และ disposable full restore drill ยังต้องจัดเตรียมโดย operator; สคริปต์ DB ไม่ครอบคลุมไฟล์
+- Monitoring/alert owner และ log destination ต้องยืนยันว่า readiness failure, error/latency, restart, disk และ backup failure ส่งถึงผู้รับผิดชอบได้ โดยไม่เก็บ credential/PII หรือ production URL ใน log
+- Hardware/controller และ notification provider ต้องมี sandbox/อุปกรณ์จริง acceptance, consent และ failure handling ก่อนเปิดใช้งานจริง CI/build ไม่ใช่หลักฐานทดแทน
+- รองรับ **single instance เท่านั้น** จนกว่าจะออกแบบและยอมรับ shared uploads, centralized sessions/rate limits ในส่วนที่ยังเป็น process-local (เช่น privacy rate limit), shared cache/keys และ deployment platform ครบ ห้ามเพิ่ม replicas หรือ rolling multi-instance จาก runbook นี้โดยตรง
+
+อ้างอิงพฤติกรรมจาก `package.json`, `.github/workflows/ci.yml`, `scripts/backup-database.ts`, `scripts/restore-database.ts`, `lib/backup/index.ts`, `app/api/health/route.ts` และคู่มือที่ติดตั้ง `node_modules/next/dist/docs/01-app/02-guides/self-hosting.md` โดยไม่มีการ deploy, ต่อฐานจริง หรือรับรอง external infrastructure ในงานเอกสารนี้
