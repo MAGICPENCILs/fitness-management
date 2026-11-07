@@ -20,16 +20,14 @@ const createMemberSchema = z.object({
   gender:      z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
   address:     z.string().optional(),
   note:        z.string().optional(),
-  photoUrl:    z.string().trim().max(255).optional(),
+  // รูปต้องมาจาก upload mutation เท่านั้น เพื่อไม่ให้ผูก URL ของสมาชิกคนอื่นหรือไฟล์ภายนอก
+  photoUrl:    z.never().optional(),
   consents: z.object({
     servicePrivacy: z.literal(true, "ต้องยอมรับนโยบายเพื่อให้บริการ"),
     marketing: z.boolean().default(false),
     photo: z.boolean().default(false),
     policyVersion: z.string().trim().min(1).max(30),
   }),
-}).refine((value) => value.consents.photo || !value.photoUrl, {
-  message: "ต้องได้รับ PHOTO consent ก่อนบันทึกรูปสมาชิก",
-  path: ["photoUrl"],
 });
 
 // GET /api/members
@@ -52,7 +50,7 @@ export async function GET() {
   }
 }
 
-// POST /api/members
+/** สร้างสมาชิกพร้อม consent โดยไม่รับ photoUrl; รูปต้องผ่าน upload boundary ภายหลัง */
 export async function POST(request: Request) {
   try {
     const homeBranchId = await getCurrentBranchId();
@@ -84,7 +82,6 @@ export async function POST(request: Request) {
       gender: validated.gender,
       address: validated.address,
       note: validated.note,
-      photoUrl: validated.photoUrl,
       homeBranchId,
       status: "ACTIVE",
     };

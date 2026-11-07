@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { AUTH_COOKIE_NAME } from "@/lib/auth/constants";
 import { decideRouteAccess } from "@/lib/auth/route-policy";
 import { verifySessionClaims } from "@/lib/auth/session-token";
+import { assertTrustedOrigin } from "@/lib/auth/request-security";
 
 const LOGIN_REQUIRED_MESSAGE = "กรุณาเข้าสู่ระบบ";
 const PASSWORD_CHANGE_REQUIRED_MESSAGE =
@@ -20,11 +21,30 @@ function currentReturnPath(request: NextRequest): string {
   return `${request.nextUrl.pathname}${request.nextUrl.search}`;
 }
 
-/** ทำ optimistic auth check ก่อน render โดยให้ Route Handler และ DAL เป็น security boundary ตัวจริง */
+/** กัน optimizer เก็บรูปสมาชิกและตรวจ Origin ของ upload ก่อน cookie; รูป opaque อ่านผ่าน runtime handler แบบ public */
 export async function proxy(request: NextRequest): Promise<NextResponse> {
+  const pathname = request.nextUrl.pathname;
+  if (pathname === "/_next/image") {
+    try {
+      const target = new URL(request.nextUrl.searchParams.get("url") ?? "", request.url);
+      const photoPath = new URL(decodeURIComponent(target.pathname), request.url).pathname;
+      if (/^\/(member-photos|uploads\/members)(\/|$)/.test(photoPath))
+        return NextResponse.json({ error: "ไม่พบรูปสมาชิก" }, { status: 404 });
+    } catch {
+      // URL ที่ผิดรูปแบบยังให้ optimizer เดิมเป็นผู้ตรวจและปฏิเสธ โดยไม่ตรวจ session เพิ่ม
+    }
+    return NextResponse.next();
+  }
+  if (pathname === "/api/upload" && request.method === "POST") {
+    try {
+      assertTrustedOrigin(request);
+    } catch {
+      return NextResponse.json({ error: "คำขอไม่ผ่านการตรวจสอบความปลอดภัย" }, { status: 403 });
+    }
+  }
+  if (pathname.startsWith("/member-photos/")) return NextResponse.next();
   const cookie = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   const claims = cookie ? await verifySessionClaims(cookie) : null;
-  const pathname = request.nextUrl.pathname;
 
   logAuthDiagnostic(
     !cookie
@@ -60,5 +80,5 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.[^/]+$).*)"],
+  matcher: ["/_next/image", "/((?!_next/static|_next/image|favicon.ico|.*\\.[^/]+$).*)"],
 };

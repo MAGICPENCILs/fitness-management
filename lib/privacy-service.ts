@@ -50,6 +50,7 @@ import {
   executeAnonymizationPlan,
   type AnonymizationOperation,
 } from "@/lib/privacy-anonymization";
+import { resolveMemberPhotoPath as resolvePhotoPath } from "@/lib/member-photo-path";
 
 export class PrivacyOperationError extends Error {
   /** สร้างข้อผิดพลาดทางธุรกิจของ PDPA พร้อมสถานะ HTTP */
@@ -81,13 +82,19 @@ export type PrivacyRequestFilters = {
 
 /** แปลง photo URL ภายในระบบเป็น path ที่ยืนยันแล้วว่าอยู่ใต้ uploads/members เท่านั้น */
 function resolveMemberPhotoPath(photoUrl: string) {
-  if (!photoUrl.startsWith("/uploads/members/") || photoUrl.includes(".."))
-    throw new PrivacyOperationError("ตำแหน่งไฟล์รูปสมาชิกไม่ถูกต้อง", 409);
-  const uploadRoot = path.resolve(process.cwd(), "public", "uploads", "members");
-  const sourcePath = path.resolve(process.cwd(), "public", photoUrl.slice(1));
-  if (!sourcePath.startsWith(`${uploadRoot}${path.sep}`))
-    throw new PrivacyOperationError("ตำแหน่งไฟล์รูปสมาชิกไม่ถูกต้อง", 409);
+  const sourcePath = resolvePhotoPath(photoUrl);
+  if (!sourcePath) throw new PrivacyOperationError("ตำแหน่งไฟล์รูปสมาชิกไม่ถูกต้อง", 409);
   return sourcePath;
+}
+
+/** คืนไฟล์เฉพาะเมื่อ primary DB ภายใต้ member lock ยืนยันว่า mutation rollback จริง ไม่คืนรูปหลังถอน consent สำเร็จ */
+async function restoreMemberPhoto(memberId: number, photoUrl: string, originalPath: string, quarantinePath: string) {
+  await db.transaction(async (tx) => {
+    const [current] = await tx.select({ photoUrl: members.photoUrl, status: members.status }).from(members)
+      .where(eq(members.id, memberId)).limit(1).for("update");
+    if (current?.photoUrl === photoUrl && current.status !== "CANCELLED")
+      await rename(quarantinePath, originalPath);
+  });
 }
 
 /** โหลด consent snapshot และ event history ของสมาชิกโดยไม่แก้ไข ledger เดิม */
@@ -141,7 +148,7 @@ export async function getMemberConsentSnapshot(
   };
 }
 
-/** เพิ่ม consent event แบบ append-only พร้อม side effect และ audit ใน transaction เดียว */
+/** เพิ่ม consent แบบ append-only โดยเลือกและย้ายรูปภายใต้ member lock เดียวกับ upload ก่อนเปลี่ยน ledger/Audit */
 export async function appendConsentEvent(
   input: AppendConsentInput,
   actor: ActorContext,
@@ -150,8 +157,6 @@ export async function appendConsentEvent(
     .select({
       id: members.id,
       homeBranchId: members.homeBranchId,
-      photoUrl: members.photoUrl,
-      status: members.status,
     })
     .from(members)
     .where(eq(members.id, input.memberId))
@@ -173,30 +178,8 @@ export async function appendConsentEvent(
   let originalPhotoPath: string | undefined;
   let quarantinePath: string | undefined;
   let quarantineToken: string | undefined;
-  if (
-    input.consentType === "PHOTO" &&
-    input.action === "WITHDRAWN" &&
-    member.photoUrl
-  ) {
-    originalPhotoPath = resolveMemberPhotoPath(member.photoUrl);
-    quarantineToken = randomBytes(32).toString("hex");
-    const quarantineRoot = path.resolve(
-      process.cwd(),
-      "public",
-      "uploads",
-      "privacy-cleanup",
-    );
-    await mkdir(quarantineRoot, { recursive: true });
-    quarantinePath = path.join(quarantineRoot, quarantineToken);
-    try {
-      await rename(originalPhotoPath, quarantinePath);
-    } catch {
-      throw new PrivacyOperationError(
-        "ไม่สามารถย้ายรูปไปพื้นที่พักไฟล์ได้ จึงยังไม่ถอน consent",
-        409,
-      );
-    }
-  }
+  let originalPhotoUrl: string | undefined;
+  let photoMoved = false;
 
   try {
     return await runAuditedMutation<number>(
@@ -213,6 +196,23 @@ export async function appendConsentEvent(
         success: (entityId) => ({ entityId }),
       },
       async (tx) => {
+        const [lockedMember] = await tx.select({ homeBranchId: members.homeBranchId, photoUrl: members.photoUrl, status: members.status })
+          .from(members).where(eq(members.id, input.memberId)).limit(1).for("update");
+        if (!lockedMember || lockedMember.homeBranchId !== member.homeBranchId || lockedMember.status === "CANCELLED")
+          throw new PrivacyOperationError("สถานะสมาชิกเปลี่ยนไป กรุณาโหลดใหม่", 409);
+        if (input.consentType === "PHOTO" && input.action === "WITHDRAWN" && lockedMember.photoUrl) {
+          originalPhotoUrl = lockedMember.photoUrl;
+          originalPhotoPath = resolveMemberPhotoPath(originalPhotoUrl);
+          quarantineToken = randomBytes(32).toString("hex");
+          quarantinePath = getQuarantinePath(quarantineToken);
+          await mkdir(path.dirname(quarantinePath), { recursive: true });
+          try {
+            await rename(originalPhotoPath, quarantinePath);
+            photoMoved = true;
+          } catch {
+            throw new PrivacyOperationError("ไม่สามารถย้ายรูปไปพื้นที่พักไฟล์ได้ จึงยังไม่ถอน consent", 409);
+          }
+        }
         const result = await tx.insert(consentEvents).values({
           memberId: input.memberId,
           branchId: member.homeBranchId,
@@ -267,11 +267,11 @@ export async function appendConsentEvent(
       },
     );
   } catch (error) {
-    if (originalPhotoPath && quarantinePath) {
+    if (photoMoved && originalPhotoUrl && originalPhotoPath && quarantinePath) {
       try {
-        await rename(quarantinePath, originalPhotoPath);
-      } catch (restoreError) {
-        console.error("ไม่สามารถคืนไฟล์รูปจาก quarantine", restoreError);
+        await restoreMemberPhoto(input.memberId, originalPhotoUrl, originalPhotoPath, quarantinePath);
+      } catch {
+        console.error("MEMBER_PHOTO_RESTORE_FAILED");
       }
     }
     throw error;
@@ -805,7 +805,7 @@ async function failPrivacyCleanup(
   });
 }
 
-/** พยายามบันทึก failed audit โดยไม่ให้ความล้มเหลวของ audit บังข้อผิดพลาดหลักที่ผู้ใช้ต้องแก้ */
+/** บันทึก failed audit โดยไม่บังข้อผิดพลาดหลักหรือส่ง raw error ที่อาจมี SQL/PII เข้า logger */
 async function writePrivacyFailureAudit(
   requestId: number,
   branchId: number,
@@ -823,12 +823,12 @@ async function writePrivacyFailureAudit(
       result: "FAILED",
       metadata: { errorCode },
     });
-  } catch (auditError) {
-    console.error("บันทึก failed audit ของ privacy ไม่สำเร็จ", auditError);
+  } catch {
+    console.error("PRIVACY_FAILURE_AUDIT_FAILED");
   }
 }
 
-/** ล้างข้อมูลส่วนบุคคลหลังคำขอได้รับอนุมัติ โดยย้ายรูปออกก่อนและ restore กลับหาก transaction rollback */
+/** ล้างข้อมูลเมื่ออนุมัติแล้ว โดยอ่านและย้ายรูปล่าสุดภายใต้ member lock เดียวกับ upload และคืนเฉพาะเมื่อ rollback จริง */
 export async function anonymizeApprovedRequest(
   requestId: number,
   actor: ActorContext,
@@ -841,7 +841,6 @@ export async function anonymizeApprovedRequest(
       requestedByStaffId: privacyRequests.requestedByStaffId,
       reviewedByStaffId: privacyRequests.reviewedByStaffId,
       memberStatus: members.status,
-      photoUrl: members.photoUrl,
     })
     .from(privacyRequests)
     .innerJoin(members, eq(privacyRequests.memberId, members.id))
@@ -873,44 +872,12 @@ export async function anonymizeApprovedRequest(
     throw new PrivacyOperationError("ข้อมูลสมาชิกถูกทำให้นิรนามแล้ว", 409);
 
   const memberToken = randomBytes(6).toString("hex").toUpperCase();
-  const quarantineToken = record.photoUrl
-    ? randomBytes(32).toString("hex")
-    : undefined;
-  const originalPhotoPath = record.photoUrl
-    ? resolveMemberPhotoPath(record.photoUrl)
-    : undefined;
-  const quarantinePath = quarantineToken
-    ? getQuarantinePath(quarantineToken)
-    : undefined;
-
-  if (originalPhotoPath && quarantinePath) {
-    await mkdir(path.dirname(quarantinePath), { recursive: true });
-    try {
-      await rename(originalPhotoPath, quarantinePath);
-    } catch {
-      const result = await db.insert(privacyFileCleanups).values({
-        memberId: record.memberId,
-        privacyRequestId: requestId,
-        source: "ANONYMIZATION",
-        quarantineToken: quarantineToken!,
-        status: "FAILED",
-        errorCode: "FILE_MOVE_FAILED",
-      });
-      await failPrivacyCleanup(requestId, result[0].insertId, "FILE_MOVE_FAILED");
-      await writePrivacyFailureAudit(
-        requestId,
-        record.branchId,
-        actor,
-        "PRIVACY_ANONYMIZED",
-        "FILE_MOVE_FAILED",
-      );
-      throw new PrivacyOperationError(
-        "ย้ายรูปไปพื้นที่พักไฟล์ไม่สำเร็จ จึงยังไม่ล้างข้อมูลสมาชิก",
-        409,
-      );
-    }
-  }
-
+  let quarantineToken: string | undefined;
+  let originalPhotoUrl: string | undefined;
+  let originalPhotoPath: string | undefined;
+  let quarantinePath: string | undefined;
+  let photoMoved = false;
+  let fileMoveFailed = false;
   let cleanupId: number | undefined;
   try {
     await db.transaction(async (tx) => {
@@ -927,7 +894,7 @@ export async function anonymizeApprovedRequest(
         .limit(1)
         .for("update");
       const [lockedMember] = await tx
-        .select({ status: members.status })
+        .select({ status: members.status, photoUrl: members.photoUrl, homeBranchId: members.homeBranchId })
         .from(members)
         .where(eq(members.id, record.memberId))
         .limit(1)
@@ -938,6 +905,7 @@ export async function anonymizeApprovedRequest(
         lockedRequest.memberId !== record.memberId ||
         lockedRequest.branchId !== record.branchId ||
         lockedRequest.status !== "APPROVED" ||
+        lockedMember.homeBranchId !== record.branchId ||
         lockedMember.status === "CANCELLED" ||
         lockedRequest.reviewedByStaffId === null
       )
@@ -949,6 +917,20 @@ export async function anonymizeApprovedRequest(
         lockedRequest.requestedByStaffId,
         lockedRequest.reviewedByStaffId,
       );
+      if (lockedMember.photoUrl) {
+        originalPhotoUrl = lockedMember.photoUrl;
+        originalPhotoPath = resolveMemberPhotoPath(originalPhotoUrl);
+        quarantineToken = randomBytes(32).toString("hex");
+        quarantinePath = getQuarantinePath(quarantineToken);
+        await mkdir(path.dirname(quarantinePath), { recursive: true });
+        try {
+          await rename(originalPhotoPath, quarantinePath);
+          photoMoved = true;
+        } catch {
+          fileMoveFailed = true;
+          throw new PrivacyOperationError("ย้ายรูปไปพื้นที่พักไฟล์ไม่สำเร็จ จึงยังไม่ล้างข้อมูลสมาชิก", 409);
+        }
+      }
       await executeAnonymizationPlan({
         async execute(operation) {
           await executeAnonymizationOperation(
@@ -970,9 +952,18 @@ export async function anonymizeApprovedRequest(
       });
     });
   } catch (error) {
-    if (originalPhotoPath && quarantinePath) {
+    if (fileMoveFailed) {
+      const result = await db.insert(privacyFileCleanups).values({
+        memberId: record.memberId, privacyRequestId: requestId, source: "ANONYMIZATION",
+        quarantineToken: quarantineToken!, status: "FAILED", errorCode: "FILE_MOVE_FAILED",
+      });
+      await failPrivacyCleanup(requestId, result[0].insertId, "FILE_MOVE_FAILED");
+      await writePrivacyFailureAudit(requestId, record.branchId, actor, "PRIVACY_ANONYMIZED", "FILE_MOVE_FAILED");
+      throw error;
+    }
+    if (photoMoved && originalPhotoUrl && originalPhotoPath && quarantinePath) {
       try {
-        await rename(quarantinePath, originalPhotoPath);
+        await restoreMemberPhoto(record.memberId, originalPhotoUrl, originalPhotoPath, quarantinePath);
       } catch {
         const result = await db.insert(privacyFileCleanups).values({
           memberId: record.memberId,

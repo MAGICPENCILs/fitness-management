@@ -19,6 +19,7 @@ const PUBLIC_PATHS = [
   "/api/member-auth",
   "/api/member-applications",
   "/api/member-portal",
+  "/member-photos",
 ];
 
 const AUTHENTICATED_SELF_SERVICE_PATHS = ["/settings/security/totp"];

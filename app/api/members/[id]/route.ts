@@ -58,7 +58,7 @@ export async function GET(
   }
 }
 
-// PATCH /api/members/[id]
+/** แก้ไขข้อมูลทั่วไปเท่านั้น โดยรูปสมาชิกต้องผ่าน upload boundary ที่ตรวจไฟล์และ consent */
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -74,7 +74,7 @@ export async function PATCH(
     const memberId = Number(id);
 
     await runAuditedMutation(
-      { actorStaffId: actor.staffId, branchId, action: "MEMBER_UPDATED", entityType: "MEMBER", entityId: memberId, metadata: { fields: ["firstName", "lastName", "phone", "email", "address", "note", "gender", "birthDate", "photoUrl"] } },
+      { actorStaffId: actor.staffId, branchId, action: "MEMBER_UPDATED", entityType: "MEMBER", entityId: memberId, metadata: { fields: ["firstName", "lastName", "phone", "email", "address", "note", "gender", "birthDate"] } },
       async (tx) => {
         const result = await tx
           .update(members)
@@ -87,7 +87,6 @@ export async function PATCH(
             note: body.note,
             gender: body.gender,
             birthDate: body.birthDate ? new Date(body.birthDate) : undefined,
-            photoUrl: body.photoUrl,
           })
           .where(and(eq(members.id, memberId), eq(members.homeBranchId, branchId)));
         if (result[0].affectedRows !== 1) throw new Error("MEMBER_NOT_FOUND_IN_BRANCH");
