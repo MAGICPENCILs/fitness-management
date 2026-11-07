@@ -21,15 +21,26 @@ function currentReturnPath(request: NextRequest): string {
   return `${request.nextUrl.pathname}${request.nextUrl.search}`;
 }
 
-/** กัน optimizer เก็บรูปสมาชิกและตรวจ Origin ของ upload ก่อน cookie; รูป opaque อ่านผ่าน runtime handler แบบ public */
+/** ปิด raw/filename/optimizer ก่อนอ่าน cookie; gateway ตาม member ID ให้ handler ตรวจ authoritative session โดยไม่ redirect */
 export async function proxy(request: NextRequest): Promise<NextResponse> {
-  const pathname = request.nextUrl.pathname;
+  let pathname = request.nextUrl.pathname;
+  try {
+    // Next จับคู่ public files กับ decoded path ด้วย จึงต้องปิด encoded alias ก่อนอ่าน cookie เช่นกัน
+    pathname = new URL(decodeURIComponent(pathname), request.url).pathname;
+  } catch {
+    // path ที่ decode ไม่ได้ยังตรวจ raw prefix ได้ และ router จะปฏิเสธส่วนที่ผิดรูปแบบ
+  }
+  const hiddenPhoto = () => NextResponse.json({ error: "ไม่พบรูปสมาชิก" }, {
+    status: 404,
+    headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" },
+  });
+  if (/^\/uploads\/(members|privacy-cleanup)(\/|$)/.test(pathname)) return hiddenPhoto();
   if (pathname === "/_next/image") {
     try {
       const target = new URL(request.nextUrl.searchParams.get("url") ?? "", request.url);
       const photoPath = new URL(decodeURIComponent(target.pathname), request.url).pathname;
-      if (/^\/(member-photos|uploads\/members)(\/|$)/.test(photoPath))
-        return NextResponse.json({ error: "ไม่พบรูปสมาชิก" }, { status: 404 });
+      if (/^\/(member-photos|uploads\/(members|privacy-cleanup))(\/|$)/.test(photoPath))
+        return hiddenPhoto();
     } catch {
       // URL ที่ผิดรูปแบบยังให้ optimizer เดิมเป็นผู้ตรวจและปฏิเสธ โดยไม่ตรวจ session เพิ่ม
     }
@@ -42,7 +53,10 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "คำขอไม่ผ่านการตรวจสอบความปลอดภัย" }, { status: 403 });
     }
   }
-  if (pathname.startsWith("/member-photos/")) return NextResponse.next();
+  if (pathname === "/member-photos" || pathname.startsWith("/member-photos/")) {
+    if (pathname.startsWith("/member-photos/by-member/")) return NextResponse.next();
+    return hiddenPhoto();
+  }
   const cookie = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   const claims = cookie ? await verifySessionClaims(cookie) : null;
 
@@ -80,5 +94,5 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: ["/_next/image", "/((?!_next/static|_next/image|favicon.ico|.*\\.[^/]+$).*)"],
+  matcher: ["/uploads/members/:path*", "/uploads/privacy-cleanup/:path*", "/member-photos/:path*", "/_next/image", "/((?!_next/static|_next/image|favicon.ico|.*\\.[^/]+$).*)"],
 };

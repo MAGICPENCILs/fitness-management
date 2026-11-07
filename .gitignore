@@ -42,6 +42,7 @@ yarn-error.log*
 
 # runtime uploads (member photos and documents)
 /public/uploads/
+/storage/
 
 # vercel
 .vercel

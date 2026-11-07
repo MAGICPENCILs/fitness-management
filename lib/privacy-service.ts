@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomBytes } from "crypto";
-import { mkdir, rename, unlink } from "fs/promises";
+import { mkdir, rename, stat, unlink } from "fs/promises";
 import path from "path";
 import { and, asc, desc, eq, gte, inArray, lte, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
@@ -50,7 +50,7 @@ import {
   executeAnonymizationPlan,
   type AnonymizationOperation,
 } from "@/lib/privacy-anonymization";
-import { resolveMemberPhotoPath as resolvePhotoPath } from "@/lib/member-photo-path";
+import { memberPhotoAliases, resolveMemberPhotoPaths } from "@/lib/member-photo-path";
 
 export class PrivacyOperationError extends Error {
   /** สร้างข้อผิดพลาดทางธุรกิจของ PDPA พร้อมสถานะ HTTP */
@@ -80,10 +80,25 @@ export type PrivacyRequestFilters = {
   pageSize: number;
 };
 
-/** แปลง photo URL ภายในระบบเป็น path ที่ยืนยันแล้วว่าอยู่ใต้ uploads/members เท่านั้น */
-function resolveMemberPhotoPath(photoUrl: string) {
-  const sourcePath = resolvePhotoPath(photoUrl);
-  if (!sourcePath) throw new PrivacyOperationError("ตำแหน่งไฟล์รูปสมาชิกไม่ถูกต้อง", 409);
+/** เลือก source เดียวภายใต้ member lock และห้ามย้ายไฟล์ร่วม/ไฟล์ซ้ำก่อนแก้ consent หรือข้อมูลสมาชิก */
+async function resolveMemberPhotoPath(photoUrl: string, memberId: number, tx: DbTransaction) {
+  const candidates = resolveMemberPhotoPaths(photoUrl);
+  if (!candidates) throw new PrivacyOperationError("ตำแหน่งไฟล์รูปสมาชิกไม่ถูกต้อง", 409);
+  const [reference] = await tx.select({ id: members.id }).from(members)
+    .where(and(ne(members.id, memberId), inArray(members.photoUrl, memberPhotoAliases(photoUrl)))).limit(1);
+  if (reference) throw new PrivacyOperationError("รูปสมาชิกถูกใช้งานร่วม ต้องตรวจสอบก่อนลบ", 409);
+  let sourcePath: string | undefined;
+  for (const candidate of candidates) {
+    try {
+      const file = await stat(candidate);
+      if (!file.isFile() || sourcePath) throw new PrivacyOperationError("ตำแหน่งไฟล์รูปสมาชิกไม่ชัดเจน", 409);
+      sourcePath = candidate;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+        throw new PrivacyOperationError("ไม่สามารถตรวจสอบไฟล์รูปสมาชิกได้", 409);
+    }
+  }
+  if (!sourcePath) throw new PrivacyOperationError("ไม่พบไฟล์รูปสมาชิกสำหรับลบ", 409);
   return sourcePath;
 }
 
@@ -202,7 +217,7 @@ export async function appendConsentEvent(
           throw new PrivacyOperationError("สถานะสมาชิกเปลี่ยนไป กรุณาโหลดใหม่", 409);
         if (input.consentType === "PHOTO" && input.action === "WITHDRAWN" && lockedMember.photoUrl) {
           originalPhotoUrl = lockedMember.photoUrl;
-          originalPhotoPath = resolveMemberPhotoPath(originalPhotoUrl);
+          originalPhotoPath = await resolveMemberPhotoPath(originalPhotoUrl, input.memberId, tx);
           quarantineToken = randomBytes(32).toString("hex");
           quarantinePath = getQuarantinePath(quarantineToken);
           await mkdir(path.dirname(quarantinePath), { recursive: true });
@@ -525,32 +540,28 @@ type AnonymizationContext = {
   quarantineToken?: string;
 };
 
-/** สร้าง path quarantine จาก random token ที่ผ่าน allowlist เท่านั้น จึงไม่เปิดช่องให้อ้าง path ภายนอกพื้นที่ */
+/** พักไฟล์ใหม่ใน private storage เท่านั้น โดย token ต้องผ่าน allowlist ก่อนประกอบ path */
 function getQuarantinePath(token: string) {
   if (!/^[A-F0-9]{64}$/i.test(token))
     throw new PrivacyOperationError("quarantine token ไม่ถูกต้อง", 409);
   return path.resolve(
     process.cwd(),
-    "public",
-    "uploads",
+    "storage",
     "privacy-cleanup",
     token,
   );
 }
 
-/** ลบไฟล์เฉพาะจาก quarantine token; ถ้าไฟล์ไม่มีแล้วให้ถือว่า cleanup สำเร็จ */
+/** ลบ token ทั้ง private/legacy จนครบ; เฉพาะ ENOENT เท่านั้นที่นับว่าสำเร็จเพื่อให้ retry partial failure ได้ */
 async function removeQuarantinedFile(token: string) {
-  try {
-    await unlink(getQuarantinePath(token));
-  } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
-    )
-      return;
-    throw error;
+  const privatePath = getQuarantinePath(token);
+  const legacyPath = path.join(process.cwd(), "public", "uploads", "privacy-cleanup", token);
+  for (const candidate of [privatePath, legacyPath]) {
+    try {
+      await unlink(candidate);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
 }
 
@@ -919,15 +930,16 @@ export async function anonymizeApprovedRequest(
       );
       if (lockedMember.photoUrl) {
         originalPhotoUrl = lockedMember.photoUrl;
-        originalPhotoPath = resolveMemberPhotoPath(originalPhotoUrl);
+        originalPhotoPath = await resolveMemberPhotoPath(originalPhotoUrl, record.memberId, tx);
         quarantineToken = randomBytes(32).toString("hex");
         quarantinePath = getQuarantinePath(quarantineToken);
         await mkdir(path.dirname(quarantinePath), { recursive: true });
         try {
           await rename(originalPhotoPath, quarantinePath);
           photoMoved = true;
-        } catch {
-          fileMoveFailed = true;
+        } catch (error) {
+          // EXDEV ต้องหยุดก่อนสร้าง cleanup ledger; ข้อผิดพลาดย้ายแบบเดิมยังคง retry tracking
+          fileMoveFailed = (error as NodeJS.ErrnoException).code !== "EXDEV";
           throw new PrivacyOperationError("ย้ายรูปไปพื้นที่พักไฟล์ไม่สำเร็จ จึงยังไม่ล้างข้อมูลสมาชิก", 409);
         }
       }

@@ -107,7 +107,7 @@ describe("saveMemberPhoto", () => {
   ])("saves %s using server randomness and one audited update", async (bytes, mime, extension) => {
     const result = await saveMemberPhoto({ actor, branchId: 10, memberId: 7, file: image(bytes, mime) });
     expect(result.url).toMatch(new RegExp(`^/member-photos/[a-f0-9]{64}\\.${extension}$`));
-    expect(mocks.writeFile).toHaveBeenCalledWith(path.join(process.cwd(), "public", "uploads", "members", path.basename(result.url)), bytes, { flag: "wx" });
+    expect(mocks.writeFile).toHaveBeenCalledWith(path.join(process.cwd(), "storage", "member-photos", path.basename(result.url)), bytes, { flag: "wx" });
     expect(updates).toEqual([{ photoUrl: result.url }]);
     expect(audits).toEqual([{ actorStaffId: 2, branchId: 10, action: "MEMBER_PHOTO_UPDATED", entityType: "MEMBER", entityId: 7, result: "SUCCESS", metadata: { fields: ["photo"] } }]);
     expect(mocks.consent).toHaveBeenCalledWith(7, undefined, tx);

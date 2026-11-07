@@ -15,6 +15,7 @@ type ScanResult = {
     status: "OPENED" | "DISABLED" | "UNAVAILABLE" | "REJECTED";
   };
   member?: {
+    id: number;
     memberCode: string;
     firstName: string;
     lastName: string;
@@ -24,7 +25,7 @@ type ScanResult = {
   };
 };
 
-/** แสดงผลสแกนโดยไม่เก็บรูปสมาชิกใน optimizer cache เพื่อไม่คงรูปหลังถอน consent หรือทำข้อมูลนิรนาม */
+/** แสดงรูปผ่าน member-ID gateway ที่ตรวจสิทธิ์ปัจจุบัน และไม่ให้ optimizer คงรูปหลังถอน consent */
 export function ScanPage({
   hardwareHealth,
 }: {
@@ -152,7 +153,7 @@ export function ScanPage({
             <div className="flex items-center gap-4 border-t border-success/25 pt-2">
               {scanResult.member.photoUrl ? (
                 <Image
-                  src={scanResult.member.photoUrl}
+                  src={`/member-photos/by-member/${scanResult.member.id}`}
                   unoptimized
                   alt={`รูปสมาชิก ${scanResult.member.firstName} ${scanResult.member.lastName}`}
                   width={64}

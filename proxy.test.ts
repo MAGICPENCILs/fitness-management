@@ -81,13 +81,70 @@ describe("proxy", () => {
     expect(cookieRead).not.toHaveBeenCalled();
   });
 
-  it("lets the opaque runtime photo route serve publicly without reading session state", async () => {
+  it("blocks the old filename gateway without reading session state", async () => {
     const req = await request(`/member-photos/${"a".repeat(64)}.png`);
     const cookieRead = vi.spyOn(req.cookies, "get");
     const response = await proxy(req);
-    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.status).toBe(404);
     expect(cookieRead).not.toHaveBeenCalled();
-    expect(unstable_doesProxyMatch({ config, nextConfig: {}, url: req.url })).toBe(false);
+    expect(unstable_doesProxyMatch({ config, nextConfig: {}, url: req.url })).toBe(true);
+  });
+
+  it.each(["/uploads/members", "/uploads/members/old.jpg", "/uploads/members/nested/no-extension", "/uploads/privacy-cleanup", "/uploads/privacy-cleanup/token", "/uploads/privacy-cleanup/file.png"])("denies raw %s for every cookie state and GET/HEAD before reading cookies", async (rawPath) => {
+    for (const method of ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+      for (const session of [undefined, claims("OWNER"), claims("COUNTER")]) {
+        const base = await request(rawPath, session);
+        const req = new NextRequest(base.url, { headers: base.headers, method });
+        const cookieRead = vi.spyOn(req.cookies, "get");
+        expect(unstable_doesProxyMatch({ config, nextConfig: {}, url: req.url })).toBe(true);
+        const response = await proxy(req);
+        expect(response.status).toBe(404);
+        expect(await response.json()).toEqual({ error: "ไม่พบรูปสมาชิก" });
+        expect(response.headers.get("cache-control")).toBe("private, no-store");
+        expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+        expect(response.headers.get("location")).toBeNull();
+        expect(cookieRead).not.toHaveBeenCalled();
+      }
+    }
+  });
+
+  it.each([
+    ["/uploads/%6dembers/old.jpg", "/uploads/members/old.jpg"],
+    ["/%75ploads/members/old.jpg", "/uploads/members/old.jpg"],
+    ["/uploads%2fmembers%2fold.jpg", "/uploads/members/old.jpg"],
+    ["/uploads/%70rivacy-cleanup/token", "/uploads/privacy-cleanup/token"],
+    ["/%6dember-photos/old.png", "/member-photos/old.png"],
+  ])("denies encoded private path %s before cookies", async (encoded, canonical) => {
+    // Next router ตรวจ matcher ซ้ำกับ decoded pathname ก่อนเรียก Proxy
+    expect(unstable_doesProxyMatch({ config, nextConfig: {}, url: canonical })).toBe(true);
+    for (const session of [undefined, claims("OWNER")]) {
+      const req = await request(encoded, session);
+      const cookieRead = vi.spyOn(req.cookies, "get");
+      const response = await proxy(req);
+      expect(response.status).toBe(404);
+      expect(cookieRead).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(["/uploads/privacy-cleanup/token", "/uploads/privacy-cleanup/file.png", "/member-photos/by-member/7"])("blocks optimizer target %s for anonymous and staff HEAD/GET", async (target) => {
+    for (const method of ["GET", "HEAD"]) {
+      for (const session of [undefined, claims("OWNER")]) {
+        const base = await request(`/_next/image?url=${encodeURIComponent(target)}&w=64&q=75`, session);
+        const req = new NextRequest(base.url, { headers: base.headers, method });
+        const cookieRead = vi.spyOn(req.cookies, "get");
+        expect((await proxy(req)).status).toBe(404);
+        expect(cookieRead).not.toHaveBeenCalled();
+      }
+    }
+  });
+
+  it("leaves protected photo session failures to the authoritative handler without redirect", async () => {
+    const req = await request("/member-photos/by-member/7");
+    const cookieRead = vi.spyOn(req.cookies, "get");
+    const response = await proxy(req);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("location")).toBeNull();
+    expect(cookieRead).not.toHaveBeenCalled();
   });
   beforeEach(() => {
     process.env.AUTH_SESSION_SECRET =

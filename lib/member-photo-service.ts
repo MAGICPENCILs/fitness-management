@@ -9,7 +9,7 @@ import { members } from "@/db/schema";
 import { runAuditedMutation } from "@/lib/audit-service";
 import { getMemberConsentSnapshot } from "@/lib/privacy-service";
 import { hasPermission, type ActorContext } from "@/lib/rbac";
-import { resolveMemberPhotoPath } from "@/lib/member-photo-path";
+import { memberPhotoAliases, resolveMemberPhotoPaths } from "@/lib/member-photo-path";
 
 export class MemberPhotoError extends Error {
   /** คืนเฉพาะข้อความคงที่และสถานะ HTTP โดยไม่เปิดเผยข้อมูลสมาชิกหรือ filesystem */
@@ -20,19 +20,21 @@ export class MemberPhotoError extends Error {
 }
 
 /** ลบเฉพาะไฟล์ที่ primary DB ยืนยันว่าไม่มีผู้ใช้อ้างอิง; ถ้า commit/การตรวจสอบไม่ชัดเจนให้เก็บรอ reconciliation */
-async function cleanupPhoto(photoUrl: string, filePath: string) {
+async function cleanupPhoto(photoUrl: string, filePaths: string[]) {
   try {
-    const name = path.basename(photoUrl);
     const [reference] = await db.select({ id: members.id }).from(members)
-      .where(inArray(members.photoUrl, [`/uploads/members/${name}`, `/member-photos/${name}`])).limit(1);
+      .where(inArray(members.photoUrl, memberPhotoAliases(photoUrl))).limit(1);
     if (reference) return;
-    await unlink(filePath);
+    for (const filePath of filePaths) {
+      try { await unlink(filePath); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error("MEMBER_PHOTO_CLEANUP_FAILED");
   }
 }
 
-/** ตรวจชนิดและ consent ก่อนบันทึกรูปกับ Audit ใน transaction เดียว และชดเชยไฟล์เมื่อ rollback */
+/** ตรวจชนิดและ consent ภายใต้ member lock ก่อนเขียน private storage กับ Audit และชดเชยเฉพาะ rollback ที่ยืนยันได้ */
 export async function saveMemberPhoto(input: {
   actor: ActorContext;
   branchId: number;
@@ -56,7 +58,7 @@ export async function saveMemberPhoto(input: {
       : buffer.length >= 12 && buffer.subarray(0, 4).equals(Buffer.from("RIFF")) && buffer.subarray(8, 12).equals(Buffer.from("WEBP"));
   if (!validSignature) throw new MemberPhotoError("ไฟล์รูปไม่ถูกต้อง", 400);
 
-  const uploadRoot = path.join(process.cwd(), "public", "uploads", "members");
+  const uploadRoot = path.join(process.cwd(), "storage", "member-photos");
   const filename = `${randomBytes(32).toString("hex")}.${extension}`;
   const url = `/member-photos/${filename}`;
   let newPath: string | undefined;
@@ -89,11 +91,11 @@ export async function saveMemberPhoto(input: {
       },
     );
   } catch (error) {
-    if (newPath) await cleanupPhoto(url, newPath);
+    if (newPath) await cleanupPhoto(url, [newPath]);
     throw error;
   }
-  // ลบรูปเก่าหลัง commit โดยไม่ลบไฟล์ร่วมของสมาชิกอื่น รวมทั้ง URL เดิมที่ชี้ directory เดียวกัน
-  const oldPath = oldUrl ? resolveMemberPhotoPath(oldUrl) : null;
-  if (oldUrl && oldPath) await cleanupPhoto(oldUrl, oldPath);
+  // ลบทั้ง private และ legacy หลัง commit เฉพาะเมื่อไม่มีสมาชิกอ้างผ่าน alias ใดแล้ว
+  const oldPaths = oldUrl ? resolveMemberPhotoPaths(oldUrl) : null;
+  if (oldUrl && oldPaths) await cleanupPhoto(oldUrl, oldPaths);
   return { url };
 }
