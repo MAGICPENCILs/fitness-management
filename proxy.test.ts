@@ -9,6 +9,7 @@ import { config, proxy } from "@/proxy";
 
 const NOW = new Date("2026-08-11T04:00:00.000Z");
 const originalSecret = process.env.AUTH_SESSION_SECRET;
+const originalOrigin = process.env.APP_ORIGIN;
 
 /** สร้าง claims สำหรับทดสอบ optimistic Proxy โดยไม่ใช้ state จากฐานข้อมูล */
 function claims(
@@ -42,6 +43,52 @@ async function request(
 }
 
 describe("proxy", () => {
+  it.each([
+    `/member-photos/${"a".repeat(64)}.png`,
+    "/uploads/members/OLD.jpg",
+    `http://localhost:3005/member-photos/${"a".repeat(64)}.png`,
+    `/%6dember-photos/${"a".repeat(64)}.png`,
+  ])("blocks optimizer reads/cache priming for member photo %s before session state", async (photoUrl) => {
+    const req = await request(`/_next/image?url=${encodeURIComponent(photoUrl)}&w=64&q=75`);
+    const cookieRead = vi.spyOn(req.cookies, "get");
+    expect(unstable_doesProxyMatch({ config, nextConfig: {}, url: req.url })).toBe(true);
+    const response = await proxy(req);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "ไม่พบรูปสมาชิก" });
+    expect(cookieRead).not.toHaveBeenCalled();
+  });
+
+  it("passes normal local-image optimization through unchanged without reading cookies", async () => {
+    const req = await request("/_next/image?url=%2Flogo.png&w=64&q=75");
+    const cookieRead = vi.spyOn(req.cookies, "get");
+    expect(unstable_doesProxyMatch({ config, nextConfig: {}, url: req.url })).toBe(true);
+    const response = await proxy(req);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(cookieRead).not.toHaveBeenCalled();
+  });
+  it.each(["missing", "invalid", "full", "forced"])("rejects cross-Origin upload before reading %s session cookie", async (state) => {
+    process.env.APP_ORIGIN = "https://fitness.example";
+    const session = state === "full" ? claims("COUNTER") : state === "forced" ? claims("COUNTER", { mode: "PASSWORD_CHANGE_REQUIRED" }) : undefined;
+    const base = await request("/api/upload", session);
+    const headers = new Headers(base.headers);
+    headers.set("origin", "https://evil.example");
+    if (state === "invalid") headers.set("cookie", `${AUTH_COOKIE_NAME}=invalid`);
+    const req = new NextRequest(base.url, { method: "POST", headers });
+    const cookieRead = vi.spyOn(req.cookies, "get");
+    const response = await proxy(req);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "คำขอไม่ผ่านการตรวจสอบความปลอดภัย" });
+    expect(cookieRead).not.toHaveBeenCalled();
+  });
+
+  it("lets the opaque runtime photo route serve publicly without reading session state", async () => {
+    const req = await request(`/member-photos/${"a".repeat(64)}.png`);
+    const cookieRead = vi.spyOn(req.cookies, "get");
+    const response = await proxy(req);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(cookieRead).not.toHaveBeenCalled();
+    expect(unstable_doesProxyMatch({ config, nextConfig: {}, url: req.url })).toBe(false);
+  });
   beforeEach(() => {
     process.env.AUTH_SESSION_SECRET =
       "test-session-secret-that-is-at-least-32-bytes";
@@ -53,11 +100,13 @@ describe("proxy", () => {
     vi.useRealTimers();
     if (originalSecret === undefined) delete process.env.AUTH_SESSION_SECRET;
     else process.env.AUTH_SESSION_SECRET = originalSecret;
+    if (originalOrigin === undefined) delete process.env.APP_ORIGIN;
+    else process.env.APP_ORIGIN = originalOrigin;
   });
 
   it.each([
     ["/_next/static/chunk.js", false],
-    ["/_next/image?url=%2Flogo.png", false],
+    ["/_next/image?url=%2Flogo.png", true],
     ["/favicon.ico", false],
     ["/logo.svg", false],
     ["/members", true],
