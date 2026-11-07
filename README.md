@@ -98,10 +98,14 @@ try {
 ## ตรวจคุณภาพก่อนส่งงาน
 
 ```powershell
-npm test -- --maxWorkers=1 --pool=forks
+npm ci
+npm test -- --no-file-parallelism --maxWorkers=1
 npx tsc --noEmit
 npm run lint
+npx drizzle-kit check
 npm run build
 ```
+
+การ deploy production ต้องทำตาม [Production deployment runbook](./docs/operations/production-deployment.md) รวม backup ของฐานข้อมูลและไฟล์ uploads ก่อน migration
 
 สถานะและขอบเขตงานถัดไปอยู่ใน [Fitness Plan.md](./Fitness%20Plan.md) ส่วนแผนส่งมอบ Integrated MVP อยู่ใน `docs/superpowers/plans/`
