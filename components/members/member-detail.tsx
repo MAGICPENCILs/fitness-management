@@ -63,6 +63,8 @@ export function MemberDetail({
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoError, setPhotoError] = useState("");
   const isAnonymized = member.status === "CANCELLED";
   const [photoPreview, setPhotoPreview] = useState<string | null>(
     member.photoUrl ?? null
@@ -86,34 +88,32 @@ export function MemberDetail({
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  /** อัปโหลดรูปและบันทึก URL เฉพาสมาชิกที่ยังไม่ถูกทำข้อมูลนิรนาม */
+  /** แสดงรูปใหม่เฉพาะเมื่อ upload mutation สำเร็จ โดยไม่ยิง PATCH ซ้ำหรือเปลี่ยน preview เมื่อผิดพลาด */
   const handlePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (isAnonymized) return;
+    if (isAnonymized || photoLoading) return;
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
-
-    // Preview
-    const reader = new FileReader();
-    reader.onload = () => setPhotoPreview(reader.result as string);
-    reader.readAsDataURL(file);
-
-    // Upload
+    setPhotoLoading(true);
+    setPhotoError("");
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("memberCode", member.memberCode);
-
-    const res = await fetch("/api/upload", {
-      method: "POST",
-      body: formData,
-    });
-    const data = await res.json();
-
-    // บันทึก path ลง DB
-    await fetch(`/api/members/${member.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ photoUrl: data.url }),
-    });
+    formData.append("memberId", String(member.id));
+    try {
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) {
+        setPhotoError(typeof data.error === "string" ? data.error : "อัปโหลดรูปไม่สำเร็จ");
+        return;
+      }
+      if (typeof data.url !== "string" || !data.url) throw new Error("INVALID_UPLOAD_RESPONSE");
+      setPhotoPreview(data.url);
+      router.refresh();
+    } catch {
+      setPhotoError("อัปโหลดรูปไม่สำเร็จ");
+    } finally {
+      setPhotoLoading(false);
+    }
   };
 
   /** บันทึกข้อมูลสมาชิกและ refresh เฉพาหลัง request จบลง */
@@ -144,7 +144,7 @@ export function MemberDetail({
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
         {/* LEFT — รูปและรหัส */}
         <div className="max-w-sm space-y-4">
-          <button type="button" disabled={isAnonymized} aria-label="อัปโหลดรูปสมาชิก" className="relative w-full aspect-square rounded-2xl overflow-hidden bg-muted border cursor-pointer disabled:cursor-not-allowed disabled:opacity-70"
+          <button type="button" disabled={isAnonymized || photoLoading} aria-label="อัปโหลดรูปสมาชิก" aria-busy={photoLoading} aria-describedby={photoError ? "member-photo-error" : undefined} className="relative w-full aspect-square rounded-2xl overflow-hidden bg-muted border cursor-pointer disabled:cursor-not-allowed disabled:opacity-70"
             onClick={() => fileRef.current?.click()}>
             {photoPreview ? (
               <Image
@@ -165,8 +165,9 @@ export function MemberDetail({
               <Camera className="w-6 h-6 text-white" />
             </div>
           </button>
-          <input ref={fileRef} type="file" accept="image/*"
-            disabled={isAnonymized} className="hidden" onChange={handlePhoto} />
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" aria-label="รูปสมาชิก" aria-describedby={photoError ? "member-photo-error" : undefined} aria-invalid={Boolean(photoError)}
+            disabled={isAnonymized || photoLoading} className="hidden" onChange={handlePhoto} />
+          {photoError && <p id="member-photo-error" role="alert" className="text-sm text-destructive">{photoError}</p>}
 
           <div className="text-center space-y-1">
             <div className="font-bold text-lg">{member.memberCode}</div>
