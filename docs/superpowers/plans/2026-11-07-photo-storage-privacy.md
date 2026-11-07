@@ -74,7 +74,7 @@ Run:
 npm test
 npx tsc --noEmit
 npm run lint
-npm run db:generate
+npx drizzle-kit generate
 npm run build
 ```
 

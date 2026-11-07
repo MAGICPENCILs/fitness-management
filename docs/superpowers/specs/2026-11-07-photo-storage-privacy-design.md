@@ -49,7 +49,7 @@ Owner อ่านข้ามสาขาได้ตาม RBAC เดิม; 
 - Tests พิสูจน์ raw paths และ optimizer ถูกปิดทั้ง path ที่มี/ไม่มี extension
 - Tests พิสูจน์ member detail และ scan UI ใช้ member-ID gateway และล้าง preview หลัง consent withdrawal
 - Tests พิสูจน์ dual-root cleanup, shared-reference 409 และ rollback/race เดิมไม่ถอยหลัง
-- `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run db:generate`, `npm run build` ผ่าน
+- `npm test`, `npx tsc --noEmit`, `npm run lint`, `npx drizzle-kit generate`, `npm run build` ผ่าน
 - Production smoke บน port 3005 ใช้ fixture ที่มีอยู่ก่อน start และยืนยัน raw paths ไม่คืน bytes; จากนั้นคืน dev server ที่ port 3005
 
 ## ไม่ทำในรอบนี้
