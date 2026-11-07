@@ -71,7 +71,7 @@ Move new quarantine files to `storage/privacy-cleanup`; delete validated token c
 Run:
 
 ```text
-npm test -- --runInBand
+npm test
 npx tsc --noEmit
 npm run lint
 npm run db:generate
