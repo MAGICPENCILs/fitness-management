@@ -6,7 +6,7 @@
 
 1. ระบุผู้รับผิดชอบ deploy/อนุมัติ rollback, maintenance window, เวลาหยุดรับงาน และเกณฑ์ยกเลิกการ deploy หาก gate ใดไม่ผ่านให้หยุด ไม่ข้ามไปขั้นถัดไป
 2. ต้องมี GitHub Actions job `quality` สำเร็จสำหรับ commit SHA ที่จะปล่อย เก็บ SHA, CI run ID และ checksum/รหัส artifact ใน release record ที่จำกัดสิทธิ์ ห้าม deploy จาก branch ที่เปลี่ยนได้หรือ working tree ที่มีงานค้าง CI ไม่เชื่อมต่อฐาน production และไม่ใช้ production secret
-3. เตรียม release directory แยกจากตัวที่ให้บริการเดิม ใช้ Node.js 20.9 ขึ้นไปในสาย 20 ตาม CI และ lockfile เดียวกัน เก็บ source/artifact เดิมสำหรับ rollback พร้อมตรวจว่า dependency/native binary ใช้ได้กับ OS/architecture เป้าหมาย CI นี้ยังไม่ได้ publish deploy artifact อัตโนมัติ
+3. เตรียม release directory แยกจากตัวที่ให้บริการเดิม ใช้ Node.js 20.19+ ในสาย 20 ตาม engine ของ jsdom ที่ล็อกไว้ และใช้ patch version เดียวกับที่ทดสอบผ่าน CI พร้อม lockfile เดียวกัน เก็บ source/artifact เดิมสำหรับ rollback และตรวจว่า dependency/native binary ใช้ได้กับ OS/architecture เป้าหมาย CI นี้ยังไม่ได้ publish deploy artifact อัตโนมัติ
 4. ผู้ดูแลต้องยอมรับ topology, TLS, supervisor, monitoring, backup และ restore drill ตามหัวข้อ External blockers ก่อนอนุญาต production
 
 ### Release gates
@@ -69,6 +69,12 @@ node -e $validation
 
 หากตรวจไม่ผ่านให้หยุดและแก้ใน secret manager โดยไม่พิมพ์ค่าออกมา กรณีเปิด provider/hardware จริงต้องตรวจ config ที่เกี่ยวข้องและการเชื่อมต่อแยกต่างหากด้วย
 
+### Photo access model — production blocker
+
+`/member-photos/<opaque.ext>` ปัจจุบันเป็น **public capability URL**: ผู้ที่ทราบ URL อ่านรูปได้โดยไม่ต้อง login; handler ไม่ตรวจ auth/session, DB reference หรือ RBAC และ header `private, no-store` ไม่ใช่ access control ดังนั้นการเปิดรูปสำเร็จขณะ signed-in ไม่ได้พิสูจน์ authorization ห้าม deploy production จนกว่า privacy/access model นี้ได้รับการอนุมัติอย่างชัดเจน หรือเพิ่มการป้องกันที่ผ่าน acceptance แล้ว ห้ามถือว่ารูปถูกป้องกันด้วยสิทธิ์สมาชิก/สาขาเพียงเพราะชื่อไฟล์เดายาก
+
+Raw path ใต้ `/uploads/members/*` ที่มี extension bypass proxy matcher ได้ ส่วน `/uploads/privacy-cleanup/*` ที่ไม่มี extension ผ่านเพียง generic login ไม่ใช่ privacy RBAC ไม่มีการรับรองว่า app ปัจจุบันปิด raw paths เหล่านี้แล้ว ต้องมีการป้องกันที่ยอมรับได้และ negative checks ใน Verify ก่อนปล่อยจริง โดยห้าม reverse proxy/static server เปิด directory เหล่านี้โดยตรง
+
 ### Persistent uploads และ recovery set — production blocker
 
 `public/uploads/members` และ `public/uploads/privacy-cleanup` เป็น runtime files/PII ไม่ใช่ build artifact ฐานข้อมูลเก็บเพียง reference และ **`npm run db:backup` ไม่ได้สำรองไฟล์เหล่านี้** ห้าม deploy production จนกว่า operator จะจัด persistent storage ที่ release ใหม่/เก่าเข้าถึงได้ และ encrypted snapshot/backup ของทั้งสอง directory ที่จับคู่กับ DB backup โดยมี restore verification หรือระบบ persistent shared storage ที่มี recovery/backup contract เทียบเท่าซึ่งผ่านการยอมรับแล้ว
@@ -125,7 +131,8 @@ npm run start
 - ตรวจ process/TCP `3005` เป็น **liveness** เท่านั้น ไม่ใช้ความล้มเหลวของ DB เป็นเหตุ restart loop
 - เรียก readiness ภายใน: `Invoke-WebRequest -Uri 'http://127.0.0.1:3005/api/health'` ต้อง HTTP 200 พร้อม `status: "ok"`, database/schema `"ok"` ตรวจซ้ำผ่าน HTTPS origin จริงจาก monitoring ที่เก็บ URL ไว้นอก repository/log ก่อนคืน traffic
 - `/api/health` คืน HTTP 503 เมื่อ schema outdated (`degraded`) หรือ DB ใช้งานไม่ได้ (`unavailable`) ห้ามนำเข้ารับ traffic สถานะ READY เทียบ journal เท่านั้น ไม่ใช่ full schema/data integrity หรือ provider/hardware acceptance
-- Smoke login/logout ด้วยบัญชี operator/test ที่อนุมัติ (รวม 2FA ตามบัญชี) ตรวจ HTTPS, secure cookie, origin และสิทธิ์ จากนั้นอ่านรูปสมาชิกด้วย fixture/test member ที่ได้รับอนุญาต ตรวจ authorization และ uploads mount โดย **ไม่แก้ข้อมูลสมาชิกจริง ไม่ upload/ลบรูปจริง ไม่ส่ง notification หรือเปิดประตูจริง** login อาจสร้าง session/audit ตามปกติ
+- Smoke login/logout ด้วยบัญชี operator/test ที่อนุมัติ (รวม 2FA ตามบัญชี) ตรวจ HTTPS, secure cookie, origin และสิทธิ์ จากนั้นอ่านรูป fixture/test member ที่ได้รับอนุญาตผ่าน `/member-photos/<opaque.ext>` เพื่อตรวจ mount/การอ่านไฟล์เท่านั้น ไม่ใช่หลักฐาน photo authorization ต้องทดสอบแบบไม่มี cookie ด้วยและเทียบกับ privacy/access model ที่อนุมัติ: public capability model อาจคืนรูปให้ผู้ทราบ URL ส่วน model ที่เพิ่มการป้องกันต้องปฏิเสธผู้ไม่มีสิทธิ์ โดย **ไม่แก้ข้อมูลสมาชิกจริง ไม่ upload/ลบรูปจริง ไม่ส่ง notification หรือเปิดประตูจริง** login อาจสร้าง session/audit ตามปกติ
+- ทำ **negative direct-URL checks** สำหรับ raw `/uploads/members/*` และ `/uploads/privacy-cleanup/*` ด้วยชื่อไฟล์ fixture ที่มีอยู่จริง (รวมสมาชิกที่มี extension และ quarantine token ที่ไม่มี extension) ทั้งผ่าน TLS proxy และ backend ที่เข้าถึงได้ในเครือข่ายควบคุม ทดสอบไม่มี cookie และบัญชีที่ไม่มีสิทธิ์ privacy: **ต้องไม่คืน bytes** ไม่ใช่ใช้ไฟล์ที่ไม่มีอยู่แล้วได้ 404 ทำซ้ำ **หลัง restart** server โดยมี fixtures อยู่ก่อนเริ่ม process เพราะ Next.js index ไฟล์ใน `public` ตอนเริ่มทำงาน หากรั่วแม้แต่ทางเดียวให้ block production; signed-in positive smoke หรือ login redirect อย่างเดียวไม่พิสูจน์ privacy RBAC เก็บ URL/หลักฐานในช่องทางจำกัดสิทธิ์ไม่ส่งเข้า log สาธารณะ
 - เมื่อทั้งหมดผ่านจึงคืน traffic และเฝ้าดู readiness, error rate, latency, DB pool, disk/uploads capacity และ restart count ตาม monitoring window ที่อนุมัติ เก็บเฉพาะหลักฐานที่ไม่มี secret/PII หากไม่ผ่านให้หยุดและใช้ Rollback
 
 ## Rollback — source/artifact ไม่ใช่ schema
@@ -139,7 +146,8 @@ npm run start
 
 ## External blockers — ต้องมี operator acceptance ก่อน production
 
-- Reverse proxy/TLS topology: certificate/renewal, forwarded-header replacement, private backend port, request limits, streaming, ไม่ cache response ส่วนบุคคล และไม่เสิร์ฟ uploads/quarantine ตรงโดยข้าม authorization
+- Photo privacy/access model ต้องอนุมัติ public capability URL ของ `/member-photos/<opaque.ext>` อย่างชัดเจน หรือมี protection ที่ผ่าน acceptance ก่อน production; ต้องผ่าน negative raw-path checks ทั้งก่อนและหลัง restart ด้วย ห้ามอ้างว่ามี photo RBAC จาก positive smoke หรือ generic login
+- Reverse proxy/TLS topology: certificate/renewal, forwarded-header replacement, private backend port, request limits, streaming, ไม่ cache response ส่วนบุคคล และต้องป้องกัน raw uploads/quarantine ตามผล negative checks ไม่ใช่สมมติว่า app มี authorization ครบแล้ว
 - MySQL network/CA/TLS เมื่อฐานอยู่ remote: ตรวจ certificate chain และ hostname สำหรับ runtime, Drizzle migration และ MySQL backup/restore clients แยกกัน โค้ดปัจจุบันไม่ได้กำหนด CA/verify policy ครบทุกเส้นทาง และ backup parser ไม่ส่งต่อ TLS query options จาก URL ห้ามถือว่าใส่ URL แล้วได้ TLS ที่ตรวจสอบแล้ว หรือปิด verification เพื่อให้ผ่าน หากพิสูจน์ transport ที่ปลอดภัยไม่ได้ให้ block deploy และออกแบบ/อนุมัติงานเพิ่ม
 - Process supervisor/platform: restart policy, signal propagation, drain 10–30 วินาที, reboot recovery, resource limits และ working directory/mounts ต้องเลือกและซ้อมบน host จริง
 - Persistent uploads + encrypted paired backup, offsite storage, retention, key custody/access control และ disposable full restore drill ยังต้องจัดเตรียมโดย operator; สคริปต์ DB ไม่ครอบคลุมไฟล์

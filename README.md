@@ -11,7 +11,7 @@
 
 ## เริ่มใช้งานสำหรับ Development
 
-ต้องใช้ Node.js 20.9 ขึ้นไปและ MySQL ที่เข้าถึงได้ จากนั้นคัดลอก `.env.example` เป็น `.env` และแทน placeholder ด้วยค่าของ environment นั้น
+ต้องใช้ Node.js 20.19 ขึ้นไปและ MySQL ที่เข้าถึงได้ จากนั้นคัดลอก `.env.example` เป็น `.env` และแทน placeholder ด้วยค่าของ environment นั้น
 
 ```powershell
 npm install
