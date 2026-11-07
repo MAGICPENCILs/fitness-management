@@ -44,7 +44,7 @@ const statusLabel: Record<string, { label: string; variant: "default" | "seconda
   CANCELLED: { label: "ยกเลิก", variant: "outline" },
 };
 
-/** แสดงรายละเอียดสมาชิก แพ็กเกจ บัตร และ consent โดยล็อกฟอร์มเมื่อทำข้อมูลนิรนามแล้ว */
+/** แสดงรายละเอียดโดยล็อกสมาชิกนิรนาม และไม่เก็บรูปใน optimizer cache เพื่อให้ถอน consent แล้วลบได้จริง */
 export function MemberDetail({
   member,
   packages,
@@ -149,6 +149,7 @@ export function MemberDetail({
             {photoPreview ? (
               <Image
                 src={photoPreview}
+                unoptimized
                 alt={`รูปสมาชิก ${member.firstName} ${member.lastName}`}
                 width={512}
                 height={512}

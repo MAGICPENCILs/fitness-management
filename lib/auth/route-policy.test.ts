@@ -35,6 +35,11 @@ describe("auth route policy", () => {
     expect(decideRouteAccess("/members", null)).toEqual({ type: "LOGIN" });
   });
 
+  it("keeps opaque runtime photos public without exposing adjacent private paths", () => {
+    expect(decideRouteAccess(`/member-photos/${"a".repeat(64)}.png`, null)).toEqual({ type: "ALLOW" });
+    expect(decideRouteAccess("/member-photos-extra/private", null)).toEqual({ type: "LOGIN" });
+  });
+
   it("requires password change before any protected page", () => {
     expect(
       decideRouteAccess(

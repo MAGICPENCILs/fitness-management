@@ -7,8 +7,6 @@ import { MemberDetail } from "@/components/members/member-detail";
 
 const mocks = vi.hoisted(() => ({ refresh: vi.fn(), fetch: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mocks.refresh }) }));
-// eslint-disable-next-line @next/next/no-img-element -- จำลอง image optimizer เพื่อทดสอบ URL ที่ component เลือกแสดงเท่านั้น
-vi.mock("next/image", () => ({ default: (props: { src: string; alt: string }) => <img src={props.src} alt={props.alt} /> }));
 
 const member: Member = {
   id: 7, homeBranchId: 10, memberCode: "PRIVATE_MEMBER_CODE", firstName: "Test", lastName: "Member",
@@ -45,8 +43,10 @@ it("sends only memberId/file once and displays server URL only after successful 
   expect(options.body.get("memberCode")).toBeNull();
   expect(screen.getByRole("img", { name: "รูปสมาชิก Test Member" })).toHaveAttribute("src", "/uploads/members/old.png");
   expect(screen.getByRole("button", { name: "อัปโหลดรูปสมาชิก" })).toBeDisabled();
-  resolve({ ok: true, json: async () => ({ url: "/uploads/members/new.png" }) });
-  await waitFor(() => expect(screen.getByRole("img", { name: "รูปสมาชิก Test Member" })).toHaveAttribute("src", "/uploads/members/new.png"));
+  const uploadedUrl = `/member-photos/${"a".repeat(64)}.png`;
+  resolve({ ok: true, json: async () => ({ url: uploadedUrl }) });
+  await waitFor(() => expect(screen.getByRole("img", { name: "รูปสมาชิก Test Member" })).toHaveAttribute("src", uploadedUrl));
+  expect(screen.getByRole("img", { name: "รูปสมาชิก Test Member" })).not.toHaveAttribute("srcset");
   expect(mocks.fetch).toHaveBeenCalledTimes(1);
   expect(mocks.refresh).toHaveBeenCalledTimes(1);
 });

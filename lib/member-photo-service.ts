@@ -3,11 +3,13 @@ import "server-only";
 import { randomBytes } from "crypto";
 import { mkdir, writeFile, unlink } from "fs/promises";
 import path from "path";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import { db } from "@/db";
 import { members } from "@/db/schema";
 import { runAuditedMutation } from "@/lib/audit-service";
 import { getMemberConsentSnapshot } from "@/lib/privacy-service";
 import { hasPermission, type ActorContext } from "@/lib/rbac";
+import { resolveMemberPhotoPath } from "@/lib/member-photo-path";
 
 export class MemberPhotoError extends Error {
   /** คืนเฉพาะข้อความคงที่และสถานะ HTTP โดยไม่เปิดเผยข้อมูลสมาชิกหรือ filesystem */
@@ -17,12 +19,16 @@ export class MemberPhotoError extends Error {
   }
 }
 
-/** ชดเชยไฟล์ใหม่หรือล้างรูปเก่าโดยไม่ปล่อย raw error ที่อาจมี path เข้า log */
-async function cleanupPhoto(filePath: string) {
+/** ลบเฉพาะไฟล์ที่ primary DB ยืนยันว่าไม่มีผู้ใช้อ้างอิง; ถ้า commit/การตรวจสอบไม่ชัดเจนให้เก็บรอ reconciliation */
+async function cleanupPhoto(photoUrl: string, filePath: string) {
   try {
+    const name = path.basename(photoUrl);
+    const [reference] = await db.select({ id: members.id }).from(members)
+      .where(inArray(members.photoUrl, [`/uploads/members/${name}`, `/member-photos/${name}`])).limit(1);
+    if (reference) return;
     await unlink(filePath);
-  } catch {
-    console.error("MEMBER_PHOTO_CLEANUP_FAILED");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error("MEMBER_PHOTO_CLEANUP_FAILED");
   }
 }
 
@@ -52,7 +58,7 @@ export async function saveMemberPhoto(input: {
 
   const uploadRoot = path.join(process.cwd(), "public", "uploads", "members");
   const filename = `${randomBytes(32).toString("hex")}.${extension}`;
-  const url = `/uploads/members/${filename}`;
+  const url = `/member-photos/${filename}`;
   let newPath: string | undefined;
   let oldUrl: string | null = null;
   try {
@@ -83,11 +89,11 @@ export async function saveMemberPhoto(input: {
       },
     );
   } catch (error) {
-    if (newPath) await cleanupPhoto(newPath);
+    if (newPath) await cleanupPhoto(url, newPath);
     throw error;
   }
-  // ลบรูปเก่าหลัง commit เท่านั้น และยอมรับเฉพาะชื่อไฟล์เดี่ยวใต้ directory ของรูปสมาชิก
-  if (oldUrl && /^\/uploads\/members\/[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(oldUrl))
-    await cleanupPhoto(path.join(uploadRoot, path.basename(oldUrl)));
+  // ลบรูปเก่าหลัง commit โดยไม่ลบไฟล์ร่วมของสมาชิกอื่น รวมทั้ง URL เดิมที่ชี้ directory เดียวกัน
+  const oldPath = oldUrl ? resolveMemberPhotoPath(oldUrl) : null;
+  if (oldUrl && oldPath) await cleanupPhoto(oldUrl, oldPath);
   return { url };
 }

@@ -38,6 +38,16 @@ beforeEach(() => {
 });
 
 describe("photo upload HTTP contract", () => {
+  it.each(["memberId", "file"])("rejects duplicate multipart %s without mutation", async (field) => {
+    const body = new FormData();
+    body.append("memberId", "7");
+    body.append("file", new File(["image"], "image.png", { type: "image/png" }));
+    body.append(field, field === "memberId" ? "8" : new File(["second"], "second.png"));
+    const response = await POST(new Request("https://fitness.example/api/upload", { method: "POST", headers: { origin: "https://fitness.example" }, body }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "ข้อมูลอัปโหลดไม่ถูกต้อง" });
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
   it.each([null, "https://evil.example"])("rejects Origin %s before branch/auth/body", async (origin) => {
     const req = request("7", null, origin);
     const body = vi.spyOn(req, "formData");

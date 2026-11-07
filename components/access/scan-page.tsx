@@ -24,7 +24,7 @@ type ScanResult = {
   };
 };
 
-/** รับรหัสบัตรและแสดงผลอนุญาตเข้าใช้บริการด้วยสถานะที่อ่านได้ทั้งสองโหมดสี */
+/** แสดงผลสแกนโดยไม่เก็บรูปสมาชิกใน optimizer cache เพื่อไม่คงรูปหลังถอน consent หรือทำข้อมูลนิรนาม */
 export function ScanPage({
   hardwareHealth,
 }: {
@@ -153,6 +153,7 @@ export function ScanPage({
               {scanResult.member.photoUrl ? (
                 <Image
                   src={scanResult.member.photoUrl}
+                  unoptimized
                   alt={`รูปสมาชิก ${scanResult.member.firstName} ${scanResult.member.lastName}`}
                   width={64}
                   height={64}

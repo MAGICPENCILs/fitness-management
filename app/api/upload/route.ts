@@ -16,10 +16,12 @@ export async function POST(request: Request) {
     } catch {
       return NextResponse.json({ error: "ข้อมูลอัปโหลดไม่ถูกต้อง" }, { status: 400 });
     }
-    const memberIdValue = formData.get("memberId");
-    const file = formData.get("file");
+    const memberIds = formData.getAll("memberId");
+    const files = formData.getAll("file");
+    const memberIdValue = memberIds[0];
+    const file = files[0];
     const memberId = typeof memberIdValue === "string" && /^[1-9]\d*$/.test(memberIdValue) ? Number(memberIdValue) : NaN;
-    if (!Number.isSafeInteger(memberId) || !(file instanceof File))
+    if (memberIds.length !== 1 || files.length !== 1 || !Number.isSafeInteger(memberId) || !(file instanceof File))
       return NextResponse.json({ error: "ข้อมูลอัปโหลดไม่ถูกต้อง" }, { status: 400 });
     return NextResponse.json(await saveMemberPhoto({ actor, branchId, memberId, file }));
   } catch (error) {
