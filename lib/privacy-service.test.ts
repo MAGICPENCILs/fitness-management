@@ -42,13 +42,14 @@ let failMemberUpdate: boolean;
 let loseCommitAcknowledgement: boolean;
 let failFailureAudit: boolean;
 let sharedReferences: { id: number; photoUrl: string }[];
+let audits: Record<string, unknown>[];
 
 /** จำลอง transaction/row lock และ filesystem เฉพาะในหน่วยความจำ โดยใช้ service และ consent snapshot จริง */
 beforeEach(() => {
   vi.resetAllMocks(); files.clear();
   member = { id: 7, homeBranchId: 10, photoUrl: "/uploads/members/old.jpg", status: "ACTIVE" };
   requestRow = { memberId: 7, branchId: 10, status: "APPROVED", requestedByStaffId: 1, reviewedByStaffId: 2 };
-  cleanup = undefined; sharedReferences = [];
+  cleanup = undefined; sharedReferences = []; audits = [];
   events = [{ id: 1, consentType: "PHOTO", action: "GRANTED", createdAt: new Date("2026-11-01") }];
   files.set(path.join(root, "old.jpg"), Buffer.from("old"));
   transactionTail = Promise.resolve(); memberLocked = false; activeTransaction = false;
@@ -82,6 +83,7 @@ beforeEach(() => {
   };
   const insert = (table: unknown) => ({ values: async (value: Record<string, unknown> | Record<string, unknown>[]) => {
     if (table === auditLogs && !Array.isArray(value) && value.result === "FAILED" && failFailureAudit) throw new Error("PRIVATE_AUDIT_SQL");
+    if (table === auditLogs && !Array.isArray(value)) audits.push(value);
     if (table === consentEvents) for (const event of Array.isArray(value) ? value : [value]) events.push({ id: events.length + 1, consentType: String(event.consentType), action: String(event.action), createdAt: new Date("2026-11-07") });
     if (table === privacyFileCleanups) cleanup = { ...(value as Record<string, unknown>), id: 5 };
     return [{ insertId: 5 }];
@@ -238,6 +240,18 @@ describe("private photo lifecycle", () => {
     expect(events).toHaveLength(1); expect(member.photoUrl).toBe("/uploads/members/old.jpg");
     expect(cleanup).toMatchObject({ source: "ANONYMIZATION", status: "FAILED", errorCode: "FILE_MOVE_FAILED" });
     expect(requestRow).toMatchObject({ status: "APPROVED", fileCleanupStatus: "FAILED", fileCleanupError: "FILE_MOVE_FAILED" });
+  });
+
+  it.each(["missing", "stat access failure"])("tracks ordinary %s source failure without mutating member or consent", async (failure) => {
+    if (failure === "missing") files.clear();
+    else mocks.stat.mockRejectedValue(Object.assign(new Error("PRIVATE_PATH"), { code: "EACCES" }));
+    await expect(removePhoto("anonymization")).rejects.toMatchObject({ status: 409 });
+    expect(events).toHaveLength(1); expect(member.photoUrl).toBe("/uploads/members/old.jpg");
+    expect(member.status).toBe("ACTIVE"); expect(mocks.rename).not.toHaveBeenCalled();
+    expect(cleanup).toMatchObject({ source: "ANONYMIZATION", status: "FAILED", errorCode: "FILE_MOVE_FAILED" });
+    expect(cleanup?.quarantineToken).toMatch(/^[a-f0-9]{64}$/);
+    expect(requestRow).toMatchObject({ status: "APPROVED", fileCleanupStatus: "FAILED", fileCleanupError: "FILE_MOVE_FAILED" });
+    expect(audits).toContainEqual(expect.objectContaining({ result: "FAILED", metadata: { errorCode: "FILE_MOVE_FAILED" } }));
   });
 
   it.each(["private", "legacy", "both", "missing"])("cleanup removes %s quarantine candidates before completion", async (source) => {

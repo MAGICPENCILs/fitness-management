@@ -138,6 +138,35 @@ describe("proxy", () => {
     }
   });
 
+  it.each(["/UPLOADS/MEMBERS", "/Uploads/Members/old.JPG", "/uPlOaDs/mEmBeRs/nested/no-extension", "/UPLOADS/PRIVACY-CLEANUP", "/Uploads/Privacy-Cleanup/TOKEN", "/uPlOaDs/pRiVaCy-ClEaNuP/nested/file.PNG"])("denies filesystem-equivalent casing %s with matcher coverage", async (rawPath) => {
+    for (const method of ["GET", "HEAD"]) {
+      for (const session of [undefined, claims("OWNER")]) {
+        const base = await request(rawPath, session);
+        const req = new NextRequest(base.url, { headers: base.headers, method });
+        const cookieRead = vi.spyOn(req.cookies, "get");
+        expect(unstable_doesProxyMatch({ config, nextConfig: {}, url: req.url })).toBe(true);
+        const response = await proxy(req);
+        expect(response.status).toBe(404);
+        expect(await response.json()).toEqual({ error: "ไม่พบรูปสมาชิก" });
+        expect(response.headers.get("cache-control")).toBe("private, no-store");
+        expect(response.headers.get("location")).toBeNull();
+        expect(cookieRead).not.toHaveBeenCalled();
+      }
+    }
+  });
+
+  it.each(["/Uploads/Members/old.JPG", "/UPLOADS/PRIVACY-CLEANUP/TOKEN", "/Uploads/Privacy-Cleanup/file.PNG", "/MeMbEr-PhOtOs/By-MeMbEr/7"])("denies optimizer casing alias %s before cookies", async (target) => {
+    for (const session of [undefined, claims("OWNER")]) {
+      const req = await request(`/_next/image?url=${encodeURIComponent(target)}&w=64&q=75`, session);
+      const cookieRead = vi.spyOn(req.cookies, "get");
+      expect(unstable_doesProxyMatch({ config, nextConfig: {}, url: req.url })).toBe(true);
+      const response = await proxy(req);
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: "ไม่พบรูปสมาชิก" });
+      expect(cookieRead).not.toHaveBeenCalled();
+    }
+  });
+
   it("leaves protected photo session failures to the authoritative handler without redirect", async () => {
     const req = await request("/member-photos/by-member/7");
     const cookieRead = vi.spyOn(req.cookies, "get");

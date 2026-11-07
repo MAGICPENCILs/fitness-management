@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomBytes } from "crypto";
-import { mkdir, writeFile, unlink } from "fs/promises";
+import { mkdir, writeFile, unlink, stat } from "fs/promises";
 import path from "path";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
@@ -19,12 +19,24 @@ export class MemberPhotoError extends Error {
   }
 }
 
-/** ลบเฉพาะไฟล์ที่ primary DB ยืนยันว่าไม่มีผู้ใช้อ้างอิง; ถ้า commit/การตรวจสอบไม่ชัดเจนให้เก็บรอ reconciliation */
+/** ลบเมื่อ primary DB ยืนยันว่าไม่มี reference และมี source เดียว; สำเนาซ้ำ/ตรวจไม่ได้ต้องเก็บรอ reconciliation */
 async function cleanupPhoto(photoUrl: string, filePaths: string[]) {
   try {
     const [reference] = await db.select({ id: members.id }).from(members)
       .where(inArray(members.photoUrl, memberPhotoAliases(photoUrl))).limit(1);
     if (reference) return;
+    if (filePaths.length > 1) {
+      const existing: string[] = [];
+      for (const filePath of filePaths) {
+        try { await stat(filePath); existing.push(filePath); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      }
+      if (existing.length > 1) {
+        console.error("MEMBER_PHOTO_CLEANUP_AMBIGUOUS");
+        return;
+      }
+      filePaths = existing;
+    }
     for (const filePath of filePaths) {
       try { await unlink(filePath); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }

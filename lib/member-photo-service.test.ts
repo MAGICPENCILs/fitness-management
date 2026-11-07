@@ -5,10 +5,10 @@ import { members } from "@/db/schema";
 
 const mocks = vi.hoisted(() => ({
   transaction: vi.fn(), insert: vi.fn(), select: vi.fn(), update: vi.fn(), primarySelect: vi.fn(), readFile: vi.fn(),
-  mkdir: vi.fn(), writeFile: vi.fn(), unlink: vi.fn(), consent: vi.fn(),
+  mkdir: vi.fn(), writeFile: vi.fn(), unlink: vi.fn(), consent: vi.fn(), stat: vi.fn(),
 }));
 vi.mock("@/db", () => ({ db: { transaction: mocks.transaction, insert: mocks.insert, select: mocks.primarySelect } }));
-vi.mock("fs/promises", () => ({ mkdir: mocks.mkdir, writeFile: mocks.writeFile, unlink: mocks.unlink, readFile: mocks.readFile }));
+vi.mock("fs/promises", () => ({ mkdir: mocks.mkdir, writeFile: mocks.writeFile, unlink: mocks.unlink, readFile: mocks.readFile, stat: mocks.stat }));
 vi.mock("@/lib/privacy-service", () => ({ getMemberConsentSnapshot: mocks.consent }));
 
 import { saveMemberPhoto } from "@/lib/member-photo-service";
@@ -41,6 +41,10 @@ beforeEach(() => {
   mocks.mkdir.mockResolvedValue(undefined);
   mocks.writeFile.mockResolvedValue(undefined);
   mocks.unlink.mockResolvedValue(undefined);
+  mocks.stat.mockImplementation(async (filePath: string) => {
+    if (filePath !== path.join(process.cwd(), "public", oldUrl)) throw Object.assign(new Error("PRIVATE_PATH"), { code: "ENOENT" });
+    return { isFile: () => true };
+  });
   mocks.consent.mockResolvedValue({ current: { PHOTO: true } });
   mocks.transaction.mockImplementation(async (callback) => {
     const value = await callback(tx);
@@ -149,6 +153,21 @@ describe("saveMemberPhoto", () => {
     primaryRows = [{ id: 8, photoUrl: oldUrl }];
     await saveMemberPhoto({ actor, branchId: 10, memberId: 7, file: image() });
     expect(mocks.unlink).not.toHaveBeenCalled();
+  });
+
+  it("retains both ambiguous originals after a successful replacement", async () => {
+    const originalPaths = [path.join(process.cwd(), "storage", "member-photos", "OLD-001.jpg"), path.join(process.cwd(), "public", oldUrl)];
+    const originals = new Map(originalPaths.map((filePath) => [filePath, Buffer.from(filePath === originalPaths[0] ? "private-original" : "legacy-original")]));
+    mocks.stat.mockResolvedValue({ isFile: () => true });
+    mocks.unlink.mockImplementation(async (filePath: string) => { originals.delete(filePath); });
+    const logger = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const saved = await saveMemberPhoto({ actor, branchId: 10, memberId: 7, file: image() });
+      expect(updates).toEqual([{ photoUrl: saved.url }]);
+      expect(originals.get(originalPaths[0])).toEqual(Buffer.from("private-original"));
+      expect(originals.get(originalPaths[1])).toEqual(Buffer.from("legacy-original"));
+      expect(mocks.unlink).not.toHaveBeenCalled();
+    } finally { logger.mockRestore(); }
   });
 
   it("preserves a shared file referenced through the legacy/runtime URL alias", async () => {

@@ -21,7 +21,7 @@ function currentReturnPath(request: NextRequest): string {
   return `${request.nextUrl.pathname}${request.nextUrl.search}`;
 }
 
-/** ปิด raw/filename/optimizer ก่อนอ่าน cookie; gateway ตาม member ID ให้ handler ตรวจ authoritative session โดยไม่ redirect */
+/** ปิด raw/filename/optimizer รวม casing ที่ filesystem บน Windows มองเท่ากันก่อน cookie; gateway ตรวจ session ใน handler */
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   let pathname = request.nextUrl.pathname;
   try {
@@ -34,12 +34,12 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     status: 404,
     headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" },
   });
-  if (/^\/uploads\/(members|privacy-cleanup)(\/|$)/.test(pathname)) return hiddenPhoto();
-  if (pathname === "/_next/image") {
+  if (/^\/uploads\/(members|privacy-cleanup)(\/|$)/i.test(pathname)) return hiddenPhoto();
+  if (pathname.toLowerCase() === "/_next/image") {
     try {
       const target = new URL(request.nextUrl.searchParams.get("url") ?? "", request.url);
       const photoPath = new URL(decodeURIComponent(target.pathname), request.url).pathname;
-      if (/^\/(member-photos|uploads\/(members|privacy-cleanup))(\/|$)/.test(photoPath))
+      if (/^\/(member-photos|uploads\/(members|privacy-cleanup))(\/|$)/i.test(photoPath))
         return hiddenPhoto();
     } catch {
       // URL ที่ผิดรูปแบบยังให้ optimizer เดิมเป็นผู้ตรวจและปฏิเสธ โดยไม่ตรวจ session เพิ่ม
@@ -53,8 +53,8 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "คำขอไม่ผ่านการตรวจสอบความปลอดภัย" }, { status: 403 });
     }
   }
-  if (pathname === "/member-photos" || pathname.startsWith("/member-photos/")) {
-    if (pathname.startsWith("/member-photos/by-member/")) return NextResponse.next();
+  if (/^\/member-photos(\/|$)/i.test(pathname)) {
+    if (/^\/member-photos\/by-member\//i.test(pathname)) return NextResponse.next();
     return hiddenPhoto();
   }
   const cookie = request.cookies.get(AUTH_COOKIE_NAME)?.value;
@@ -94,5 +94,11 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  matcher: ["/uploads/members/:path*", "/uploads/privacy-cleanup/:path*", "/member-photos/:path*", "/_next/image", "/((?!_next/static|_next/image|favicon.ico|.*\\.[^/]+$).*)"],
+  // matcher ถูกวิเคราะห์แบบ static และไม่คง flag i จึงต้องระบุ casing ใน pattern เพื่อครอบคลุมไฟล์บน Windows
+  matcher: [
+    "/([uU][pP][lL][oO][aA][dD][sS])/([mM][eE][mM][bB][eE][rR][sS]|[pP][rR][iI][vV][aA][cC][yY]-[cC][lL][eE][aA][nN][uU][pP])/:path*",
+    "/([mM][eE][mM][bB][eE][rR]-[pP][hH][oO][tT][oO][sS])/:path*",
+    "/_next/image",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.[^/]+$).*)",
+  ],
 };

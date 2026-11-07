@@ -63,6 +63,13 @@ export class PrivacyOperationError extends Error {
   }
 }
 
+/** แยก source I/O ที่ต้องเก็บ retry metadata ออกจากไฟล์ร่วม/ซ้ำซึ่งห้ามแก้ cleanup ledger */
+class MemberPhotoSourceError extends PrivacyOperationError {
+  constructor() {
+    super("ไม่สามารถตรวจสอบไฟล์รูปสมาชิกได้", 409);
+  }
+}
+
 export type AppendConsentInput = {
   memberId: number;
   consentType: ConsentType;
@@ -80,7 +87,7 @@ export type PrivacyRequestFilters = {
   pageSize: number;
 };
 
-/** เลือก source เดียวภายใต้ member lock และห้ามย้ายไฟล์ร่วม/ไฟล์ซ้ำก่อนแก้ consent หรือข้อมูลสมาชิก */
+/** เลือก source เดียวภายใต้ member lock; source I/O เก็บชนิด error ไว้ให้ anonymization ติดตาม retry โดยไม่แก้ consent/member */
 async function resolveMemberPhotoPath(photoUrl: string, memberId: number, tx: DbTransaction) {
   const candidates = resolveMemberPhotoPaths(photoUrl);
   if (!candidates) throw new PrivacyOperationError("ตำแหน่งไฟล์รูปสมาชิกไม่ถูกต้อง", 409);
@@ -91,14 +98,15 @@ async function resolveMemberPhotoPath(photoUrl: string, memberId: number, tx: Db
   for (const candidate of candidates) {
     try {
       const file = await stat(candidate);
-      if (!file.isFile() || sourcePath) throw new PrivacyOperationError("ตำแหน่งไฟล์รูปสมาชิกไม่ชัดเจน", 409);
+      if (!file.isFile()) throw new MemberPhotoSourceError();
+      if (sourcePath) throw new PrivacyOperationError("ตำแหน่งไฟล์รูปสมาชิกไม่ชัดเจน", 409);
       sourcePath = candidate;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT")
-        throw new PrivacyOperationError("ไม่สามารถตรวจสอบไฟล์รูปสมาชิกได้", 409);
+      if (error instanceof PrivacyOperationError) throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new MemberPhotoSourceError();
     }
   }
-  if (!sourcePath) throw new PrivacyOperationError("ไม่พบไฟล์รูปสมาชิกสำหรับลบ", 409);
+  if (!sourcePath) throw new MemberPhotoSourceError();
   return sourcePath;
 }
 
@@ -930,8 +938,13 @@ export async function anonymizeApprovedRequest(
       );
       if (lockedMember.photoUrl) {
         originalPhotoUrl = lockedMember.photoUrl;
-        originalPhotoPath = await resolveMemberPhotoPath(originalPhotoUrl, record.memberId, tx);
         quarantineToken = randomBytes(32).toString("hex");
+        try {
+          originalPhotoPath = await resolveMemberPhotoPath(originalPhotoUrl, record.memberId, tx);
+        } catch (error) {
+          fileMoveFailed = error instanceof MemberPhotoSourceError;
+          throw error;
+        }
         quarantinePath = getQuarantinePath(quarantineToken);
         await mkdir(path.dirname(quarantinePath), { recursive: true });
         try {
