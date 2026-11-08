@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { CheckCircle2, Clock3, Copy, Link2Off, Loader2, RefreshCw, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +34,8 @@ async function requestStatus(memberId: number, method: "GET" | "POST" | "DELETE"
 /** เก็บ command เฉพาะ state ของการออกครั้งนี้; refresh/ถอด component แล้วต้องออกคำสั่งใหม่ */
 export function LineLinkCard({ memberId }: { memberId: number }) {
   const headingId = useId();
+  const refreshButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusAfterRemoval = useRef(false);
   const [status, setStatus] = useState<LineLinkStatus | null>(null);
   const [command, setCommand] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
@@ -52,7 +54,14 @@ export function LineLinkCard({ memberId }: { memberId: number }) {
     return () => { active = false; };
   }, [memberId]);
 
-  /** ส่ง mutation แบบไม่มี body และล้าง command เดิมก่อน refresh/หมุน/ยกเลิกเสมอ */
+  useEffect(() => {
+    if (!busy && restoreFocusAfterRemoval.current) {
+      restoreFocusAfterRemoval.current = false;
+      refreshButtonRef.current?.focus();
+    }
+  }, [busy]);
+
+  /** ส่ง mutation แบบไม่มี body ล้าง command เดิม และคืน focus หลัง trigger ถูกลบ */
   async function update(method: "GET" | "POST" | "DELETE") {
     setBusy(true);
     setCommand(null);
@@ -61,6 +70,7 @@ export function LineLinkCard({ memberId }: { memberId: number }) {
     if (method === "GET") setStatus(null);
     try {
       const result = await requestStatus(memberId, method);
+      if (method === "DELETE") restoreFocusAfterRemoval.current = true;
       setStatus(result.status);
       setCommand(result.command);
       setConfirmOpen(false);
@@ -93,7 +103,7 @@ export function LineLinkCard({ memberId }: { memberId: number }) {
           <h2 id={headingId} className="text-lg font-semibold">การเชื่อมต่อ LINE</h2>
           <p className="text-sm text-muted-foreground">ผูกบัญชีผ่านคำสั่งที่สมาชิกส่งไปยัง LINE OA ด้วยตนเอง ยังไม่เปิดส่งการแจ้งเตือน LINE</p>
         </div>
-        <Button variant="outline" disabled={busy} onClick={() => update("GET")} aria-label="รีเฟรชสถานะ LINE"><RefreshCw aria-hidden="true" />รีเฟรชสถานะ</Button>
+        <Button ref={refreshButtonRef} variant="outline" disabled={busy} onClick={() => update("GET")} aria-label="รีเฟรชสถานะ LINE"><RefreshCw aria-hidden="true" />รีเฟรชสถานะ</Button>
       </div>
       <div role="status" aria-live="polite" aria-atomic="true" className="space-y-2 text-sm">
         {state && Icon && <p className="flex items-center gap-2 font-medium"><Icon className="size-5 shrink-0" aria-hidden="true" />{state.label}</p>}

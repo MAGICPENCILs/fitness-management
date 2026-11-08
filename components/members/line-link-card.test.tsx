@@ -77,7 +77,7 @@ it("issues an empty POST, copies only the once-only command and discards it on r
   expect(screen.queryByText(command)).not.toBeInTheDocument();
 });
 
-it.each([pending, linked])("requires confirmation before removing %s and restores keyboard focus on cancel", async state => {
+it.each([pending, linked])("confirms removing %s and restores focus on cancel and success", async state => {
   const user = userEvent.setup();
   fetchMock.mockResolvedValueOnce(response(state)).mockResolvedValue(response(unlinked));
   render(<LineLinkCard memberId={7} />);
@@ -92,6 +92,7 @@ it.each([pending, linked])("requires confirmation before removing %s and restore
   await user.keyboard("{Enter}");
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ยืนยันยกเลิก" }));
   expect(await screen.findByText("ยังไม่เชื่อมต่อ")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "รีเฟรชสถานะ LINE" })).toHaveFocus();
   expect(fetchMock).toHaveBeenLastCalledWith("/api/members/7/line-link", { method: "DELETE", cache: "no-store" });
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   expect(screen.getByRole("status")).toHaveTextContent("ยกเลิกการเชื่อมต่อ LINE แล้ว");
