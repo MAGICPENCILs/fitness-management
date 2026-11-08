@@ -25,7 +25,7 @@ type ScanResult = {
   };
 };
 
-/** แสดงรูปผ่าน member-ID gateway ที่ตรวจสิทธิ์ปัจจุบัน และไม่ให้ optimizer คงรูปหลังถอน consent */
+/** แสดงรูปผ่าน gateway ที่ตรวจสิทธิ์ปัจจุบันโดยไม่ cache และสร้าง image ใหม่เมื่อ reference เปลี่ยนเพื่อไม่แสดงภาพระบุตัวตนเก่า */
 export function ScanPage({
   hardwareHealth,
 }: {
@@ -153,6 +153,7 @@ export function ScanPage({
             <div className="flex items-center gap-4 border-t border-success/25 pt-2">
               {scanResult.member.photoUrl ? (
                 <Image
+                  key={scanResult.member.photoUrl}
                   src={`/member-photos/by-member/${scanResult.member.id}`}
                   unoptimized
                   alt={`รูปสมาชิก ${scanResult.member.firstName} ${scanResult.member.lastName}`}
