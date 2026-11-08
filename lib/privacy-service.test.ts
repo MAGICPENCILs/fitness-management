@@ -1,7 +1,7 @@
 import path from "path";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { members, privacyRequests, consentEvents, privacyFileCleanups, auditLogs } from "@/db/schema";
+import { members, privacyRequests, consentEvents, privacyFileCleanups, auditLogs, memberLineLinks } from "@/db/schema";
 
 const mocks = vi.hoisted(() => ({ transaction: vi.fn(), select: vi.fn(), insert: vi.fn(), update: vi.fn(), mkdir: vi.fn(), rename: vi.fn(), unlink: vi.fn(), writeFile: vi.fn(), stat: vi.fn() }));
 vi.mock("@/db", () => ({ db: { transaction: mocks.transaction, select: mocks.select, insert: mocks.insert, update: mocks.update } }));
@@ -10,6 +10,7 @@ vi.mock("@/lib/staff-service", () => ({ AuthorizationError: class extends Error 
 
 import { appendConsentEvent, anonymizeApprovedRequest, retryPrivacyFileCleanup } from "@/lib/privacy-service";
 import { saveMemberPhoto } from "@/lib/member-photo-service";
+import { completeLineLinkChallenge, issueLineLinkChallenge } from "@/lib/line-link-service";
 import {
   executeAnonymizationPlan,
   type AnonymizationOperation,
@@ -43,6 +44,14 @@ let loseCommitAcknowledgement: boolean;
 let failFailureAudit: boolean;
 let sharedReferences: { id: number; photoUrl: string }[];
 let audits: Record<string, unknown>[];
+let links: (typeof memberLineLinks.$inferSelect)[];
+let failSuccessAudit: boolean;
+let failLinkDelete: boolean;
+let memberLockHold: ReturnType<typeof barrier> | undefined;
+let memberLockEntered: ReturnType<typeof barrier>;
+let transactionQueued: ReturnType<typeof barrier>;
+let lockTraces: string[][];
+let deletedMemberIds: unknown[];
 
 /** จำลอง transaction/row lock และ filesystem เฉพาะในหน่วยความจำ โดยใช้ service และ consent snapshot จริง */
 beforeEach(() => {
@@ -50,6 +59,9 @@ beforeEach(() => {
   member = { id: 7, homeBranchId: 10, photoUrl: "/uploads/members/old.jpg", status: "ACTIVE" };
   requestRow = { memberId: 7, branchId: 10, status: "APPROVED", requestedByStaffId: 1, reviewedByStaffId: 2 };
   cleanup = undefined; sharedReferences = []; audits = [];
+  links = []; failSuccessAudit = false; failLinkDelete = false;
+  memberLockHold = undefined; memberLockEntered = barrier(); transactionQueued = barrier(); lockTraces = [];
+  deletedMemberIds = [];
   events = [{ id: 1, consentType: "PHOTO", action: "GRANTED", createdAt: new Date("2026-11-01") }];
   files.set(path.join(root, "old.jpg"), Buffer.from("old"));
   transactionTail = Promise.resolve(); memberLocked = false; activeTransaction = false;
@@ -68,7 +80,15 @@ beforeEach(() => {
         return [{ ...member }];
       }
       if (table === privacyRequests) return [{ ...requestRow, photoUrl: member.photoUrl, memberStatus: member.status }];
-      if (table === consentEvents) return events.map((event) => ({ ...event }));
+      if (table === memberLineLinks) {
+        const params = new MySqlDialect().sqlToQuery(condition as Parameters<MySqlDialect["sqlToQuery"]>[0]).params;
+        return links.filter((row) => params.includes(row.memberId) || params.includes(row.challengeHash)).map((row) => ({ ...row }));
+      }
+      if (table === consentEvents) {
+        const query = condition ? new MySqlDialect().sqlToQuery(condition as Parameters<MySqlDialect["sqlToQuery"]>[0]) : undefined;
+        const matching = events.filter((event) => !query?.params.includes("SERVICE_PRIVACY") || event.consentType === "SERVICE_PRIVACY");
+        return query?.params.includes("SERVICE_PRIVACY") ? matching.slice(-1) : matching.map((event) => ({ ...event }));
+      }
       if (table === privacyFileCleanups) return cleanup ? [{ ...cleanup }] : [];
       return [];
     };
@@ -76,16 +96,26 @@ beforeEach(() => {
       from(value: unknown) { table = value; return query; },
       where(value: unknown) { condition = value; return query; },
       innerJoin() { return query; }, limit() { return query; }, orderBy() { return query; },
-      async for() { if (table === members) memberLocked = true; return rows(); },
+      async for() {
+        lockTraces.at(-1)!.push(table === members ? "member" : table === privacyRequests ? "request" : table === memberLineLinks ? "link" : "consent");
+        if (table === members) {
+          memberLocked = true;
+          const hold = memberLockHold; memberLockHold = undefined;
+          memberLockEntered.release(); if (hold) await hold.promise;
+        }
+        return rows();
+      },
       then(resolve: (value: unknown[]) => unknown) { return Promise.resolve(rows()).then(resolve); },
     };
     return query;
   };
   const insert = (table: unknown) => ({ values: async (value: Record<string, unknown> | Record<string, unknown>[]) => {
     if (table === auditLogs && !Array.isArray(value) && value.result === "FAILED" && failFailureAudit) throw new Error("PRIVATE_AUDIT_SQL");
+    if (table === auditLogs && !Array.isArray(value) && value.result === "SUCCESS" && failSuccessAudit) throw new Error("SUCCESS_AUDIT_FAILED");
     if (table === auditLogs && !Array.isArray(value)) audits.push(value);
     if (table === consentEvents) for (const event of Array.isArray(value) ? value : [value]) events.push({ id: events.length + 1, consentType: String(event.consentType), action: String(event.action), createdAt: new Date("2026-11-07") });
     if (table === privacyFileCleanups) cleanup = { ...(value as Record<string, unknown>), id: 5 };
+    if (table === memberLineLinks) links.push({ ...value } as typeof memberLineLinks.$inferSelect);
     return [{ insertId: 5 }];
   } });
   const update = (table: unknown) => ({ set: (changes: Record<string, unknown>) => ({ where: async () => {
@@ -93,21 +123,33 @@ beforeEach(() => {
     if (table === members) Object.assign(member, changes);
     if (table === privacyRequests) Object.assign(requestRow, changes);
     if (table === privacyFileCleanups && cleanup) Object.assign(cleanup, changes);
+    if (table === memberLineLinks) Object.assign(links.find((row) => row.memberId === member.id)!, changes);
     return [{ affectedRows: 1 }];
   } }) });
+  const remove = (table: unknown) => ({ where: async (condition: Parameters<MySqlDialect["sqlToQuery"]>[0]) => {
+    if (!activeTransaction || !memberLocked || table !== memberLineLinks) throw new Error("LINE_DELETE_WITHOUT_MEMBER_LOCK");
+    if (failLinkDelete) throw new Error("LINE_DELETE_FAILED");
+    const query = new MySqlDialect().sqlToQuery(condition);
+    expect(query.sql).toBe("`member_line_links`.`member_id` = ?");
+    deletedMemberIds.push(...query.params);
+    links = links.filter((row) => !query.params.includes(row.memberId));
+    return [{ affectedRows: 1 }];
+  } });
   mocks.select.mockImplementation(select(false)); mocks.insert.mockImplementation(insert); mocks.update.mockImplementation(update);
   mocks.transaction.mockImplementation(async (callback) => {
     const prior = transactionTail; const gate = barrier(); transactionTail = gate.promise;
+    transactionQueued.release();
     await prior; activeTransaction = true; memberLocked = false;
-    const before = { member: { ...member }, request: { ...requestRow }, events: [...events] };
+    lockTraces.push([]);
+    const before = structuredClone({ member, request: requestRow, events, links, audits, cleanup });
     let committed = false;
     try {
-      const value = await callback({ select: select(true), insert, update });
+      const value = await callback({ select: select(true), insert, update, delete: remove });
       committed = true;
       if (loseCommitAcknowledgement) { loseCommitAcknowledgement = false; throw new Error("COMMIT_ACK_LOST"); }
       return value;
     } catch (error) {
-      if (!committed) { member = before.member; requestRow = before.request; events = before.events; }
+      if (!committed) { member = before.member; requestRow = before.request; events = before.events; links = before.links; audits = before.audits; cleanup = before.cleanup; }
       throw error;
     }
     finally { activeTransaction = false; memberLocked = false; gate.release(); }
@@ -302,6 +344,93 @@ describe("private photo lifecycle", () => {
   });
 });
 
+/** ถอน SERVICE_PRIVACY หรือ anonymize โดยใช้ transaction จริงของ service แทนจำลองผล privacy เอง */
+function removeLineData(kind: string) {
+  return kind === "withdrawal" ? appendConsentEvent({ memberId: 7, consentType: "SERVICE_PRIVACY", action: "WITHDRAWN", policyVersion: "2026-11" }, actor) : anonymizeApprovedRequest(1, actor);
+}
+
+describe("LINE/privacy serialization", () => {
+  beforeEach(() => {
+    member.photoUrl = null;
+    events.push({ id: 2, consentType: "SERVICE_PRIVACY", action: "GRANTED", createdAt: new Date("2026-11-02") });
+  });
+
+  it.each(["withdrawal", "anonymization"])("%s deletes pending, expired and linked data only for the target member", async (kind) => {
+    for (const state of ["pending", "expired", "linked", "absent"]) {
+      const issued = await issueLineLinkChallenge(actor, 7);
+      const other = { ...links[0], memberId: 8, challengeHash: "b".repeat(64) };
+      links.push(other);
+      if (state === "linked") expect(await completeLineLinkChallenge(issued.command.slice(5), `U${"a".repeat(32)}`)).toBe(true);
+      if (state === "expired") links[0].challengeExpiresAt = new Date(0);
+      if (state === "absent") links = [other];
+      await removeLineData(kind);
+      expect(links).toEqual([other]);
+      expect(member.status).toBe(kind === "withdrawal" ? "SUSPENDED" : "CANCELLED");
+      expect(events.at(-1)).toMatchObject({ action: "WITHDRAWN" });
+      expect(requestRow.status).toBe(kind === "withdrawal" ? "APPROVED" : "COMPLETED");
+      expect(lockTraces).toContainEqual(kind === "withdrawal" ? ["member"] : ["request", "member"]);
+      // ตั้ง fixture รอบถัดไปโดยไม่เปลี่ยน ledger ที่เพิ่งตรวจว่า append สำเร็จ
+      member.status = "ACTIVE"; requestRow.status = "APPROVED"; links = [];
+      events.push({ id: events.length + 1, consentType: "SERVICE_PRIVACY", action: "GRANTED", createdAt: new Date() });
+    }
+  });
+
+  it.each(["withdrawal", "anonymization"])("%s rolls back deleted pending/linked data and consent when the success audit fails", async (kind) => {
+    for (const state of ["pending", "linked"]) {
+      const issued = await issueLineLinkChallenge(actor, 7);
+      if (state === "linked") await completeLineLinkChallenge(issued.command.slice(5), `U${"a".repeat(32)}`);
+      const before = structuredClone({ links, member, events, requestRow });
+      failSuccessAudit = true;
+      await expect(removeLineData(kind)).rejects.toThrow("SUCCESS_AUDIT_FAILED");
+      expect({ links, member, events, requestRow }).toEqual(before);
+      expect(deletedMemberIds).toEqual([7]);
+      expect(audits.at(-1)).toMatchObject({ result: "FAILED" });
+      failSuccessAudit = false; links = []; deletedMemberIds = [];
+    }
+  });
+
+  it.each(["withdrawal", "anonymization"])("%s rolls back consent/member state when LINE deletion fails", async (kind) => {
+    await issueLineLinkChallenge(actor, 7);
+    const before = structuredClone({ links, member, events, requestRow });
+    failLinkDelete = true;
+    await expect(removeLineData(kind)).rejects.toThrow("LINE_DELETE_FAILED");
+    expect({ links, member, events, requestRow }).toEqual(before);
+  });
+
+  it.each(["withdrawal", "anonymization"])("%s removes a completion that acquires the member lock first", async (kind) => {
+    const issued = await issueLineLinkChallenge(actor, 7);
+    const hold = barrier(); memberLockHold = hold; memberLockEntered = barrier();
+    const completion = completeLineLinkChallenge(issued.command.slice(5), `U${"a".repeat(32)}`);
+    await memberLockEntered.promise; transactionQueued = barrier();
+    const removal = removeLineData(kind); await transactionQueued.promise;
+    hold.release();
+    expect(await completion).toBe(true); await removal;
+    expect(links).toEqual([]);
+    expect(audits.filter((row) => row.action === "LINE_LINK_COMPLETED")).toHaveLength(1);
+  });
+
+  it.each(["withdrawal", "anonymization"])("completion cannot recreate LINE data when %s acquires the member lock first", async (kind) => {
+    const issued = await issueLineLinkChallenge(actor, 7);
+    const hold = barrier(); memberLockHold = hold; memberLockEntered = barrier();
+    const removal = removeLineData(kind);
+    await memberLockEntered.promise; transactionQueued = barrier();
+    const completion = completeLineLinkChallenge(issued.command.slice(5), `U${"a".repeat(32)}`);
+    await transactionQueued.promise; hold.release(); await removal;
+    expect(await completion).toBe(false);
+    expect(links).toEqual([]);
+    expect(audits.filter((row) => row.action === "LINE_LINK_COMPLETED")).toEqual([]);
+  });
+
+  it.each(["MARKETING", "PHOTO", "SERVICE_PRIVACY"] as const)("does not delete LINE data on %s grants or unrelated withdrawals", async (consentType) => {
+    await issueLineLinkChallenge(actor, 7);
+    const before = structuredClone(links);
+    for (const action of consentType === "SERVICE_PRIVACY" ? ["GRANTED"] as const : ["GRANTED", "WITHDRAWN"] as const) {
+      await appendConsentEvent({ memberId: 7, consentType, action, policyVersion: "2026-11" }, actor);
+      expect(links).toEqual(before);
+    }
+  });
+});
+
 describe("anonymization transaction plan", () => {
   it("ครอบคลุมทุกตารางที่มี PII และไม่แก้ไขข้อมูลบัญชีที่ต้องเก็บรักษา", async () => {
     const recorded: AnonymizationOperation[] = [];
@@ -314,6 +443,7 @@ describe("anonymization transaction plan", () => {
 
     const tables: string[] = recorded.map((operation) => operation.table);
     expect(tables).toEqual([
+      "member_line_links",
       "members",
       "card_pool",
       "access_logs",
@@ -336,6 +466,7 @@ describe("anonymization transaction plan", () => {
       "privacy_file_cleanups",
       "audit_logs",
     ]);
+    expect(recorded[0]).toEqual({ table: "member_line_links", action: "DELETE", fields: [] });
 
     const paymentFields = recorded.find(
       (operation) => operation.table === "payments",

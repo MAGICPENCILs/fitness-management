@@ -13,6 +13,7 @@ import {
   lockerRentals,
   loyaltyPoints,
   memberCrmProfiles,
+  memberLineLinks,
   members,
   notifications,
   payments,
@@ -171,7 +172,7 @@ export async function getMemberConsentSnapshot(
   };
 }
 
-/** เพิ่ม consent แบบ append-only โดยเลือกและย้ายรูปภายใต้ member lock เดียวกับ upload ก่อนเปลี่ยน ledger/Audit */
+/** เพิ่ม consent แบบ append-only พร้อมย้ายรูปหรือลบ LINE เมื่อถอน consent ภายใต้ member lock/transaction เดียวกัน */
 export async function appendConsentEvent(
   input: AppendConsentInput,
   actor: ActorContext,
@@ -263,7 +264,9 @@ export async function appendConsentEvent(
         if (
           input.consentType === "SERVICE_PRIVACY" &&
           input.action === "WITHDRAWN"
-        )
+        ) {
+          // ใช้ member lock เดียวกับ completion เพื่อไม่ให้สร้าง LINE กลับหลังถอน consent สำเร็จ
+          await tx.delete(memberLineLinks).where(eq(memberLineLinks.memberId, input.memberId));
           await tx
             .update(members)
             .set({ status: "SUSPENDED" })
@@ -273,6 +276,7 @@ export async function appendConsentEvent(
                 ne(members.status, "CANCELLED"),
               ),
             );
+        }
         if (
           input.consentType === "SERVICE_PRIVACY" &&
           input.action === "GRANTED"
@@ -573,7 +577,7 @@ async function removeQuarantinedFile(token: string) {
   }
 }
 
-/** แปลงแผน anonymization เป็น Drizzle mutations ใน transaction เดียว โดยไม่แตะยอดเงิน วิธีชำระ ใบเสร็จ หรือวันที่แพ็กเกจ */
+/** ลบ LINE และล้าง PII ใน transaction เดียว โดยไม่แตะยอดเงิน วิธีชำระ ใบเสร็จ หรือวันที่แพ็กเกจ */
 async function executeAnonymizationOperation(
   tx: DbTransaction,
   operation: AnonymizationOperation,
@@ -582,6 +586,9 @@ async function executeAnonymizationOperation(
 ) {
   const { requestId, memberId, branchId, actor } = context;
   switch (operation.table) {
+    case "member_line_links":
+      await tx.delete(memberLineLinks).where(eq(memberLineLinks.memberId, memberId));
+      return;
     case "members":
       await tx
         .update(members)
