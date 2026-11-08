@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Member } from "@/db/schema";
 import { MemberDetail } from "@/components/members/member-detail";
 
-const mocks = vi.hoisted(() => ({ refresh: vi.fn(), fetch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ refresh: vi.fn(), fetch: vi.fn(), lineFetch: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mocks.refresh }) }));
 
 const member: Member = {
@@ -26,7 +26,8 @@ function selectFile(container: HTMLElement) {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.stubGlobal("fetch", mocks.fetch);
+  mocks.lineFetch.mockResolvedValue({ ok: true, json: async () => ({ status: "UNLINKED", challengeExpiresAt: null, linkedAt: null }) });
+  vi.stubGlobal("fetch", (url: string, options?: RequestInit) => url.endsWith("/line-link") ? mocks.lineFetch(url, options) : mocks.fetch(url, options));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -97,4 +98,24 @@ it("clears a first-upload preview when a refreshed member still has no photo ref
   expect(screen.getByRole("img", { name: "รูปสมาชิก Test Member" })).toBeInTheDocument();
   view.rerender(<MemberDetail {...props} member={{ ...member, photoUrl: null }} />);
   expect(screen.queryByRole("img", { name: "รูปสมาชิก Test Member" })).not.toBeInTheDocument();
+});
+
+it("composes LINE status for member-management staff without requiring privacy-management permission", async () => {
+  mount();
+  expect(await screen.findByRole("region", { name: "การเชื่อมต่อ LINE" })).toBeInTheDocument();
+  expect(await screen.findByText("ยังไม่เชื่อมต่อ")).toBeInTheDocument();
+  expect(mocks.lineFetch).toHaveBeenCalledWith("/api/members/7/line-link", { method: "GET", cache: "no-store" });
+});
+
+it("clears the issued LINE command when a refreshed privacy snapshot withdraws service consent", async () => {
+  const privacySnapshot = { PHOTO: null, MARKETING: null, SERVICE_PRIVACY: { granted: true, policyVersion: "2026-01", updatedAt: "2026-11-08T08:00:00.000Z", actorName: "Staff" } };
+  const props = { packages: [], assignedCard: null, availableCards: [], canManagePrivacy: false };
+  const command = `LINK ${"a".repeat(43)}`;
+  mocks.lineFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "UNLINKED", challengeExpiresAt: null, linkedAt: null }) }).mockResolvedValueOnce({ ok: true, json: async () => ({ status: "PENDING", challengeExpiresAt: "2026-11-08T10:15:00.000Z", linkedAt: null, command }) });
+  const view = render(<MemberDetail {...props} member={member} privacySnapshot={privacySnapshot} />);
+  fireEvent.click(await screen.findByRole("button", { name: "สร้างคำสั่งเชื่อมต่อ" }));
+  expect(await screen.findByText(command)).toBeInTheDocument();
+  view.rerender(<MemberDetail {...props} member={{ ...member, status: "SUSPENDED" }} privacySnapshot={{ ...privacySnapshot, SERVICE_PRIVACY: { ...privacySnapshot.SERVICE_PRIVACY, granted: false, updatedAt: "2026-11-08T09:00:00.000Z" } }} />);
+  expect(screen.queryByText(command)).not.toBeInTheDocument();
+  expect(await screen.findByText("ยังไม่เชื่อมต่อ")).toBeInTheDocument();
 });

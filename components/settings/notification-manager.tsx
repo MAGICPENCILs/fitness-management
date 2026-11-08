@@ -41,7 +41,7 @@ type NotificationHistory = {
 const channelOptions = [
   { key: "enableInApp", label: "ภายในระบบ", description: "แสดงและบันทึกข้อความในระบบทันที" },
   { key: "enableSms", label: "SMS", description: "ส่งผ่าน webhook ที่ผู้ดูแลระบบกำหนด" },
-  { key: "enableLine", label: "LINE OA", description: "ยังไม่พร้อมใช้: ระบบยังไม่มี LINE User ID ของสมาชิก", disabled: true },
+  { key: "enableLine", label: "LINE OA", description: "ผูก/ยกเลิกบัญชีได้ที่หน้าสมาชิก แต่ยังปิดการส่ง: รอตรวจสิทธิ์และความยินยอม ณ เวลาส่ง รวมถึงรับรอง provider/MySQL จริง", disabled: true },
   { key: "enableEmail", label: "อีเมล", description: "ส่งผ่าน SMTP แบบ TLS" },
 ] as const;
 

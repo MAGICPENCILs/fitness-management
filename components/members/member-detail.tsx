@@ -21,6 +21,7 @@ import {
   type ConsentType,
 } from "@/components/privacy/member-privacy-card";
 import { MembershipActions } from "@/components/members/membership-actions";
+import { LineLinkCard } from "@/components/members/line-link-card";
 
 type MemberPackage = {
   id: number;
@@ -44,7 +45,7 @@ const statusLabel: Record<string, { label: string; variant: "default" | "seconda
   CANCELLED: { label: "ยกเลิก", variant: "outline" },
 };
 
-/** แสดงรูปผ่าน member-ID gateway เท่านั้น และล้าง preview เมื่อ refresh ถอน reference เพื่อไม่ค้างรูปที่หมด consent */
+/** แสดงรูปผ่าน gateway และ reset คำสั่ง LINE เมื่อสถานะ/consent เปลี่ยนเพื่อไม่ค้างข้อมูลที่ถูกถอน */
 export function MemberDetail({
   member,
   packages,
@@ -305,6 +306,7 @@ export function MemberDetail({
         canManage={canManagePrivacy}
         anonymized={isAnonymized}
       />
+      <LineLinkCard key={`${member.id}:${member.status}:${privacySnapshot.SERVICE_PRIVACY?.updatedAt ?? ""}`} memberId={member.id} />
     </div>
   );
 }
