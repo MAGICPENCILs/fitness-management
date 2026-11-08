@@ -35,8 +35,8 @@ describe("auth route policy", () => {
     expect(decideRouteAccess("/members", null)).toEqual({ type: "LOGIN" });
   });
 
-  it("keeps opaque runtime photos public without exposing adjacent private paths", () => {
-    expect(decideRouteAccess(`/member-photos/${"a".repeat(64)}.png`, null)).toEqual({ type: "ALLOW" });
+  it("does not classify member photos as public", () => {
+    expect(decideRouteAccess(`/member-photos/${"a".repeat(64)}.png`, null)).toEqual({ type: "LOGIN" });
     expect(decideRouteAccess("/member-photos-extra/private", null)).toEqual({ type: "LOGIN" });
   });
 

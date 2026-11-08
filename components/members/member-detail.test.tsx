@@ -41,11 +41,11 @@ it("sends only memberId/file once and displays server URL only after successful 
   expect(Array.from((options.body as FormData).keys())).toEqual(["file", "memberId"]);
   expect(options.body.get("memberId")).toBe("7");
   expect(options.body.get("memberCode")).toBeNull();
-  expect(screen.getByRole("img", { name: "รูปสมาชิก Test Member" })).toHaveAttribute("src", "/uploads/members/old.png");
+  expect(screen.getByRole("img", { name: "รูปสมาชิก Test Member" })).toHaveAttribute("src", "/member-photos/by-member/7");
   expect(screen.getByRole("button", { name: "อัปโหลดรูปสมาชิก" })).toBeDisabled();
   const uploadedUrl = `/member-photos/${"a".repeat(64)}.png`;
   resolve({ ok: true, json: async () => ({ url: uploadedUrl }) });
-  await waitFor(() => expect(screen.getByRole("img", { name: "รูปสมาชิก Test Member" })).toHaveAttribute("src", uploadedUrl));
+  await waitFor(() => expect(screen.getByRole("img", { name: "รูปสมาชิก Test Member" })).toHaveAttribute("src", "/member-photos/by-member/7"));
   expect(screen.getByRole("img", { name: "รูปสมาชิก Test Member" })).not.toHaveAttribute("srcset");
   expect(mocks.fetch).toHaveBeenCalledTimes(1);
   expect(mocks.refresh).toHaveBeenCalledTimes(1);
@@ -58,7 +58,7 @@ it.each(["server", "network", "invalid JSON", "missing URL"])("preserves old ima
   selectFile(container);
   expect(await screen.findByRole("alert")).toHaveTextContent(failure === "server" ? "ต้องได้รับความยินยอมใช้รูปถ่ายก่อน" : "อัปโหลดรูปไม่สำเร็จ");
   expect(screen.getByRole("button", { name: "อัปโหลดรูปสมาชิก" })).toHaveAccessibleDescription(failure === "server" ? "ต้องได้รับความยินยอมใช้รูปถ่ายก่อน" : "อัปโหลดรูปไม่สำเร็จ");
-  expect(screen.getByRole("img", { name: "รูปสมาชิก Test Member" })).toHaveAttribute("src", "/uploads/members/old.png");
+  expect(screen.getByRole("img", { name: "รูปสมาชิก Test Member" })).toHaveAttribute("src", "/member-photos/by-member/7");
   expect(mocks.fetch).toHaveBeenCalledTimes(1);
   expect(mocks.refresh).not.toHaveBeenCalled();
   expect(screen.getByRole("button", { name: "อัปโหลดรูปสมาชิก" })).toBeEnabled();
@@ -70,4 +70,31 @@ it("disables photo selection for cancelled members", () => {
   expect(container.querySelector('input[type="file"]')).toBeDisabled();
   selectFile(container);
   expect(mocks.fetch).not.toHaveBeenCalled();
+});
+
+it("clears an uploaded preview when refreshed photoUrl becomes null", async () => {
+  mocks.fetch.mockResolvedValue({ ok: true, json: async () => ({ url: `/member-photos/${"a".repeat(64)}.png` }) });
+  const view = mount();
+  selectFile(view.container);
+  await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+  view.rerender(<MemberDetail member={{ ...member, photoUrl: null }} packages={[]} assignedCard={null} availableCards={[]} privacySnapshot={{ PHOTO: null, SERVICE_PRIVACY: null, MARKETING: null }} canManagePrivacy={false} />);
+  expect(screen.queryByRole("img", { name: "รูปสมาชิก Test Member" })).not.toBeInTheDocument();
+});
+
+it("shows the gateway immediately after the first upload with no prior photo", async () => {
+  mocks.fetch.mockResolvedValue({ ok: true, json: async () => ({ url: `/member-photos/${"a".repeat(64)}.png` }) });
+  const view = render(<MemberDetail member={{ ...member, photoUrl: null }} packages={[]} assignedCard={null} availableCards={[]} privacySnapshot={{ PHOTO: null, SERVICE_PRIVACY: null, MARKETING: null }} canManagePrivacy={false} />);
+  selectFile(view.container);
+  expect(await screen.findByRole("img", { name: "รูปสมาชิก Test Member" })).toHaveAttribute("src", "/member-photos/by-member/7");
+});
+
+it("clears a first-upload preview when a refreshed member still has no photo reference", async () => {
+  const props = { packages: [], assignedCard: null, availableCards: [], privacySnapshot: { PHOTO: null, SERVICE_PRIVACY: null, MARKETING: null }, canManagePrivacy: false };
+  mocks.fetch.mockResolvedValue({ ok: true, json: async () => ({ url: `/member-photos/${"a".repeat(64)}.png` }) });
+  const view = render(<MemberDetail {...props} member={{ ...member, photoUrl: null }} />);
+  selectFile(view.container);
+  await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+  expect(screen.getByRole("img", { name: "รูปสมาชิก Test Member" })).toBeInTheDocument();
+  view.rerender(<MemberDetail {...props} member={{ ...member, photoUrl: null }} />);
+  expect(screen.queryByRole("img", { name: "รูปสมาชิก Test Member" })).not.toBeInTheDocument();
 });

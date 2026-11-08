@@ -44,7 +44,7 @@ const statusLabel: Record<string, { label: string; variant: "default" | "seconda
   CANCELLED: { label: "ยกเลิก", variant: "outline" },
 };
 
-/** แสดงรายละเอียดโดยล็อกสมาชิกนิรนาม และไม่เก็บรูปใน optimizer cache เพื่อให้ถอน consent แล้วลบได้จริง */
+/** แสดงรูปผ่าน member-ID gateway เท่านั้น และล้าง preview เมื่อ refresh ถอน reference เพื่อไม่ค้างรูปที่หมด consent */
 export function MemberDetail({
   member,
   packages,
@@ -69,6 +69,11 @@ export function MemberDetail({
   const [photoPreview, setPhotoPreview] = useState<string | null>(
     member.photoUrl ?? null
   );
+  const [photoSource, setPhotoSource] = useState(member);
+  if (photoSource !== member) {
+    setPhotoSource(member);
+    setPhotoPreview(member.photoUrl);
+  }
 
   const [form, setForm] = useState({
     firstName: member.firstName,
@@ -148,7 +153,8 @@ export function MemberDetail({
             onClick={() => fileRef.current?.click()}>
             {photoPreview ? (
               <Image
-                src={photoPreview}
+                key={photoPreview}
+                src={`/member-photos/by-member/${member.id}`}
                 unoptimized
                 alt={`รูปสมาชิก ${member.firstName} ${member.lastName}`}
                 width={512}

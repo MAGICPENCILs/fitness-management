@@ -12,6 +12,7 @@ export type AccessScanResult =
   | {
       result: "APPROVED";
       member: {
+        id: number;
         memberCode: string;
         firstName: string;
         lastName: string;
@@ -41,7 +42,7 @@ async function rejectAccess(
   return { result: "REJECTED", reason };
 }
 
-/** ตรวจบัตร สมาชิก และแพ็กเกจภายในสาขาเดียว แล้ว commit log ก่อน route เรียก hardware */
+/** ตรวจบัตร/แพ็กเกจในสาขาเดียวและคืน member ID ให้ UI อ่านรูปผ่าน gateway ก่อน route เรียก hardware */
 export async function processCardScan(
   tx: DbTransaction,
   branchId: number,
@@ -134,6 +135,7 @@ export async function processCardScan(
   return {
     result: "APPROVED",
     member: {
+      id: member.id,
       memberCode: member.memberCode,
       firstName: member.firstName,
       lastName: member.lastName,
