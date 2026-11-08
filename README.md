@@ -85,7 +85,8 @@ try {
 ระบบปิดการส่งออกภายนอกเป็นค่าเริ่มต้น (`NOTIFICATION_PROVIDER_MODE=disabled`) ใช้ `simulate` เพื่อทดสอบ state โดยไม่ส่งข้อมูลจริง และใช้ `live` เฉพาะเมื่อกำหนด secret ผ่าน environment/secret manager ครบแล้ว
 
 - SMS ใช้ HTTPS webhook และ bearer token
-- LINE OA ยังไม่พร้อมใช้งาน เพราะระบบยังไม่มี lifecycle สำหรับผูกและยกเลิก LINE User ID ของสมาชิก; การตั้งค่า token อย่างเดียวจะไม่แสดงสถานะพร้อมใช้
+- LINE OA มี lifecycle ผูก/ยกเลิกบัญชีแล้ว: staff สร้างคำสั่งครั้งเดียวในหน้าสมาชิก ให้สมาชิกส่งไป OA เอง และรับยืนยันผ่าน signed webhook; ไม่รับ/แสดง LINE User ID ในฟอร์ม และถอน SERVICE_PRIVACY/ทำข้อมูลนิรนามจะล้าง link/challenge
+- การส่ง LINE ยังปิดทุก gate: generation บังคับ `enableLine=false`, ไม่สร้าง LINE channel/recipient, settings/UI ไม่ให้เปิด และ health เป็น `UNAVAILABLE` แม้มี token/link แล้ว ก่อนเปิดต้อง revalidate link/member/consent ณ เวลาส่งและ cancel queued recipient หลัง unlink/ถอน consent พร้อมผ่าน sandbox/provider acceptance; ต้องผ่าน uniqueness/locking concurrency บน MySQL จริงก่อนเปิด production webhook แม้ outbound ยังปิด
 - อีเมลรองรับ SMTP implicit TLS เท่านั้น (`NOTIFICATION_SMTP_SECURE=true`) เพื่อไม่ส่ง credential ผ่าน connection ที่ไม่เข้ารหัส
 - ผู้ดูแลตรวจสถานะ ส่งคิว และ retry เฉพาะ error ที่แก้ได้จากหน้า “ตั้งค่า → การแจ้งเตือน” โดยหน้าเว็บจะไม่แสดง URL, token, username หรือ password
 

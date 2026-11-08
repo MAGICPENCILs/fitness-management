@@ -1,5 +1,6 @@
 export type AnonymizationOperation = {
   table:
+    | "member_line_links"
     | "members"
     | "card_pool"
     | "access_logs"
@@ -21,7 +22,7 @@ export type AnonymizationOperation = {
     | "privacy_requests"
     | "privacy_file_cleanups"
     | "audit_logs";
-  action: "UPDATE" | "INSERT";
+  action: "UPDATE" | "INSERT" | "DELETE";
   fields: readonly string[];
 };
 
@@ -30,6 +31,8 @@ export type AnonymizationOperationExecutor = {
 };
 
 const ANONYMIZATION_OPERATIONS: readonly AnonymizationOperation[] = [
+  // ลบทั้ง LINE identifier และ challenge ก่อนล้างสมาชิก ภายใต้ transaction เดียวกัน
+  { table: "member_line_links", action: "DELETE", fields: [] },
   {
     table: "members",
     action: "UPDATE",
@@ -131,7 +134,7 @@ const ANONYMIZATION_OPERATIONS: readonly AnonymizationOperation[] = [
   },
 ];
 
-/** ส่งแผนการล้าง PII ตามลำดับให้ executor เดียว เพื่อให้การทดสอบและ transaction จริงใช้ขอบเขตเดียวกัน */
+/** ส่งแผนลบ LINE ก่อนล้าง PII ให้ executor เดียว เพื่อคงขอบเขต transaction และลำดับเดียวกับการทดสอบ */
 export async function executeAnonymizationPlan(
   executor: AnonymizationOperationExecutor,
 ) {
