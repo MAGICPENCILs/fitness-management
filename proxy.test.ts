@@ -43,6 +43,10 @@ async function request(
 }
 
 describe("proxy", () => {
+  it("allows only exact LINE webhook without a staff session", async () => {
+    expect((await proxy(await request("/api/line/webhook"))).headers.get("x-middleware-next")).toBe("1");
+    for (const path of ["/api/line/webhook/child", "/api/line/webhook-extra", "/api/line/webhook/"]) expect((await proxy(await request(path))).status).toBe(401);
+  });
   it.each([
     `/member-photos/${"a".repeat(64)}.png`,
     "/uploads/members/OLD.jpg",

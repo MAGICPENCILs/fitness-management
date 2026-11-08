@@ -14,6 +14,8 @@ const HTTP_METHODS = new Set([
   "OPTIONS",
 ]);
 const PUBLIC_METHODS = new Set([
+  // อนุญาตเฉพาะ POST ที่ตรวจ HMAC ใน handler ไม่เปิด route ลูกหรือ method อื่น
+  "app/api/line/webhook/route.ts:POST",
   "app/api/health/route.ts:GET",
   "app/api/auth/login/route.ts:POST",
   "app/api/auth/logout/route.ts:POST",

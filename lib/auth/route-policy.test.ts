@@ -22,6 +22,10 @@ function claims(
 }
 
 describe("auth route policy", () => {
+  it("makes only the exact signed LINE webhook public", () => {
+    expect(decideRouteAccess("/api/line/webhook", null)).toEqual({ type: "ALLOW" });
+    for (const path of ["/api/line", "/api/line/webhook/child", "/api/line/webhook-extra", "/api/line/webhook/"]) expect(decideRouteAccess(path, null)).toEqual({ type: "LOGIN" });
+  });
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);

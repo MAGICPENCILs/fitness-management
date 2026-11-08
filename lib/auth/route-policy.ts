@@ -64,7 +64,8 @@ export function decideRouteAccess(
   claims: SessionClaims | null,
   now = new Date(),
 ): RouteDecision {
-  if (PUBLIC_PATHS.some((prefix) => matchesPrefix(pathname, prefix))) {
+  // Webhook ตรวจลายเซ็นใน handler; เปิดเฉพาะ path นี้เพื่อไม่ให้ descendants ข้าม session guard
+  if (pathname === "/api/line/webhook" || PUBLIC_PATHS.some((prefix) => matchesPrefix(pathname, prefix))) {
     return { type: "ALLOW" };
   }
 
