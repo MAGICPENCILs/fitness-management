@@ -6,6 +6,7 @@ import { writeAudit, type DbTransaction } from "@/lib/audit-service";
 import { hasPermission, type ActorContext } from "@/lib/rbac";
 import { AuthorizationError } from "@/lib/staff-service";
 import { createLineLinkChallenge, hashLineLinkToken, isLineLinkToken, isLineUserId, LineLinkError, lineLinkStatus } from "@/lib/line-link-policy";
+import { cancelUnsentLineNotifications } from "@/lib/notifications/line-delivery-policy";
 
 /** กัน ID ผิดรูปแบบก่อน query โดยไม่แปลงค่าจนทำให้สมาชิกเป้าหมายเปลี่ยน */
 function assertMemberId(memberId: number) {
@@ -53,13 +54,14 @@ export async function issueLineLinkChallenge(actor: ActorContext, memberId: numb
   });
 }
 
-/** ลบเฉพาะ pending/link ที่ยังมีผลและ audit ภายใต้ member→link lock; absent/expired เป็น no-op */
+/** lock member→link→notification และปิดคิว LINE ถาวรแม้ link หายแล้ว; เชื่อมใหม่ไม่คืนคิวเดิม */
 export async function removeLineLink(actor: ActorContext, memberId: number) {
   assertMemberId(memberId);
   return db.transaction(async tx => {
     const [member] = await tx.select({ homeBranchId: members.homeBranchId }).from(members).where(eq(members.id, memberId)).limit(1).for("update");
     assertMemberAccess(actor, member);
     const [row] = await tx.select().from(memberLineLinks).where(eq(memberLineLinks.memberId, memberId)).limit(1).for("update");
+    await cancelUnsentLineNotifications(tx, memberId, "ALL", "LINE_UNLINKED");
     if (lineLinkStatus(row).status !== "UNLINKED") {
       await tx.delete(memberLineLinks).where(eq(memberLineLinks.memberId, memberId));
       await writeAudit(tx, { actorStaffId: actor.staffId, branchId: member.homeBranchId, action: "LINE_LINK_REMOVED", entityType: "MEMBER", entityId: memberId, result: "SUCCESS", metadata: { memberId, branchId: member.homeBranchId, status: "UNLINKED" } });

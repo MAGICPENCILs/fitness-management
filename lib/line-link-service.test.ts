@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { auditLogs, consentEvents, members, memberLineLinks } from "@/db/schema";
+import { auditLogs, consentEvents, members, memberLineLinks, notifications } from "@/db/schema";
+import { queuedNotification } from "@/lib/notifications/notification-test-db";
 
 const mocks = vi.hoisted(() => ({ select: vi.fn(), transaction: vi.fn() }));
 vi.mock("@/db", () => ({ db: mocks }));
@@ -20,12 +21,14 @@ let failAudit: boolean;
 let updateError: unknown;
 let candidateHook: (() => void) | undefined;
 let consentHook: (() => void) | undefined;
+let notificationRows: Record<string, unknown>[];
 
 /** จำลองเฉพาะ DB boundary พร้อม rollback และ lock trace; ไม่แตะ provider หรือฐานข้อมูลจริง */
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(now); vi.resetAllMocks();
   member = { id: 7, homeBranchId: 10, status: "ACTIVE" }; link = undefined;
   consent = "GRANTED"; audits = []; locks = []; failAudit = false; updateError = undefined; candidateHook = undefined; consentHook = undefined;
+  notificationRows = [];
   const select = (transaction: boolean) => () => {
     let table: unknown; let condition: Parameters<MySqlDialect["sqlToQuery"]>[0];
     const rows = () => {
@@ -41,6 +44,7 @@ beforeEach(() => {
         consentHook?.();
         return [{ action: consent }];
       }
+      if (table === notifications) return notificationRows.filter(row => params.includes(row.memberId) && params.includes(row.channel)).map(row => ({ ...row }));
       throw new Error("UNEXPECTED_TABLE");
     };
     const query = {
@@ -56,8 +60,13 @@ beforeEach(() => {
     else throw new Error("UNEXPECTED_INSERT");
     return [{ affectedRows: 1 }];
   } });
-  const update = () => ({ set: (value: Partial<Link>) => ({ where: async () => {
+  const update = (table: unknown) => ({ set: (value: Partial<Link>) => ({ where: async (condition: Parameters<MySqlDialect["sqlToQuery"]>[0]) => {
     if (updateError) throw updateError;
+    if (table === notifications) {
+      const params = new MySqlDialect().sqlToQuery(condition).params;
+      const rows = notificationRows.filter(row => params.includes(row.id));
+      rows.forEach(row => Object.assign(row, value)); return [{ affectedRows: rows.length }];
+    }
     if (link) Object.assign(link, value); return [{ affectedRows: 1 }];
   } }) });
   const remove = () => ({ where: async () => { link = undefined; return [{ affectedRows: 1 }]; } });
@@ -66,15 +75,32 @@ beforeEach(() => {
   mocks.transaction.mockImplementation(async (callback) => {
     const beforeTail = tail; let release!: () => void;
     tail = new Promise<void>(resolve => { release = resolve; }); await beforeTail;
-    locks = []; const snapshot = structuredClone({ link, audits });
+    locks = []; const snapshot = structuredClone({ link, audits, notificationRows });
     try { return await callback({ select: select(true), insert, update, delete: remove }); }
-    catch (error) { link = snapshot.link; audits = snapshot.audits; throw error; }
+    catch (error) { link = snapshot.link; audits = snapshot.audits; notificationRows = snapshot.notificationRows; throw error; }
     finally { release(); }
   });
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("LINE linking service", () => {
+  it("unlink cancels stored unsent LINE even with no link row, is idempotent and relink never revives it", async () => {
+    notificationRows = [queuedNotification(), queuedNotification({ id: 2, channel: "EMAIL" })];
+    await removeLineLink(actor, 7);
+    expect(notificationRows[0]).toMatchObject({ status: "SKIPPED", failureKind: "PERMANENT", recipient: null, sentAt: null });
+    expect(notificationRows[1].status).toBe("QUEUED");
+    expect(audits).toHaveLength(1);
+    await removeLineLink(actor, 7); expect(audits).toHaveLength(1);
+    const issued = await issueLineLinkChallenge(actor, 7); await completeLineLinkChallenge(issued.command.slice(5), userId);
+    expect(notificationRows[0]).toMatchObject({ status: "SKIPPED", recipient: null });
+  });
+
+  it("rolls back unlink and notification scrubbing together when cancellation audit fails", async () => {
+    const issued = await issueLineLinkChallenge(actor, 7); await completeLineLinkChallenge(issued.command.slice(5), userId);
+    notificationRows = [queuedNotification()]; const before = structuredClone({ link, notificationRows });
+    failAudit = true; await expect(removeLineLink(actor, 7)).rejects.toThrow("PRIVATE_AUDIT_FAILURE");
+    expect({ link, notificationRows }).toEqual(before);
+  });
   it("rotates challenges, hashes tokens, exposes only status on GET and consumes once without delivery", async () => {
     const fetch = vi.fn(() => { throw new Error("NO_NETWORK"); }); vi.stubGlobal("fetch", fetch);
     const first = await issueLineLinkChallenge(actor, 7);
