@@ -2,7 +2,7 @@ import path from "path";
 import { SQL } from "drizzle-orm";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { members, privacyRequests, consentEvents, privacyFileCleanups, auditLogs, memberLineLinks, notifications, notificationSettings } from "@/db/schema";
+import { members, memberPackages, privacyRequests, consentEvents, privacyFileCleanups, auditLogs, memberLineLinks, notifications, notificationSettings } from "@/db/schema";
 import { matches, queuedNotification } from "@/lib/notifications/notification-test-db";
 
 const mocks = vi.hoisted(() => ({ transaction: vi.fn(), select: vi.fn(), insert: vi.fn(), update: vi.fn(), mkdir: vi.fn(), rename: vi.fn(), unlink: vi.fn(), writeFile: vi.fn(), stat: vi.fn(), deliver: vi.fn(), claim: vi.fn() }));
@@ -15,7 +15,7 @@ vi.mock("@/lib/notifications/line-delivery-policy", async importOriginal => ({ .
 import { appendConsentEvent, anonymizeApprovedRequest, retryPrivacyFileCleanup } from "@/lib/privacy-service";
 import { saveMemberPhoto } from "@/lib/member-photo-service";
 import { completeLineLinkChallenge, issueLineLinkChallenge } from "@/lib/line-link-service";
-import { processNotificationDelivery } from "@/lib/notification-engine";
+import { generateNotifications, processNotificationDelivery } from "@/lib/notification-engine";
 import {
   executeAnonymizationPlan,
   type AnonymizationOperation,
@@ -59,6 +59,7 @@ let lockTraces: string[][];
 let deletedMemberIds: unknown[];
 let notificationRows: Record<string, unknown>[];
 let beforeNotificationUpdate: (() => Promise<void>) | undefined;
+let afterRead: ((table: unknown) => Promise<void>) | undefined;
 
 /** จำลอง transaction/row lock และ filesystem เฉพาะในหน่วยความจำ โดยใช้ service และ consent snapshot จริง */
 beforeEach(async () => {
@@ -70,7 +71,7 @@ beforeEach(async () => {
   links = []; failSuccessAudit = false; failLinkDelete = false;
   memberLockHold = undefined; memberLockEntered = barrier(); transactionQueued = barrier(); lockTraces = [];
   deletedMemberIds = [];
-  notificationRows = []; beforeNotificationUpdate = undefined;
+  notificationRows = []; beforeNotificationUpdate = undefined; afterRead = undefined;
   mocks.deliver.mockResolvedValue({ outcome: "sent" });
   events = [{ id: 1, consentType: "PHOTO", action: "GRANTED", createdAt: new Date("2026-11-01") }];
   files.set(path.join(root, "old.jpg"), Buffer.from("old"));
@@ -89,6 +90,7 @@ beforeEach(async () => {
         if (urls.length) return [...sharedReferences, ...(query?.sql.includes("<>") ? [] : [member])].filter((row) => urls.includes(row.photoUrl ?? ""));
         return [{ ...member }];
       }
+      if (table === memberPackages) return member.status === "ACTIVE" ? [{ ...member, id: 12, memberId: 7, expireDate: "2026-11-10" }] : [];
       if (table === privacyRequests) return [{ ...requestRow, photoUrl: member.photoUrl, memberStatus: member.status }];
       if (table === memberLineLinks) {
         const params = new MySqlDialect().sqlToQuery(condition as Parameters<MySqlDialect["sqlToQuery"]>[0]).params;
@@ -102,13 +104,13 @@ beforeEach(async () => {
       }
       if (table === privacyFileCleanups) return cleanup ? [{ ...cleanup }] : [];
       if (table === notifications) return notificationRows.filter(row => matches(condition as Parameters<MySqlDialect["sqlToQuery"]>[0], row, notifications, member)).map(row => ({ ...row }));
-      if (table === notificationSettings) return [{ id: 1, isActive: true, enableLine: true }];
+      if (table === notificationSettings) return [{ id: 1, isActive: true, enableLine: true, enableSms: true, enableEmail: true, reminderDays: "1", inactivityDays: 30 }];
       return [];
     };
     const query = {
       from(value: unknown) { table = value; return query; },
       where(value: unknown) { condition = value; return query; },
-      innerJoin() { return query; }, limit() { return query; }, orderBy() { return query; },
+      innerJoin() { return query; }, limit() { return query; }, orderBy() { return query; }, groupBy() { return query; },
       async for() {
         lockTraces.at(-1)!.push(table === members ? "member" : table === privacyRequests ? "request" : table === memberLineLinks ? "link" : table === notifications ? "notification" : "consent");
         if (table === members) {
@@ -118,11 +120,17 @@ beforeEach(async () => {
         }
         return rows();
       },
-      then(resolve: (value: unknown[]) => unknown) { return Promise.resolve(rows()).then(resolve); },
+      async then(resolve: (value: unknown[]) => unknown, reject: (error: unknown) => unknown) {
+        try { const snapshot = rows(); await afterRead?.(table); return resolve(snapshot); } catch (error) { return reject(error); }
+      },
     };
     return query;
   };
-  const insert = (table: unknown) => ({ values: async (value: Record<string, unknown> | Record<string, unknown>[]) => {
+  const insert = (table: unknown) => ({ ignore() { return this; }, values: async (value: Record<string, unknown> | Record<string, unknown>[]) => {
+    if (table === notifications && Array.isArray(value)) {
+      expect(activeTransaction && memberLocked).toBe(true);
+      notificationRows.push(...value); return [{ affectedRows: value.length }];
+    }
     if (table === auditLogs && !Array.isArray(value) && value.result === "FAILED" && failFailureAudit) throw new Error("PRIVATE_AUDIT_SQL");
     if (table === auditLogs && !Array.isArray(value) && value.result === "SUCCESS" && failSuccessAudit) throw new Error("SUCCESS_AUDIT_FAILED");
     if (table === auditLogs && !Array.isArray(value)) audits.push(value);
@@ -501,6 +509,32 @@ describe("notification/privacy cancellation", () => {
     expect(lockTraces[0].slice(0, 2)).toEqual(["request", "member"]);
   });
 
+  it("does not insert stale SMS/email PII after anonymization commits during generation", async () => {
+    Object.assign(member, { firstName: "Old", lastName: "Name", phone: "0800000000", email: "old@example.test" });
+    const snapshotReady = barrier(); const resume = barrier();
+    afterRead = async table => {
+      if (table !== memberPackages) return;
+      afterRead = undefined; snapshotReady.release(); await resume.promise;
+    };
+    const generation = generateNotifications(10, new Date(2026, 10, 9));
+    await snapshotReady.promise;
+    await anonymizeApprovedRequest(1, actor);
+    expect(member.status).toBe("CANCELLED");
+    resume.release(); const result = await generation;
+    expect(notificationRows).toEqual([]);
+    expect(result).toMatchObject({ candidates: 2, created: 0 });
+  });
+
+  it("generates and dedupes ordinary reminders without generating LINE", async () => {
+    Object.assign(member, { firstName: "Current", lastName: "Name", phone: "0800000001", email: "current@example.test" });
+    const now = new Date(2026, 10, 9);
+    expect(await generateNotifications(10, now)).toMatchObject({ candidates: 2, created: 2 });
+    expect(await generateNotifications(10, now)).toMatchObject({ candidates: 2, created: 0 });
+    expect(notificationRows.map(row => [row.channel, row.recipient, row.status])).toEqual([
+      ["SMS", "0800000001", "QUEUED"], ["EMAIL", "current@example.test", "QUEUED"],
+    ]);
+  });
+
   it.each(["SERVICE_PRIVACY", "MARKETING", "ANONYMIZATION"])("%s rolls back notification changes with the failed audit", async kind => {
     notificationRows = [queuedNotification(), queuedNotification({ id: 2, channel: "SMS" })];
     const before = structuredClone({ notificationRows, member, events, links, requestRow });
@@ -509,21 +543,21 @@ describe("notification/privacy cancellation", () => {
     expect({ notificationRows, member, events, links, requestRow }).toEqual(before);
   });
 
-  it.each(["SERVICE_PRIVACY", "MARKETING"] as const)("%s withdrawal before dispatch causes zero provider calls", async consentType => {
+  it.each(["SERVICE_PRIVACY", "MARKETING"] as const)("%s withdrawal before preflight causes zero provider calls", async consentType => {
     notificationRows = [queuedNotification()];
     await appendConsentEvent({ memberId: 7, consentType, action: "WITHDRAWN", policyVersion: "2026-11" }, actor);
     await expect(processNotificationDelivery(1, 10)).rejects.toMatchObject({ status: 409 });
     expect(mocks.deliver).not.toHaveBeenCalled();
   });
 
-  it.each(["SERVICE_PRIVACY", "MARKETING"] as const)("%s withdrawal after LINE claim blocks dispatch and late acknowledgement", async consentType => {
+  it.each(["SERVICE_PRIVACY", "MARKETING"] as const)("%s withdrawal after LINE claim blocks only calls not yet authorized and fences late acknowledgement", async consentType => {
     const realClaim = (await vi.importActual<typeof import("@/lib/notifications/line-delivery-policy")>("@/lib/notifications/line-delivery-policy")).claimLineNotification;
     // จำลองเฉพาะ gate input เพื่อทดสอบ in-flight path โดยไม่เปิด outbound จริงและใช้ provider fake เท่านั้น
     mocks.claim.mockImplementation(async (id: number, memberId: number, branchId: number, enabled: boolean) => {
       expect(enabled).toBe(false);
       return realClaim(id, memberId, branchId, true);
     });
-    for (const timing of ["before dispatch", "in flight"]) {
+    for (const timing of ["before final read", "after final read", "in flight"]) {
       events.push({ id: events.length + 1, consentType: "SERVICE_PRIVACY", action: "GRANTED", createdAt: new Date() });
       events.push({ id: events.length + 1, consentType: "MARKETING", action: "GRANTED", createdAt: new Date() });
       if (!links[0]?.lineUserId) {
@@ -533,15 +567,27 @@ describe("notification/privacy cancellation", () => {
       notificationRows = [queuedNotification()];
       const withdraw = () => appendConsentEvent({ memberId: 7, consentType, action: "WITHDRAWN", policyVersion: "2026-11" }, actor);
       mocks.deliver.mockClear();
-      if (timing === "before dispatch") mocks.claim.mockImplementationOnce(async (id: number, memberId: number, branchId: number) => {
+      if (timing === "before final read") mocks.claim.mockImplementationOnce(async (id: number, memberId: number, branchId: number) => {
         const claimed = await realClaim(id, memberId, branchId, true);
         await withdraw(); return claimed;
       });
+      else if (timing === "after final read") {
+        // พักหลังอ่าน snapshot ของ claim ที่ commit แล้ว ให้ถอนสิทธิ์จนเสร็จก่อน adapter เริ่ม
+        afterRead = async table => {
+          if (table !== notifications || activeTransaction || notificationRows[0].status !== "PROCESSING") return;
+          afterRead = undefined; expect(mocks.deliver).not.toHaveBeenCalled(); await withdraw();
+        };
+        mocks.deliver.mockImplementationOnce(async () => {
+          expect(activeTransaction).toBe(false);
+          expect(notificationRows[0]).toMatchObject({ status: "SKIPPED", failureKind: "PERMANENT", recipient: null });
+          return { outcome: "sent" };
+        });
+      }
       else mocks.deliver.mockImplementationOnce(async () => {
         expect(activeTransaction).toBe(false); await withdraw(); return { outcome: "sent" };
       });
       await expect(processNotificationDelivery(1, 10)).rejects.toMatchObject({ status: 409 });
-      expect(mocks.deliver).toHaveBeenCalledTimes(timing === "before dispatch" ? 0 : 1);
+      expect(mocks.deliver).toHaveBeenCalledTimes(timing === "before final read" ? 0 : 1);
       expect(notificationRows[0]).toMatchObject({ status: "SKIPPED", failureKind: "PERMANENT", recipient: null, sentAt: null, attemptCount: 1 });
     }
   });

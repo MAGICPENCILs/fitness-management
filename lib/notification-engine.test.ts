@@ -45,7 +45,7 @@ describe("notification dispatch fences", () => {
     expect(mocks.deliver).not.toHaveBeenCalled(); expect(fixture.state.rows[0].recipient).toBeNull();
   });
 
-  it("preflight-first then unlink-before-dispatch blocks the LINE provider outside the transaction", async () => {
+  it("unlink after preflight but before the final read blocks the LINE provider", async () => {
     allowSyntheticPreflight();
     fixture.state.afterCommit = () => removeLineLink({ staffId: 3, role: "OWNER", homeBranchId: 10 }, 7).then(() => undefined);
     await expect(processNotificationDelivery(1, 10)).rejects.toMatchObject({ status: 409 });

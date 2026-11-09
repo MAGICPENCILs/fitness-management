@@ -2,7 +2,7 @@
 
 ## Intent
 
-ป้องกัน notification LINE ที่ยังไม่เริ่มส่งจากการถูกส่งหลัง unlink, เปลี่ยน account, ถอน consent หรือ anonymization โดยไม่เปิด outbound LINE และไม่เปลี่ยน delivery semantics ปกติของ SMS/email
+ป้องกันการส่ง notification LINE หาก unlink, เปลี่ยน account, ถอน consent หรือ anonymization มีผลก่อนการอ่านฐานข้อมูลครั้งสุดท้ายที่อนุญาตให้ส่ง โดยไม่เปิด outbound LINE และไม่เปลี่ยน delivery semantics ปกติของ SMS/email
 
 ## Scope
 
@@ -31,7 +31,7 @@
 4. recheck branch ownership, member status, current link/recipient, notification type/status/attempt eligibility และ required current consents
 5. ถ้าไม่ผ่าน ให้ตั้ง terminal cancellation แล้ว commit
 6. ถ้าผ่าน ให้ claim เป็น PROCESSING, เพิ่ม attempt, สร้าง claim timestamp หลัง lock และ commit
-7. ปล่อย lock ก่อน network call
+7. หลัง commit อ่าน claim จากฐานข้อมูลอีกครั้ง ถ้ายังตรงจึงอนุญาตให้ส่งโดยไม่ถือ lock ระหว่าง network call
 8. completion update ต้อง match notification ID + PROCESSING + claimedAt + attemptCount เพื่อไม่ overwrite cancellation/reclaim
 
 SMS/email ใช้ claim/delivery flow เดิม ยกเว้น anonymization cancellation ที่เป็น privacy correction ร่วมกัน
@@ -52,7 +52,7 @@ Rules:
 - SERVICE_PRIVACY withdrawal: cancel LINE ทุก type พร้อมลบ link/suspend
 - MARKETING withdrawal: cancel LINE `INACTIVITY` เท่านั้น; รักษา link และ `EXPIRY_REMINDER`
 - PHOTO actions: ไม่ cancel notification
-- Anonymization: ล้าง recipient/title/message/error และ terminalize unsent rowsทุก channel; SENT history คง terminal status แต่ PII ถูกล้าง
+- Anonymization: ล้าง recipient/title/message/error และ terminalize unsent rows ทุก channel; SENT history คง terminal status แต่ PII ถูกล้าง ก่อนบันทึกรายการที่เตรียมไว้ให้ล็อกและอ่านสถานะสมาชิกปัจจุบันเรียงตาม ID ใน transaction ที่ insert และทิ้งรายการของสมาชิก CANCELLED เพื่อไม่ให้ PII กลับมาหลังล้าง
 - Relink/consent grant ไม่ revive cancelled rows
 
 Helper รับ existing transaction, member ID, scope และ fixed reason code; เขียน audit atomically ด้วย metadata allowlist (`source`, `errorCode`, `count`) และไม่ log recipient/link/message/raw error/provider response
@@ -61,8 +61,8 @@ Helper รับ existing transaction, member ID, scope และ fixed reason c
 
 - Member-first lock serialize preflight กับ unlink/consent/link completion; anonymization คง request→member prefix เดิม
 - Cancellation ที่ commit ก่อน preflight ต้องเกิด zero provider calls
-- Cancellation หลัง claim แต่ก่อน provider dispatch ต้องป้องกัน call ผ่าน final state fence/reload
-- Request ที่ออกไป provider แล้วเรียกคืนไม่ได้; งานนี้ไม่รับประกัน zero delivery หลัง withdrawal ที่แข่งกับ in-flight HTTP
+- Cancellation ที่ commit หลัง claim แต่ก่อนการอ่านฐานข้อมูลครั้งสุดท้ายจะทำให้ไม่เรียก provider
+- การอ่าน claim ครั้งสุดท้ายที่ผ่านคือจุดอนุญาตส่ง หลังจากนั้นให้ถือว่าเป็นงาน in-flight: ถ้า withdrawal commit ก่อน adapter เริ่ม ระบบก็ยังอาจเรียก provider ได้ เพราะไม่ได้ถือ lock ระหว่างส่ง การยกเลิกช่วงนี้เป็น best-effort; completion fence ป้องกันการคืนสถานะเท่านั้น ไม่ได้เรียกคืนข้อความ
 - Lost provider acknowledgement/lease retry อาจ duplicate เพราะ adapter ยังไม่มี provider idempotency key; คงเป็น external release blocker
 
 ## Outbound gate
@@ -72,7 +72,7 @@ Helper รับ existing transaction, member ID, scope และ fixed reason c
 ## Acceptance
 
 - Tests ครอบคลุม notification type/consent matrix, missing/pending/malformed/replaced/mismatched link, CANCELLED/branch mismatch, disabled gate, stale/retry claims และ no provider call
-- Race tests ครอบคลุม unlink/withdrawal first, preflight first then cancellation before dispatch, late completion ไม่ overwrite cancellation และ relinkไม่ revive
+- Race tests ครอบคลุมการยกเลิกก่อน/หลังการอ่าน claim ครั้งสุดท้าย รวมถึง withdrawal หลังอ่านแต่ก่อนเรียก adapter, late completion ไม่ overwrite cancellation และ relink ไม่ revive
 - Privacy tests ใช้ notification rows จริงใน fixture ยืนยัน cancellation/rollback สำหรับ LINE และ anonymization ทุก channel
 - SMS/email ordinary delivery tests ไม่เปลี่ยน; provider permanent policy skip retryไม่ได้
 - Full tests, TypeScript, ESLint, Drizzle check, production build และ dev health port 3005 ผ่าน

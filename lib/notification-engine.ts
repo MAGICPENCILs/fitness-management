@@ -140,20 +140,26 @@ function getEnabledChannels(settings: Awaited<ReturnType<typeof getNotificationS
   return channels;
 }
 
-/** บันทึกรายการใหม่เท่านั้น โดยใช้ dedupe key ป้องกันสมาชิกได้รับข้อความเดิมซ้ำ */
-async function insertNewNotifications(entries: NewNotification[], executor?: DbTransaction) {
+/** ล็อกสมาชิกตามลำดับ ID จนบันทึกเสร็จ เพื่อไม่ให้ข้อมูลผู้รับที่เตรียมไว้กลับมาหลังทำข้อมูลนิรนาม */
+async function insertNewNotifications(entries: NewNotification[], executor?: DbTransaction): Promise<number> {
   if (!entries.length) return 0;
-  const database = executor ?? db;
-  const existing = await database
+  if (!executor) return db.transaction(tx => insertNewNotifications(entries, tx));
+  const memberIds = [...new Set(entries.map(entry => entry.memberId))];
+  const current = await executor.select({ id: members.id, status: members.status }).from(members)
+    .where(inArray(members.id, memberIds)).orderBy(members.id).for("update");
+  const eligibleIds = new Set(current.filter(member => member.status !== "CANCELLED").map(member => member.id));
+  const eligible = entries.filter(entry => eligibleIds.has(entry.memberId));
+  if (!eligible.length) return 0;
+  const existing = await executor
     .select({ dedupeKey: notifications.dedupeKey })
     .from(notifications)
-    .where(inArray(notifications.dedupeKey, entries.map((entry) => entry.dedupeKey)));
+    .where(inArray(notifications.dedupeKey, eligible.map((entry) => entry.dedupeKey)));
   const existingKeys = new Set(existing.map((entry) => entry.dedupeKey));
-  const newEntries = entries.filter((entry) => !existingKeys.has(entry.dedupeKey));
+  const newEntries = eligible.filter((entry) => !existingKeys.has(entry.dedupeKey));
   if (!newEntries.length) return 0;
 
   // INSERT IGNORE ปิดช่องว่างของ race condition หากมีตัวประมวลผลสองรอบเริ่มพร้อมกัน
-  const result = await database.insert(notifications).ignore().values(newEntries);
+  const result = await executor.insert(notifications).ignore().values(newEntries);
   return result[0].affectedRows;
 }
 
@@ -331,7 +337,7 @@ function deliveryUpdate(result: DeliveryResult) {
   };
 }
 
-/** LINE ตรวจ policy ใน transaction; ทุก channel ใช้ fence กัน cancellation/reclaim ก่อนส่งและก่อน completion */
+/** LINE ตรวจ policy ใน transaction; ทุกช่องทางอนุญาตส่งเมื่ออ่าน claim ครั้งสุดท้ายผ่าน และไม่คืนสถานะที่ถูกยกเลิก */
 export async function processNotificationDelivery(
   notificationId: number,
   branchId: number,
@@ -425,7 +431,7 @@ export async function processNotificationDelivery(
     eq(notifications.lastAttemptAt, claimTime),
     eq(notifications.attemptCount, claimedAttemptCount),
   );
-  // ปิด race หลัง commit ก่อน dispatch; HTTP ที่เริ่มไปแล้วเรียกคืนไม่ได้และไม่ถือ DB lock ระหว่างส่ง
+  // การอ่านผ่านคือจุดอนุญาตส่ง หากถอนสิทธิ์หลังจากนี้ provider ยังอาจถูกเรียก เพราะไม่ถือ lock ระหว่างส่ง
   const [current] = await db.select({ id: notifications.id }).from(notifications).where(claimFence).limit(1);
   if (!current) throw new NotificationDeliveryError("lease ของรายการหมดอายุแล้ว");
 
