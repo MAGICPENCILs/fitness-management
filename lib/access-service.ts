@@ -42,7 +42,7 @@ async function rejectAccess(
   return { result: "REJECTED", reason };
 }
 
-/** ตรวจบัตร/แพ็กเกจในสาขาเดียวและคืน member ID ให้ UI อ่านรูปผ่าน gateway ก่อน route เรียก hardware */
+/** ตรวจบัตร/แพ็กเกจในสาขาเดียว โดยล็อกสมาชิกก่อนเขียน audit/notification เพื่อไม่ให้ deadlock ถูกกลืนแล้วเปิดประตูโดยไม่มี log */
 export async function processCardScan(
   tx: DbTransaction,
   branchId: number,
@@ -84,7 +84,8 @@ export async function processCardScan(
     .where(
       and(eq(members.id, memberId), eq(members.homeBranchId, branchId)),
     )
-    .limit(1);
+    .limit(1)
+    .for("update");
   if (!member)
     return rejectAccess(tx, branchId, auditSerial, "ไม่พบสมาชิกในสาขานี้");
 
@@ -130,7 +131,7 @@ export async function processCardScan(
       memberName: `${member.firstName} ${member.lastName}`,
       now,
       executor: tx,
-    }).catch(() => console.error("scan warning could not be recorded"));
+    });
   }
   return {
     result: "APPROVED",

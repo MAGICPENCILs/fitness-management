@@ -86,7 +86,8 @@ try {
 
 - SMS ใช้ HTTPS webhook และ bearer token
 - LINE OA มี lifecycle ผูก/ยกเลิกบัญชีแล้ว: staff สร้างคำสั่งครั้งเดียวในหน้าสมาชิก ให้สมาชิกส่งไป OA เอง และรับยืนยันผ่าน signed webhook; ไม่รับ/แสดง LINE User ID ในฟอร์ม และถอน SERVICE_PRIVACY/ทำข้อมูลนิรนามจะล้าง link/challenge
-- การส่ง LINE ยังปิดทุก gate: generation บังคับ `enableLine=false`, ไม่สร้าง LINE channel/recipient, settings/UI ไม่ให้เปิด และ health เป็น `UNAVAILABLE` แม้มี token/link แล้ว ก่อนเปิดต้อง revalidate link/member/consent ณ เวลาส่งและ cancel queued recipient หลัง unlink/ถอน consent พร้อมผ่าน sandbox/provider acceptance; ต้องผ่าน uniqueness/locking concurrency บน MySQL จริงก่อนเปิด production webhook แม้ outbound ยังปิด
+- การส่ง LINE ยังปิดทุก gate: generation บังคับ `enableLine=false`, ไม่สร้าง LINE channel/recipient, settings/UI ไม่ให้เปิด และ health เป็น `UNAVAILABLE` แม้มี token/link แล้ว; dispatcher revalidate current link/member/consent และปิดคิวถาวรหลัง unlink/ถอน SERVICE_PRIVACY แล้ว ส่วน MARKETING ปิดเฉพาะ INACTIVITY และเก็บ operational EXPIRY_REMINDER/link; การให้ consent/เชื่อมใหม่ไม่คืนคิวเก่า และ anonymization ปิดคิวที่ยังไม่ส่งทุก channel พร้อมล้าง PII โดยคง SENT history
+- ระบบอนุญาตส่งเมื่ออ่านฐานข้อมูลครั้งสุดท้ายแล้วพบว่า claim ยังใช้ได้ หากถอนสิทธิ์หลังจุดนี้ ข้อความยังอาจถูกส่งแม้ provider ยังไม่ถูกเรียกตอนถอนสิทธิ์ ผลส่งที่กลับมาภายหลังจะไม่คืนสถานะคิวที่ยกเลิก และไม่ได้รับประกัน exactly-once: lost acknowledgement/lease retry ยังอาจส่งซ้ำ ต้องผ่าน real-MySQL isolation/deadlock/uniqueness/locking concurrency และ sandbox/provider/HTTPS webhook/signature/redelivery/block/live-push acceptance ภายนอกก่อนเปิดใช้งาน ห้ามถือ unit tests/build เป็นหลักฐานรับรองเหล่านี้
 - อีเมลรองรับ SMTP implicit TLS เท่านั้น (`NOTIFICATION_SMTP_SECURE=true`) เพื่อไม่ส่ง credential ผ่าน connection ที่ไม่เข้ารหัส
 - ผู้ดูแลตรวจสถานะ ส่งคิว และ retry เฉพาะ error ที่แก้ได้จากหน้า “ตั้งค่า → การแจ้งเตือน” โดยหน้าเว็บจะไม่แสดง URL, token, username หรือ password
 

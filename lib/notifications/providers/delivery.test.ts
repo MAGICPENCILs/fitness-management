@@ -102,6 +102,8 @@ describe("notification delivery providers", () => {
     expect(canRetryDelivery("FAILED", "PERMANENT", 1)).toBe(false);
     expect(canRetryDelivery("SENT", null, 1)).toBe(false);
     expect(canRetryDelivery("FAILED", "RETRYABLE", 5)).toBe(false);
+    expect(canRetryDelivery("SKIPPED", "PERMANENT", 0)).toBe(false);
+    expect(canClaimDelivery("SKIPPED", "PERMANENT", 0, null)).toBe(false);
   });
 
   it("ยึด PROCESSING ซ้ำได้หลัง lease หมด แต่ claim ใหม่กัน worker พร้อมกัน", () => {

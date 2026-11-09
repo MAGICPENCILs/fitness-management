@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, inArray, isNotNull, isNull, lt, lte, max, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, lte, max, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   accessLogs,
@@ -24,6 +24,7 @@ import {
   loadDeliveryEnvironment,
 } from "@/lib/notifications/providers/config";
 import { sendSmtpNotification } from "@/lib/notifications/providers/smtp";
+import { claimLineNotification, type LineDeliveryClaim } from "@/lib/notifications/line-delivery-policy";
 
 export const defaultNotificationSettings = {
   id: 1,
@@ -139,20 +140,26 @@ function getEnabledChannels(settings: Awaited<ReturnType<typeof getNotificationS
   return channels;
 }
 
-/** บันทึกรายการใหม่เท่านั้น โดยใช้ dedupe key ป้องกันสมาชิกได้รับข้อความเดิมซ้ำ */
-async function insertNewNotifications(entries: NewNotification[], executor?: DbTransaction) {
+/** ล็อกสมาชิกตามลำดับ ID จนบันทึกเสร็จ เพื่อไม่ให้ข้อมูลผู้รับที่เตรียมไว้กลับมาหลังทำข้อมูลนิรนาม */
+async function insertNewNotifications(entries: NewNotification[], executor?: DbTransaction): Promise<number> {
   if (!entries.length) return 0;
-  const database = executor ?? db;
-  const existing = await database
+  if (!executor) return db.transaction(tx => insertNewNotifications(entries, tx));
+  const memberIds = [...new Set(entries.map(entry => entry.memberId))];
+  const current = await executor.select({ id: members.id, status: members.status }).from(members)
+    .where(inArray(members.id, memberIds)).orderBy(members.id).for("update");
+  const eligibleIds = new Set(current.filter(member => member.status !== "CANCELLED").map(member => member.id));
+  const eligible = entries.filter(entry => eligibleIds.has(entry.memberId));
+  if (!eligible.length) return 0;
+  const existing = await executor
     .select({ dedupeKey: notifications.dedupeKey })
     .from(notifications)
-    .where(inArray(notifications.dedupeKey, entries.map((entry) => entry.dedupeKey)));
+    .where(inArray(notifications.dedupeKey, eligible.map((entry) => entry.dedupeKey)));
   const existingKeys = new Set(existing.map((entry) => entry.dedupeKey));
-  const newEntries = entries.filter((entry) => !existingKeys.has(entry.dedupeKey));
+  const newEntries = eligible.filter((entry) => !existingKeys.has(entry.dedupeKey));
   if (!newEntries.length) return 0;
 
   // INSERT IGNORE ปิดช่องว่างของ race condition หากมีตัวประมวลผลสองรอบเริ่มพร้อมกัน
-  const result = await database.insert(notifications).ignore().values(newEntries);
+  const result = await executor.insert(notifications).ignore().values(newEntries);
   return result[0].affectedRows;
 }
 
@@ -330,17 +337,18 @@ function deliveryUpdate(result: DeliveryResult) {
   };
 }
 
-/** claim รายการก่อนเรียก provider เพื่อกันผู้ดูแลสองคนส่งข้อความเดียวกันพร้อมกัน */
+/** LINE ตรวจ policy ใน transaction; ทุกช่องทางอนุญาตส่งเมื่ออ่าน claim ครั้งสุดท้ายผ่าน และไม่คืนสถานะที่ถูกยกเลิก */
 export async function processNotificationDelivery(
   notificationId: number,
   branchId: number,
 ) {
   // MySQL timestamp เก็บระดับวินาที จึงตัด millisecond เพื่อใช้เวลา claim เป็น token เปรียบเทียบได้ตรงกัน
-  const claimTime = new Date(Math.floor(Date.now() / 1000) * 1000);
+  let claimTime = new Date(Math.floor(Date.now() / 1000) * 1000);
   const staleBefore = new Date(claimTime.getTime() - NOTIFICATION_CLAIM_LEASE_MS);
   const [record] = await db
     .select({
       id: notifications.id,
+      memberId: notifications.memberId,
       channel: notifications.channel,
       recipient: notifications.recipient,
       title: notifications.title,
@@ -360,72 +368,89 @@ export async function processNotificationDelivery(
     )
     .limit(1);
   if (!record) throw new NotificationDeliveryError("ไม่พบรายการแจ้งเตือน", 404);
-  const claimable = canClaimDelivery(
-    record.status,
-    record.failureKind,
-    record.attemptCount,
-    record.lastAttemptAt,
-    claimTime,
-  );
-  if (!claimable)
-    throw new NotificationDeliveryError("รายการนี้ไม่สามารถส่งซ้ำได้");
+  let lineClaim: Extract<LineDeliveryClaim, { status: "PROCESSING" }> | undefined;
+  if (record.channel === "LINE") {
+    const settings = await getNotificationSettings();
+    const result = await claimLineNotification(record.id, record.memberId, branchId, settings.isActive && settings.enableLine);
+    if (!result) throw new NotificationDeliveryError("รายการนี้ไม่สามารถส่งซ้ำได้");
+    if (result.status === "SKIPPED") return result;
+    lineClaim = result;
+    claimTime = result.claimedAt;
+  }
+  if (!lineClaim) {
+    const claimable = canClaimDelivery(
+      record.status,
+      record.failureKind,
+      record.attemptCount,
+      record.lastAttemptAt,
+      claimTime,
+    );
+    if (!claimable)
+      throw new NotificationDeliveryError("รายการนี้ไม่สามารถส่งซ้ำได้");
 
-  const claim = await db
-    .update(notifications)
-    .set({
-      status: "PROCESSING",
-      attemptCount: sql`${notifications.attemptCount} + 1`,
-      lastAttemptAt: claimTime,
-    })
-    .where(
-      and(
-        eq(notifications.id, record.id),
-        lt(notifications.attemptCount, 5),
-        or(
-          eq(notifications.status, "QUEUED"),
-          and(
-            eq(notifications.status, "FAILED"),
-            eq(notifications.failureKind, "RETRYABLE"),
-          ),
-          and(
-            eq(notifications.status, "SKIPPED"),
-            eq(notifications.failureKind, "CONFIG"),
-          ),
-          and(
-            eq(notifications.status, "PROCESSING"),
-            or(
-              isNull(notifications.lastAttemptAt),
-              lte(notifications.lastAttemptAt, staleBefore),
+    const claim = await db
+      .update(notifications)
+      .set({
+        status: "PROCESSING",
+        attemptCount: sql`${notifications.attemptCount} + 1`,
+        lastAttemptAt: claimTime,
+      })
+      .where(
+        and(
+          eq(notifications.id, record.id),
+          eq(notifications.attemptCount, record.attemptCount),
+          lt(notifications.attemptCount, 5),
+          or(
+            eq(notifications.status, "QUEUED"),
+            and(
+              eq(notifications.status, "FAILED"),
+              eq(notifications.failureKind, "RETRYABLE"),
+            ),
+            and(
+              eq(notifications.status, "SKIPPED"),
+              eq(notifications.failureKind, "CONFIG"),
+            ),
+            and(
+              eq(notifications.status, "PROCESSING"),
+              or(
+                isNull(notifications.lastAttemptAt),
+                lte(notifications.lastAttemptAt, staleBefore),
+              ),
             ),
           ),
         ),
-      ),
-    );
-  if (claim[0].affectedRows !== 1)
-    throw new NotificationDeliveryError("รายการกำลังถูกประมวลผล");
+      );
+    if (claim[0].affectedRows !== 1)
+      throw new NotificationDeliveryError("รายการกำลังถูกประมวลผล");
+  }
+
+  const claimedAttemptCount = lineClaim?.attemptCount ?? record.attemptCount + 1;
+  const claimFence = and(
+    eq(notifications.id, record.id),
+    eq(notifications.status, "PROCESSING"),
+    eq(notifications.lastAttemptAt, claimTime),
+    eq(notifications.attemptCount, claimedAttemptCount),
+  );
+  // การอ่านผ่านคือจุดอนุญาตส่ง หากถอนสิทธิ์หลังจากนี้ provider ยังอาจถูกเรียก เพราะไม่ถือ lock ระหว่างส่ง
+  const [current] = await db.select({ id: notifications.id }).from(notifications).where(claimFence).limit(1);
+  if (!current) throw new NotificationDeliveryError("lease ของรายการหมดอายุแล้ว");
 
   const environment = loadDeliveryEnvironment();
-  const result = await deliverNotification(record, environment, {
+  const result = await deliverNotification(lineClaim ?? record, environment, {
     sendSmtp: sendSmtpNotification,
   });
   const update = deliveryUpdate(result);
   const completion = await db
     .update(notifications)
     .set(update)
-    .where(
-      and(
-        eq(notifications.id, record.id),
-        eq(notifications.status, "PROCESSING"),
-        eq(notifications.lastAttemptAt, claimTime),
-      ),
-    );
+    .where(claimFence);
   if (completion[0].affectedRows !== 1)
     throw new NotificationDeliveryError("lease ของรายการหมดอายุแล้ว");
   return {
     id: record.id,
     status: update.status,
     failureKind: update.failureKind,
-    attemptCount: record.attemptCount + 1,
+    attemptCount: claimedAttemptCount,
   };
 }
 
@@ -448,6 +473,7 @@ export async function deliverQueuedNotifications(branchId: number, limit = 20) {
           and(
             eq(notifications.status, "SKIPPED"),
             eq(notifications.failureKind, "CONFIG"),
+            ne(notifications.channel, "LINE"),
           ),
           and(
             eq(notifications.status, "PROCESSING"),

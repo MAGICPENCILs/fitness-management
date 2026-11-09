@@ -52,6 +52,7 @@ import {
   type AnonymizationOperation,
 } from "@/lib/privacy-anonymization";
 import { memberPhotoAliases, resolveMemberPhotoPaths } from "@/lib/member-photo-path";
+import { cancelUnsentLineNotifications } from "@/lib/notifications/line-delivery-policy";
 
 export class PrivacyOperationError extends Error {
   /** สร้างข้อผิดพลาดทางธุรกิจของ PDPA พร้อมสถานะ HTTP */
@@ -172,7 +173,7 @@ export async function getMemberConsentSnapshot(
   };
 }
 
-/** เพิ่ม consent แบบ append-only พร้อมย้ายรูปหรือลบ LINE เมื่อถอน consent ภายใต้ member lock/transaction เดียวกัน */
+/** เพิ่ม consent แบบ append-only พร้อมล้างรูป/LINE และปิดคิวตามขอบเขตที่ถอนใน transaction เดียวกัน */
 export async function appendConsentEvent(
   input: AppendConsentInput,
   actor: ActorContext,
@@ -267,6 +268,7 @@ export async function appendConsentEvent(
         ) {
           // ใช้ member lock เดียวกับ completion เพื่อไม่ให้สร้าง LINE กลับหลังถอน consent สำเร็จ
           await tx.delete(memberLineLinks).where(eq(memberLineLinks.memberId, input.memberId));
+          await cancelUnsentLineNotifications(tx, input.memberId, "ALL", "SERVICE_PRIVACY_WITHDRAWN");
           await tx
             .update(members)
             .set({ status: "SUSPENDED" })
@@ -276,6 +278,12 @@ export async function appendConsentEvent(
                 ne(members.status, "CANCELLED"),
               ),
             );
+        }
+        if (input.consentType === "MARKETING" && input.action === "WITHDRAWN") {
+          // รักษา link และ operational reminder แต่ปิดคิวการตลาดถาวรแม้ให้ consent ใหม่ภายหลัง
+          await tx.select({ memberId: memberLineLinks.memberId }).from(memberLineLinks)
+            .where(eq(memberLineLinks.memberId, input.memberId)).limit(1).for("update");
+          await cancelUnsentLineNotifications(tx, input.memberId, "INACTIVITY", "MARKETING_WITHDRAWN");
         }
         if (
           input.consentType === "SERVICE_PRIVACY" &&
@@ -623,6 +631,10 @@ async function executeAnonymizationOperation(
         .where(eq(crmInteractions.memberId, memberId));
       return;
     case "notifications":
+      // ปิดคิวทุก channel ถาวรก่อนล้าง PII เพื่อให้ snapshot/completion เก่าคืนสถานะไม่ได้; HTTP ที่เริ่มแล้วเรียกคืนไม่ได้
+      await tx.update(notifications)
+        .set({ status: "SKIPPED", failureKind: "PERMANENT", sentAt: null })
+        .where(and(eq(notifications.memberId, memberId), ne(notifications.status, "SENT")));
       await tx
         .update(notifications)
         .set({

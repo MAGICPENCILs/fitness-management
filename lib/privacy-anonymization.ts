@@ -62,7 +62,7 @@ const ANONYMIZATION_OPERATIONS: readonly AnonymizationOperation[] = [
   {
     table: "notifications",
     action: "UPDATE",
-    fields: ["recipient", "title", "message", "errorMessage"],
+    fields: ["recipient", "title", "message", "errorMessage", "status", "failureKind", "sentAt"],
   },
   { table: "loyalty_points", action: "UPDATE", fields: ["source", "note"] },
   { table: "pt_packages", action: "UPDATE", fields: ["note"] },
