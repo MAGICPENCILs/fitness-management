@@ -7,7 +7,7 @@ type Condition = Parameters<MySqlDialect["sqlToQuery"]>[0];
 const dialect = new MySqlDialect();
 
 /** ประเมินเฉพาะ SQL predicates ที่ service ใช้ เพื่อให้ fixture ตรวจ WHERE/fence กับแถวจริง */
-function matches(condition: Condition | undefined, row: Row, table: Table, member: Row) {
+export function matches(condition: Condition | undefined, row: Row, table: Table, member: Row) {
   if (!condition) return true;
   const query = dialect.sqlToQuery(condition);
   const tokens = query.sql.match(/`[^`]+`\.`[^`]+`|\?|<=|<>|=|<|\(|\)|,|\b(?:and|or|in|is|not|null)\b/gi) ?? [];
