@@ -277,7 +277,7 @@ export function NotificationManager({
                     <p className="mt-2 text-pretty text-sm">{item.message}</p>
                     {item.errorMessage ? <p className="mt-2 text-xs text-muted-foreground">หมายเหตุ: {item.errorMessage}</p> : null}
                     <p className="mt-1 text-xs text-muted-foreground">พยายามส่ง {item.attemptCount}/5 ครั้ง</p>
-                    {((item.status === "FAILED" && item.failureKind === "RETRYABLE") || (item.status === "SKIPPED" && item.failureKind === "CONFIG")) && item.attemptCount < 5 ? (
+                    {((item.status === "FAILED" && item.failureKind === "RETRYABLE") || (item.status === "SKIPPED" && item.failureKind === "CONFIG" && item.channel !== "LINE")) && item.attemptCount < 5 ? (
                       <Button type="button" size="sm" variant="outline" className="mt-3" disabled={retryingId === item.id} onClick={() => handleRetry(item.id)}>
                         {retryingId === item.id ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-4" aria-hidden="true" />}
                         ส่งซ้ำ
