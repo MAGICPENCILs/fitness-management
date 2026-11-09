@@ -71,6 +71,20 @@ describe("notification dispatch fences", () => {
     expect(mocks.deliver).toHaveBeenCalledOnce();
   });
 
+  it.each(["SMS", "EMAIL"])("rejects a stale %s candidate after another worker completes retryably without consuming an attempt", async channel => {
+    fixture.state.rows[0].channel = channel;
+    mocks.deliver.mockResolvedValueOnce({ outcome: "retryable_failure", errorCode: "PROVIDER_TEMPORARY_FAILURE" }).mockResolvedValueOnce({ outcome: "sent" });
+    // worker B อ่าน QUEUED แล้วพักก่อน UPDATE ให้ worker A claim และจบแบบ retryable ก่อน
+    fixture.state.beforeUpdate = async () => {
+      fixture.state.beforeUpdate = undefined;
+      expect(await processNotificationDelivery(1, 10)).toMatchObject({ status: "FAILED", failureKind: "RETRYABLE", attemptCount: 1 });
+    };
+    await expect(processNotificationDelivery(1, 10)).rejects.toMatchObject({ status: 409 });
+    expect(fixture.state.rows[0]).toMatchObject({ status: "FAILED", failureKind: "RETRYABLE", attemptCount: 1 });
+    expect(mocks.deliver).toHaveBeenCalledOnce();
+    expect(await processNotificationDelivery(1, 10)).toMatchObject({ status: "SENT", attemptCount: 2 });
+  });
+
   it("does not dispatch a snapshot cancelled after claim and before the final state read", async () => {
     fixture.state.rows[0].channel = "SMS";
     let reads = 0;

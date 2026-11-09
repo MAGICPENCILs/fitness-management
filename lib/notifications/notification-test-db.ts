@@ -62,6 +62,7 @@ export function notificationTestDb() {
     afterCommit: undefined as (() => Promise<void> | void) | undefined,
     beforeLock: undefined as ((table: Table) => void) | undefined,
     beforeRead: undefined as ((table: Table) => Promise<void> | void) | undefined,
+    beforeUpdate: undefined as (() => Promise<void>) | undefined,
   };
   const data = (table: Table) => {
     if (table === members) return [state.member];
@@ -102,6 +103,7 @@ export function notificationTestDb() {
     return query;
   };
   const update = (table: Table) => ({ set: (changes: Row) => ({ where: async (condition: Condition) => {
+    await state.beforeUpdate?.();
     const matching = data(table).filter(row => matches(condition, row, table, state.member));
     for (const row of matching) for (const [key, value] of Object.entries(changes)) row[key] = value instanceof SQL ? Number(row[key]) + 1 : value;
     return [{ affectedRows: matching.length }];

@@ -392,6 +392,7 @@ export async function processNotificationDelivery(
       .where(
         and(
           eq(notifications.id, record.id),
+          eq(notifications.attemptCount, record.attemptCount),
           lt(notifications.attemptCount, 5),
           or(
             eq(notifications.status, "QUEUED"),
