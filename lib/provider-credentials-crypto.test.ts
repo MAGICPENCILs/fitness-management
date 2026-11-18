@@ -1,3 +1,4 @@
+import { throws } from "node:assert/strict";
 import { describe, expect, it } from "vitest";
 import {
   decryptProviderCredential,
@@ -7,6 +8,15 @@ import {
 const KEY = Buffer.alloc(32, 1).toString("base64");
 const FIXTURE = "v1.AAAAAAAAAAAAAAAA.dSkbYni4IbDOOhwEj3LJig.2VzgqABJZpLgHPE3FFA";
 const FIELD = "channelSecret";
+
+/** กัน error ที่มีรหัสถูกแต่พ่วงข้อมูลลับไว้ในข้อความหรือ cause */
+function expectFixedError(action: () => unknown, message: string) {
+  throws(action, (error: unknown) => {
+    expect(error).toHaveProperty("message", message);
+    expect(error).not.toHaveProperty("cause");
+    return true;
+  });
+}
 
 describe("provider credential encryption", () => {
   it("ถอด v1 envelope ที่ผูก AAD กับ field ของ singleton ได้", () => {
@@ -31,24 +41,24 @@ describe("provider credential encryption", () => {
     ["long", Buffer.alloc(33).toString("base64")],
     ["malformed", `!${KEY}`],
   ] as const)("ปฏิเสธ master key แบบ %s", (_label, key) => {
-    expect(() => encryptProviderCredential("fake", FIELD, key)).toThrow("PROVIDER_CONFIG_KEY_INVALID");
-    expect(() => decryptProviderCredential(FIXTURE, FIELD, key)).toThrow("PROVIDER_CONFIG_KEY_INVALID");
+    expectFixedError(() => encryptProviderCredential("fake", FIELD, key), "PROVIDER_CONFIG_KEY_INVALID");
+    expectFixedError(() => decryptProviderCredential(FIXTURE, FIELD, key), "PROVIDER_CONFIG_KEY_INVALID");
   });
 
   it("ไม่ถอดด้วย master key คนละค่า", () => {
-    expect(() => decryptProviderCredential(FIXTURE, FIELD, Buffer.alloc(32, 2).toString("base64")))
-      .toThrow("PROVIDER_CREDENTIAL_PAYLOAD_INVALID");
+    expectFixedError(
+      () => decryptProviderCredential(FIXTURE, FIELD, Buffer.alloc(32, 2).toString("base64")),
+      "PROVIDER_CREDENTIAL_PAYLOAD_INVALID",
+    );
   });
 
   it("ไม่ยอมให้สลับ ciphertext ระหว่าง fields", () => {
-    expect(() => decryptProviderCredential(FIXTURE, "accessToken", KEY))
-      .toThrow("PROVIDER_CREDENTIAL_PAYLOAD_INVALID");
+    expectFixedError(() => decryptProviderCredential(FIXTURE, "accessToken", KEY), "PROVIDER_CREDENTIAL_PAYLOAD_INVALID");
   });
 
   it("ปฏิเสธ ciphertext ที่ถูกเปลี่ยนโดยไม่คืน plaintext หรือ raw error", () => {
     const tampered = FIXTURE.replace("2Vzg", "3Vzg");
-    expect(() => decryptProviderCredential(tampered, FIELD, KEY))
-      .toThrow("PROVIDER_CREDENTIAL_PAYLOAD_INVALID");
+    expectFixedError(() => decryptProviderCredential(tampered, FIELD, KEY), "PROVIDER_CREDENTIAL_PAYLOAD_INVALID");
   });
 
   it.each([
@@ -59,7 +69,6 @@ describe("provider credential encryption", () => {
     ["non-base64url", FIXTURE.replace("2Vzg", "!2Vzg")],
     ["missing ciphertext", FIXTURE.slice(0, FIXTURE.lastIndexOf(".") + 1)],
   ])("ปฏิเสธ envelope ผิดรูปแบบ: %s", (_label, payload) => {
-    expect(() => decryptProviderCredential(payload, FIELD, KEY))
-      .toThrow("PROVIDER_CREDENTIAL_PAYLOAD_INVALID");
+    expectFixedError(() => decryptProviderCredential(payload, FIELD, KEY), "PROVIDER_CREDENTIAL_PAYLOAD_INVALID");
   });
 });
