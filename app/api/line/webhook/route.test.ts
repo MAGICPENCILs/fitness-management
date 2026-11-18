@@ -26,6 +26,20 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("signed LINE webhook", () => {
+  it("authenticates with the current credential when rotation commits before the body finishes", async () => {
+    const signed = request({ destination, events: [] });
+    const bytes = new Uint8Array(await signed.arrayBuffer());
+    let finish!: () => void;
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(bytes); finish = () => controller.close();
+    } });
+    let currentSecret = "previous-test-secret";
+    mocks.resolve.mockImplementation(async () => ({ channelSecret: currentSecret, destination }));
+    const pending = POST(new Request(signed.url, { method: "POST", headers: signed.headers, body, duplex: "half" } as RequestInit));
+    currentSecret = "test-secret"; finish();
+    expect((await pending).status).toBe(200);
+    expect(mocks.complete).not.toHaveBeenCalled();
+  });
   it("fails closed without secret and does not attempt a claim", async () => {
     mocks.resolve.mockResolvedValue(null);
     expect((await POST(request({ destination, events: [] }))).status).toBe(503); expect(mocks.complete).not.toHaveBeenCalled();
@@ -50,7 +64,7 @@ describe("signed LINE webhook", () => {
   });
   it.each([undefined, "1", "262145"])("rejects oversized body with length %s without claiming", async length => {
     const response = await POST(request("a".repeat(262145), { length }));
-    expect(response.status).toBe(413); expect(mocks.complete).not.toHaveBeenCalled();
+    expect(response.status).toBe(413); expect(mocks.resolve).not.toHaveBeenCalled(); expect(mocks.complete).not.toHaveBeenCalled();
   });
   it("ignores unsupported/malformed events, processes relevant payload order and never calls a provider", async () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);

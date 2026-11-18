@@ -6,10 +6,11 @@ export const runtime = "nodejs";
 
 /** เป็น public เฉพาะ exact path; ตรวจ bounded raw body และ HMAC ก่อน parse โดยไม่ใช้ browser Origin */
 export async function POST(request: Request) {
-  const credentials = await resolveLineWebhookCredentials();
-  if (!credentials) return Response.json({ error: "บริการยังไม่พร้อมใช้งาน" }, { status: 503 });
   try {
     const raw = await readLineWebhookBody(request);
+    // อ่านค่าล่าสุดหลังรับ body ครบ เพื่อให้การหมุนหรือล้าง secret ระหว่างรับข้อมูลมีผลก่อนตรวจ HMAC
+    const credentials = await resolveLineWebhookCredentials();
+    if (!credentials) return Response.json({ error: "บริการยังไม่พร้อมใช้งาน" }, { status: 503 });
     if (!verifyLineSignature(raw, request.headers.get("x-line-signature"), credentials.channelSecret)) return Response.json({ error: "ลายเซ็นไม่ถูกต้อง" }, { status: 401 });
     let envelope: unknown;
     try { envelope = JSON.parse(raw.toString("utf8")); }

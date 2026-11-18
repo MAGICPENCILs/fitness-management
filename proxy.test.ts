@@ -43,6 +43,15 @@ async function request(
 }
 
 describe("proxy", () => {
+  it.each(["/api/notification-provider-settings", "/api/line/webhook"])("leaves only exact %s to its bounded handler", async path => {
+    for (const url of [path, path + "?test=1"]) {
+      expect(unstable_doesProxyMatch({ config, nextConfig: {}, url })).toBe(false);
+    }
+    for (const url of [path + "/", path + "/child", path + "-extra"]) {
+      expect(unstable_doesProxyMatch({ config, nextConfig: {}, url })).toBe(true);
+      expect((await proxy(await request(url))).status).toBe(401);
+    }
+  });
   it("allows only exact LINE webhook without a staff session", async () => {
     expect((await proxy(await request("/api/line/webhook"))).headers.get("x-middleware-next")).toBe("1");
     for (const path of ["/api/line/webhook/child", "/api/line/webhook-extra", "/api/line/webhook/"]) expect((await proxy(await request(path))).status).toBe(401);

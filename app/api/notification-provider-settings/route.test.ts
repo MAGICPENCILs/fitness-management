@@ -50,6 +50,7 @@ describe("Owner LINE provider API", () => {
   it.each(["", "https://elsewhere.test"])("denies absent or wrong Origin before auth/body/config", async from => {
     const req = request("{", from); const res = await PATCH(req);
     expect(res.status).toBe(403); expect(req.bodyUsed).toBe(false); expect(mocks.authorize).not.toHaveBeenCalled();
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
   });
   it.each([[request("{PRIVATE"), 400], [request("a".repeat(262145), origin, "1"), 413]])("bounds and validates body before service", async (req, status) => {
     const res = await PATCH(req); expect(res.status).toBe(status);
@@ -61,5 +62,6 @@ describe("Owner LINE provider API", () => {
     mocks.get.mockRejectedValue(new Error("PRIVATE_DB_FAILURE")); mocks.update.mockRejectedValue(new LineProviderSettingsError(409));
     const read = await GET(); expect(read.status).toBe(503); expect(await read.text()).not.toContain("PRIVATE");
     const write = await PATCH(request("{}")); expect(write.status).toBe(409); expect(log).not.toHaveBeenCalled();
+    for (const res of [read, write]) expect(res.headers.get("cache-control")).toBe("private, no-store");
   });
 });

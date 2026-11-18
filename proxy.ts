@@ -99,6 +99,7 @@ export const config = {
     "/([uU][pP][lL][oO][aA][dD][sS])/([mM][eE][mM][bB][eE][rR][sS]|[pP][rR][iI][vV][aA][cC][yY]-[cC][lL][eE][aA][nN][uU][pP])/:path*",
     "/([mM][eE][mM][bB][eE][rR]-[pP][hH][oO][tT][oO][sS])/:path*",
     "/_next/image",
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.[^/]+$).*)",
+    // ยกเว้นเฉพาะสอง endpoint ที่ตรวจสิทธิ์หรือลายเซ็นเอง เพื่อไม่ให้ Proxy buffer body ก่อนถึงขีดจำกัดของ handler
+    "/((?!api/notification-provider-settings$|api/line/webhook$|_next/static|_next/image|favicon.ico|.*\\.[^/]+$).*)",
   ],
 };
