@@ -36,7 +36,7 @@ const SCHEMA_NOT_READY_MESSAGE =
   "ฐานข้อมูลระบบยังไม่พร้อมใช้งาน กรุณาติดต่อผู้ดูแลระบบ";
 
 /** แปลงข้อผิดพลาด Login เป็นข้อความกลาง และใช้ Retry-After คงที่เพื่อไม่เปิดเผยเวลาปลดล็อกเฉพาะบัญชี */
-export function loginErrorResponse(error: unknown): NextResponse {
+function loginErrorResponse(error: unknown): NextResponse {
   if (error instanceof SchemaNotReadyError) {
     return NextResponse.json(
       { code: "SCHEMA_NOT_READY", error: SCHEMA_NOT_READY_MESSAGE },

@@ -37,7 +37,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { POST as changePasswordPost } from "@/app/api/auth/change-password/route";
-import { POST as loginPost, loginErrorResponse } from "@/app/api/auth/login/route";
+import { POST as loginPost } from "@/app/api/auth/login/route";
 import { POST as logoutPost } from "@/app/api/auth/logout/route";
 import { getSessionCookieOptions } from "@/lib/auth/session-cookie";
 
@@ -199,8 +199,14 @@ describe("authentication route handlers", () => {
   });
 
   it("uses a generic 429 response and fixed Retry-After", async () => {
-    const response = loginErrorResponse(
+    mocks.login.mockRejectedValueOnce(
       new AuthError("RATE_LIMITED", 429, "account-specific detail", 321),
+    );
+    const response = await loginPost(
+      post("/api/auth/login", {
+        staffCode: "OWNER001",
+        password: "ValidPass#2026",
+      }),
     );
 
     expect(response.status).toBe(429);
