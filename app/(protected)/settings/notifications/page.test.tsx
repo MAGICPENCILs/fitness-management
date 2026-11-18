@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import NotificationsPage from "./page";
 
@@ -23,12 +23,30 @@ beforeEach(() => {
     accessTokenConfigured: true, channelSecretConfigured: false, updatedAt: null,
     outboundEnabled: false, webhookUrl: "https://gym.example/api/line/webhook" });
 });
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
 it("โหลดสถานะผู้ให้บริการให้เจ้าของเท่านั้น", async () => {
   render(await NotificationsPage());
   expect(screen.getByDisplayValue(destination)).toBeInTheDocument();
   expect(readProvider).toHaveBeenCalledWith(owner);
+});
+
+it("เมื่อหน้าได้รับข้อมูลใหม่ ให้ทิ้งค่าที่ยังไม่ได้ส่ง แสดงสถานะล่าสุด และใช้ revision ล่าสุด", async () => {
+  const page = render(await NotificationsPage());
+  const token = () => screen.getByLabelText("Channel Access Token");
+  fireEvent.change(token(), { target: { value: "unsaved" } });
+  const fresh = { source: "DATABASE", revision: 2, destination, accessTokenConfigured: false,
+    channelSecretConfigured: false, updatedAt: null, outboundEnabled: false, webhookUrl: "https://gym.example/api/line/webhook" };
+  readProvider.mockResolvedValue(fresh);
+  page.rerender(await NotificationsPage());
+  expect(token()).toHaveValue("");
+  expect(token()).toHaveAccessibleDescription(/ยังไม่ตั้งค่า/);
+  const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ ...fresh, revision: 3, accessTokenConfigured: true }));
+  vi.stubGlobal("fetch", request);
+  fireEvent.change(token(), { target: { value: "replacement" } });
+  fireEvent.click(screen.getByRole("button", { name: "บันทึกการตั้งค่า LINE" }));
+  await waitFor(() => expect(token()).toHaveValue(""));
+  expect(JSON.parse(String(request.mock.calls[0][1]?.body))).toEqual({ revision: 2, accessToken: "replacement" });
 });
 
 it("ผู้จัดการเห็นสถานะการส่งเดิมโดยไม่โหลดหรือส่งข้อมูลผู้ให้บริการเข้า client props", async () => {

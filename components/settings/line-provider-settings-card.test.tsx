@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { LineProviderSettingsDto } from "@/lib/line-provider-settings-service";
 import { LineProviderSettingsCard } from "./line-provider-settings-card";
@@ -17,6 +19,26 @@ const save = () => fireEvent.click(screen.getByRole("button", { name: "บัน
 const enter = (field: HTMLElement, value: string) => fireEvent.change(field, { target: { value } });
 beforeEach(() => { vi.stubGlobal("fetch", request); request.mockReset(); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+it("ฟอร์มก่อนโหลด JavaScript รับค่าลับไม่ได้ และหลัง hydrate กด Enter เพื่อ PATCH ได้", async () => {
+  const container = document.createElement("div");
+  const card = <LineProviderSettingsCard initial={initial} />;
+  container.innerHTML = renderToString(card);
+  const server = within(container);
+  expect(server.getByLabelText("Channel Access Token")).toBeDisabled();
+  expect(server.getByLabelText("Channel Secret")).toBeDisabled();
+  expect(server.getByRole("button", { name: "บันทึกการตั้งค่า LINE" })).toBeDisabled();
+  expect(container.querySelector("noscript")).toHaveTextContent(/JavaScript/);
+  expect([...new FormData(container.querySelector("form")!).keys()]).toEqual([]);
+
+  render(card, { container: document.body.appendChild(container), hydrate: true });
+  expect(token()).toBeEnabled();
+  request.mockResolvedValueOnce(Response.json({ ...initial, revision: 4 }));
+  await userEvent.setup().type(token(), "new-token{Enter}");
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(request.mock.calls[0][1]?.method).toBe("PATCH");
+  expect(JSON.parse(String(request.mock.calls[0][1]?.body))).toEqual({ revision: 3, accessToken: "new-token" });
+});
 
 it("แสดงแค่สถานะและช่องลับว่างที่มีคำอธิบาย โดยไม่ให้ native form ส่งค่าผ่าน URL", () => {
   render(<LineProviderSettingsCard initial={initial} />);
@@ -65,6 +87,7 @@ it("ต้องยืนยันการล้างทีละค่า แ
   expect(secret()).toHaveAttribute("aria-invalid", "true");
   expect(secret()).toHaveAccessibleDescription(/การบันทึกครั้งแรก/);
   const clear = screen.getByRole("button", { name: "ล้าง Channel Secret" });
+  expect(clear).toHaveClass("w-full", "whitespace-normal", "min-h-11");
   clear.focus();
   fireEvent.click(clear);
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ยกเลิก" }));
@@ -97,8 +120,12 @@ it.each([409, 503])("ไม่สะท้อนข้อความ server %s 
   expect(secret()).toHaveValue("");
 });
 
-it("ระบุช่อง Destination ที่ผิดและล้างค่าลับโดยไม่ส่งคำขอ", () => {
+it("ระบุช่อง Destination ที่ผิดและแจ้งให้ยืนยันการล้างอีกครั้งโดยไม่ส่งคำขอ", async () => {
   render(<LineProviderSettingsCard initial={initial} />);
+  fireEvent.click(screen.getByRole("button", { name: "ล้าง Channel Access Token" }));
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ยืนยันการล้าง" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "ยกเลิกการล้าง Channel Access Token" })).toHaveFocus());
+  expect(token()).toBeDisabled();
   const destination = screen.getByLabelText(/Destination/);
   enter(destination, "incorrect");
   enter(secret(), "replacement");
@@ -108,6 +135,8 @@ it("ระบุช่อง Destination ที่ผิดและล้าง
   expect(destination).toHaveAccessibleDescription(/ตรวจสอบ Destination/);
   expect(destination).toHaveFocus();
   expect(secret()).toHaveValue("");
+  expect(token()).toBeEnabled();
+  expect(screen.getByRole("alert")).toHaveTextContent(/ยกเลิก.*การล้าง.*ยืนยัน.*อีกครั้ง/);
 });
 
 it("ยกเลิกการล้างก่อนบันทึกแล้วคงค่าทั้งสองไว้", async () => {
@@ -116,6 +145,7 @@ it("ยกเลิกการล้างก่อนบันทึกแล�
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ยืนยันการล้าง" }));
   const undo = screen.getByRole("button", { name: "ยกเลิกการล้าง Channel Secret" });
   await waitFor(() => expect(undo).toHaveFocus());
+  expect(undo).toHaveClass("w-full", "whitespace-normal", "min-h-11");
   fireEvent.click(undo);
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(secret()).toBeEnabled();

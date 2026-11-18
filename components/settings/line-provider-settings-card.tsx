@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { CircleCheck, CircleMinus, Copy, LockKeyhole } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -14,9 +14,12 @@ const fields = [
 ] as const;
 type Secret = typeof fields[number]["name"];
 const endpoint = "/api/notification-provider-settings";
+// สถานะ hydration ไม่มีเหตุการณ์ภายนอกให้ติดตาม ใช้ snapshot ฝั่งเซิร์ฟเวอร์จนกว่า React จะรับช่วงฟอร์ม
+const subscribeToHydration = () => () => {};
 
 /** เจ้าของเห็นเฉพาะสถานะที่บันทึกไว้ ค่าลับที่พิมพ์จะอยู่ในช่องรหัสผ่านจนถึงการส่งฟอร์มเท่านั้น */
 export function LineProviderSettingsCard({ initial }: { initial: LineProviderSettingsDto }) {
+  const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
   const [settings, setSettings] = useState(initial);
   const [clears, setClears] = useState<Secret[]>([]);
   const [busy, setBusy] = useState(false);
@@ -50,7 +53,7 @@ export function LineProviderSettingsCard({ initial }: { initial: LineProviderSet
     setError(""); setStatus(""); setInvalid("");
     try {
       if (!/^U[0-9a-f]{32}$/.test(destination) || destination.length !== 33) {
-        setInvalid("destination"); setError("ตรวจสอบ Destination / Bot ID ตามรูปแบบที่ระบุ แล้วกรอกค่าลับใหม่");
+        setInvalid("destination"); setError("ตรวจสอบ Destination / Bot ID ตามรูปแบบที่ระบุ");
         (form.elements.namedItem("destination") as HTMLInputElement).focus();
         return;
       }
@@ -60,7 +63,7 @@ export function LineProviderSettingsCard({ initial }: { initial: LineProviderSet
         if (clears.includes(field.name)) patch[field.clear] = true;
         else if (typeof value === "string" && value !== "") patch[field.name] = value;
         else if (first) {
-          setInvalid(field.name); setError(`การบันทึกครั้งแรกต้องกรอกค่าใหม่หรือเลือกล้าง ${field.label} กรุณากรอกค่าลับใหม่`);
+          setInvalid(field.name); setError(`การบันทึกครั้งแรกต้องกรอกค่าใหม่หรือเลือกล้าง ${field.label}`);
           (form.elements.namedItem(field.name) as HTMLInputElement).focus();
           return;
         }
@@ -71,8 +74,8 @@ export function LineProviderSettingsCard({ initial }: { initial: LineProviderSet
         redirect: "error", body: JSON.stringify(patch) });
       if (!response.ok) {
         setError(response.status === 409 ? "ข้อมูลเปลี่ยนแปลงหรือยังมีรายการผูกกับ LINE เดิม โปรดโหลดหน้าใหม่และตรวจสอบ Destination"
-          : response.status === 400 ? "ตรวจสอบ Destination และกรอกค่าลับใหม่โดยไม่มีช่องว่าง แล้วลองใหม่"
-          : "บันทึกไม่ได้ กรุณาตรวจสอบสิทธิ์และกรอกค่าลับใหม่เพื่อลองใหม่");
+          : response.status === 400 ? "ตรวจสอบ Destination และค่าลับว่าถูกต้องและไม่มีช่องว่าง"
+          : "บันทึกไม่ได้ กรุณาตรวจสอบสิทธิ์ก่อนลองใหม่");
         return;
       }
       const { revision, accessTokenConfigured, channelSecretConfigured }: LineProviderSettingsDto = await response.json();
@@ -97,11 +100,12 @@ export function LineProviderSettingsCard({ initial }: { initial: LineProviderSet
         <Label htmlFor="line-webhook-url">Webhook URL</Label>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input ref={urlRef} id="line-webhook-url" value={initial.webhookUrl} readOnly className="bg-muted/50" />
-          <Button variant="outline" type="button" onClick={copyUrl}><Copy aria-hidden="true" />คัดลอก URL</Button>
+          <Button variant="outline" type="button" disabled={!hydrated} onClick={copyUrl}><Copy aria-hidden="true" />คัดลอก URL</Button>
         </div>
       </div>
       <form ref={formRef} noValidate method="post" action={endpoint} onSubmit={save} aria-busy={busy}>
-        <fieldset disabled={busy} className="min-w-0 space-y-4">
+        <noscript>กรุณาเปิด JavaScript และโหลดหน้าใหม่เพื่อแก้ไขการตั้งค่า LINE</noscript>
+        <fieldset disabled={!hydrated || busy} className="min-w-0 space-y-4">
           <div className="space-y-2">
             <Label htmlFor="line-destination">Destination / Bot ID (จำเป็น)</Label>
             <Input id="line-destination" name="destination" defaultValue={settings.destination ?? ""} required
@@ -126,7 +130,7 @@ export function LineProviderSettingsCard({ initial }: { initial: LineProviderSet
                   <p id={`${id}-hint`} className="text-sm text-muted-foreground">{clearing ? "จะล้างค่านี้เมื่อกดบันทึก" : first ? "กรอกค่าใหม่หรือเลือกล้างค่านี้" : "เว้นว่างเพื่อคงค่าเดิม หรือกรอกค่าใหม่เพื่อแทนที่"}</p>
                   <Dialog>
                     <DialogTrigger asChild>
-                      <Button type="button" variant="outline" onClick={event => {
+                      <Button type="button" variant="outline" className="h-auto min-h-11 w-full whitespace-normal" onClick={event => {
                         if (clearing) { event.preventDefault(); setClears(clears.filter(name => name !== field.name)); }
                       }}>{clearing ? "ยกเลิกการล้าง" : "ล้าง"} {field.label}</Button>
                     </DialogTrigger>
@@ -150,7 +154,7 @@ export function LineProviderSettingsCard({ initial }: { initial: LineProviderSet
           <Button type="submit">{busy ? "กำลังบันทึก…" : "บันทึกการตั้งค่า LINE"}</Button>
         </fieldset>
       </form>
-      {error && <p id="line-provider-error" role="alert" className="text-sm text-destructive">{error}</p>}
+      {error && <p id="line-provider-error" role="alert" className="text-sm text-destructive">{error} ฟอร์มลบค่าที่กรอกและยกเลิกตัวเลือกการล้างแล้ว หากลองใหม่ ให้กรอกค่าที่ต้องการแทนที่และยืนยันการล้างอีกครั้ง</p>}
       <p role="status" className="text-sm text-muted-foreground empty:hidden">{busy ? "กำลังบันทึกการตั้งค่า LINE" : status}</p>
     </section>
   );

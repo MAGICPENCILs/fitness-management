@@ -33,7 +33,8 @@ export default async function NotificationsPage() {
           ตั้งค่าแจ้งเตือนก่อนหมดอายุ ติดตามสมาชิกที่ไม่ได้เข้าใช้บริการ และตรวจสอบคิว SMS, อีเมล และข้อความในระบบ โดย LINE OA ยังไม่พร้อมใช้งาน
         </p>
       </header>
-      {canManageProvider && (provider ? <LineProviderSettingsCard initial={provider} /> : (
+      {/* เมื่อ refresh ได้สถานะใหม่ ให้ทิ้ง draft เดิมเพื่อไม่ใช้ revision หรือข้อมูลจาก env ที่ล้าสมัย */}
+      {canManageProvider && (provider ? <LineProviderSettingsCard key={JSON.stringify(provider)} initial={provider} /> : (
         <p className="rounded-xl border bg-card p-4" role="alert">การตั้งค่า LINE ยังไม่พร้อมใช้งาน โปรดติดต่อผู้ดูแลระบบ การส่ง LINE ยังปิดอยู่</p>
       ))}
       <NotificationManager
