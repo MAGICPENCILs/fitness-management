@@ -5,6 +5,15 @@ import {
 } from "@/lib/audit-policy";
 
 describe("audit metadata policy", () => {
+  it("เก็บ revision ตัวเลข แต่ไม่รับข้อมูลลับที่แฝงมาใน revision", () => {
+    expect(sanitizeAuditMetadata({ revision: 7 })).toEqual({ revision: 7 });
+    expect(sanitizeAuditMetadataForRead({ revision: 7 })).toEqual({ revision: 7 });
+    for (const revision of [-1, 1.5, 2 ** 31, "PRIVATE", null]) {
+      expect(() => sanitizeAuditMetadata({ revision })).toThrow();
+      expect(sanitizeAuditMetadataForRead({ revision })).toBeNull();
+    }
+  });
+
   it("เก็บเฉพาะ id ชื่อฟิลด์และสถานะ", () => {
     expect(
       sanitizeAuditMetadata({

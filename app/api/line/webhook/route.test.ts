@@ -1,7 +1,8 @@
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ complete: vi.fn() }));
+const mocks = vi.hoisted(() => ({ complete: vi.fn(), resolve: vi.fn() }));
 vi.mock("@/lib/line-link-service", () => ({ completeLineLinkChallenge: mocks.complete }));
+vi.mock("@/lib/line-provider-settings-service", () => ({ resolveLineWebhookCredentials: mocks.resolve }));
 import { POST } from "./route";
 
 const destination = `U${"b".repeat(32)}`;
@@ -18,12 +19,29 @@ function request(payload: unknown, options: { signature?: string; length?: strin
 /** สร้าง relevant event; เปลี่ยนเพียง field ที่แต่ละกรณีต้องการทดสอบ */
 function event(text = `LINK ${token}`) { return { type: "message", source: { type: "user", userId }, message: { type: "text", text } }; }
 
-beforeEach(() => { vi.resetAllMocks(); vi.stubEnv("NOTIFICATION_LINE_CHANNEL_SECRET", "test-secret"); vi.stubEnv("NOTIFICATION_LINE_DESTINATION", ""); mocks.complete.mockResolvedValue(true); });
+beforeEach(() => {
+  vi.resetAllMocks(); vi.stubEnv("NOTIFICATION_LINE_CHANNEL_SECRET", "stale-env-secret"); vi.stubEnv("NOTIFICATION_LINE_DESTINATION", "");
+  mocks.resolve.mockResolvedValue({ channelSecret: "test-secret" }); mocks.complete.mockResolvedValue(true);
+});
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("signed LINE webhook", () => {
+  it("authenticates with the current credential when rotation commits before the body finishes", async () => {
+    const signed = request({ destination, events: [] });
+    const bytes = new Uint8Array(await signed.arrayBuffer());
+    let finish!: () => void;
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(bytes); finish = () => controller.close();
+    } });
+    let currentSecret = "previous-test-secret";
+    mocks.resolve.mockImplementation(async () => ({ channelSecret: currentSecret, destination }));
+    const pending = POST(new Request(signed.url, { method: "POST", headers: signed.headers, body, duplex: "half" } as RequestInit));
+    currentSecret = "test-secret"; finish();
+    expect((await pending).status).toBe(200);
+    expect(mocks.complete).not.toHaveBeenCalled();
+  });
   it("fails closed without secret and does not attempt a claim", async () => {
-    vi.stubEnv("NOTIFICATION_LINE_CHANNEL_SECRET", "");
+    mocks.resolve.mockResolvedValue(null);
     expect((await POST(request({ destination, events: [] }))).status).toBe(503); expect(mocks.complete).not.toHaveBeenCalled();
   });
   it("checks signature before parsing malformed JSON and rejects byte tampering", async () => {
@@ -40,13 +58,13 @@ describe("signed LINE webhook", () => {
   });
   it("enforces configured destination and accepts empty events without Origin", async () => {
     expect((await POST(request({ destination, events: [] }))).status).toBe(200);
-    vi.stubEnv("NOTIFICATION_LINE_DESTINATION", `U${"c".repeat(32)}`);
+    mocks.resolve.mockResolvedValue({ channelSecret: "test-secret", destination: `U${"c".repeat(32)}` });
     expect((await POST(request({ destination, events: [] }))).status).toBe(400);
     expect(mocks.complete).not.toHaveBeenCalled();
   });
   it.each([undefined, "1", "262145"])("rejects oversized body with length %s without claiming", async length => {
     const response = await POST(request("a".repeat(262145), { length }));
-    expect(response.status).toBe(413); expect(mocks.complete).not.toHaveBeenCalled();
+    expect(response.status).toBe(413); expect(mocks.resolve).not.toHaveBeenCalled(); expect(mocks.complete).not.toHaveBeenCalled();
   });
   it("ignores unsupported/malformed events, processes relevant payload order and never calls a provider", async () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);

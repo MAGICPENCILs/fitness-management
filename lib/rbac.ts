@@ -15,6 +15,7 @@ export type Permission =
   | "pt.manage"
   | "accounting.manage"
   | "settings.manage"
+  | "provider.credentials.manage"
   | "equipment.read"
   | "equipment.manage";
 
@@ -39,6 +40,8 @@ export const ALL_PERMISSIONS = [
   "pt.manage",
   "accounting.manage",
   "settings.manage",
+  // จำกัด credentials ที่ใช้ร่วมทั้งระบบไว้กับ Owner เท่านั้น
+  "provider.credentials.manage",
   "equipment.read",
   "equipment.manage",
 ] as const satisfies readonly Permission[];
