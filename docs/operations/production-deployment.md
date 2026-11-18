@@ -147,6 +147,15 @@ npm run start
 5. Restore drill ต้องใช้ **isolated disposable MySQL server ที่ใช้ชื่อ database เดียวกับ manifest** เพราะสคริปต์บังคับชื่อตรงกัน เปลี่ยน host ผ่าน secret manager ตรวจแยกจาก production และห้ามแก้ manifest เพื่อข้าม guard; dry-run อย่างเดียวไม่ทดแทน drill
 6. หลัง rollback/recovery ต้องผ่าน Verify อีกครั้งก่อนคืน traffic บันทึก revision ที่ให้บริการจริง, schema state และ recovery set โดยไม่เก็บ secret/ข้อมูลสมาชิกลง incident log
 
+## LINE provider settings
+
+- ก่อนใช้ Settings ให้ใช้ migration `0019_line_provider_settings` (ไม่ seed หรือ import credential) และจัดเก็บ `PROVIDER_CONFIG_ENCRYPTION_KEY` เป็น standard base64 ของคีย์สุ่ม 32 bytes แยกจาก session, fingerprint, TOTP, backup และ LINE secret ใน secret manager ภายนอก DB ใช้คีย์เดียวกันในทุก instance และเก็บ key version แยกจาก backup จนครบ retention ของ backup ที่ต้องกู้
+- Owner ยืนยัน OA เดิมแล้วใส่ Destination/Bot ID พร้อมเลือกแทนที่หรือล้าง Access Token และ Channel Secret ทั้งสองค่าอย่างชัดเจนครั้งแรก ไม่ auto-import env และห้ามบันทึก request body, key, token หรือ destination ลง access log/APM การบันทึกไม่ตรวจ token กับ LINE และไม่เปิดการส่ง
+- ถ้ามี linked member, active challenge หรือ unsent LINE ต้องคง OA เดิม; ถ้า env เดิมไม่ pin destination แต่มีข้อมูลเหล่านี้ให้หยุด cutover เพื่อทบทวน identity ใน maintenance window ห้ามเดา OA
+- หลังยืนยันการทำงานกับ DB ผ่านขั้นตอน acceptance ที่อนุมัติแล้ว ให้ถอด `NOTIFICATION_LINE_CHANNEL_SECRET`, `NOTIFICATION_LINE_DESTINATION` และ `NOTIFICATION_LINE_ACCESS_TOKEN` จากทุก deployment/worker รวมทั้ง restart ให้ครบ แถวที่มีอยู่เป็น authoritative แม้ล้าง secret ทั้งสอง; DB/key ใช้ไม่ได้ต้อง fail closed
+- ก่อน rollback ไป artifact ที่ไม่รู้จัก DB settings ให้ block `/api/line/webhook` ที่ reverse proxy จนยืนยันว่าไม่มี legacy secret ใน environment ที่ rollback ใช้ ห้ามปล่อยให้ค่าเก่ากลับมารับ webhook หลัง clear/rotate
+- ไม่มี online key rotation และไม่มี partial reset ผ่าน UI เมื่อ key หาย/ผิดหรือข้อมูลเสีย ให้คง maintenance และคืน key เดิมที่ตรงกับ backup หรือดำเนินการ full-row reset/re-entry และ reissue ภายใต้แผนที่ได้รับการ review โดยปิด webhook/legacy fallback ตลอดขั้นตอน เก็บ ciphertext และ master key คนละที่; staging restore ต้องคง outbound disabled
+
 ## External blockers — ต้องมี operator acceptance ก่อน production
 
 - LINE member-link lifecycle และ delivery-time current link/member/consent revalidation มีแล้ว: unlink/ถอน SERVICE_PRIVACY ปิด unsent LINE ถาวรและล้างผู้รับ; MARKETING ปิดเฉพาะ INACTIVITY โดยเก็บ link/operational EXPIRY_REMINDER; PHOTO/consent grants ไม่ cancel และการให้ consent/เชื่อมใหม่ไม่คืนคิวเก่า; anonymization ปิด unsent ทุก channel และล้าง recipient/title/message/error โดยคงสถานะ SENT history แต่ห้ามถือว่าพร้อมส่ง: generation บังคับ `enableLine=false`, ไม่สร้าง LINE channel/recipient, settings/UI ยังปิด และ health ต้องเป็น `UNAVAILABLE` แม้มี credential/link แล้ว

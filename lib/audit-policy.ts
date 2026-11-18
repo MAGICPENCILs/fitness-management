@@ -10,6 +10,7 @@ const ALLOWED_KEYS = new Set([
   "module",
   "errorCode",
   "source",
+  "revision",
   "rotated",
   "scope",
   "maintenanceType",
@@ -77,6 +78,11 @@ const ALLOWED_FIELD_NAMES = new Set([
 ]);
 
 const ENUM_LIKE_VALUE = /^[A-Z0-9_.-]+$/;
+
+/** จำกัด revision ตาม signed INT ใน DB ไม่ให้ใช้ช่อง audit นี้เก็บข้อความ */
+function isAuditRevision(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 0x7fffffff;
+}
 const MAINTENANCE_TYPE_VALUES = new Set([
   "INSPECTION",
   "PREVENTIVE",
@@ -110,6 +116,7 @@ export function sanitizeAuditMetadataForRead(
   const sanitized: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value)) {
     if (!READ_ALLOWED_KEYS.has(key)) continue;
+    if (key === "revision" && !isAuditRevision(item)) continue;
     if (key === "maintenanceType") {
       if (typeof item === "string" && MAINTENANCE_TYPE_VALUES.has(item))
         sanitized[key] = item;
@@ -163,6 +170,8 @@ export function sanitizeAuditMetadata(
       throw new Error(`PII key ${key} is prohibited in audit metadata`);
     if (!ALLOWED_KEYS.has(key))
       throw new Error(`audit metadata key ${key} is not allowed`);
+    if (key === "revision" && !isAuditRevision(item))
+      throw new Error("audit metadata value for revision is not allowed");
 
     if (
       key === "maintenanceType" &&

@@ -1,7 +1,8 @@
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ complete: vi.fn() }));
+const mocks = vi.hoisted(() => ({ complete: vi.fn(), resolve: vi.fn() }));
 vi.mock("@/lib/line-link-service", () => ({ completeLineLinkChallenge: mocks.complete }));
+vi.mock("@/lib/line-provider-settings-service", () => ({ resolveLineWebhookCredentials: mocks.resolve }));
 import { POST } from "./route";
 
 const destination = `U${"b".repeat(32)}`;
@@ -18,12 +19,15 @@ function request(payload: unknown, options: { signature?: string; length?: strin
 /** สร้าง relevant event; เปลี่ยนเพียง field ที่แต่ละกรณีต้องการทดสอบ */
 function event(text = `LINK ${token}`) { return { type: "message", source: { type: "user", userId }, message: { type: "text", text } }; }
 
-beforeEach(() => { vi.resetAllMocks(); vi.stubEnv("NOTIFICATION_LINE_CHANNEL_SECRET", "test-secret"); vi.stubEnv("NOTIFICATION_LINE_DESTINATION", ""); mocks.complete.mockResolvedValue(true); });
+beforeEach(() => {
+  vi.resetAllMocks(); vi.stubEnv("NOTIFICATION_LINE_CHANNEL_SECRET", "stale-env-secret"); vi.stubEnv("NOTIFICATION_LINE_DESTINATION", "");
+  mocks.resolve.mockResolvedValue({ channelSecret: "test-secret" }); mocks.complete.mockResolvedValue(true);
+});
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("signed LINE webhook", () => {
   it("fails closed without secret and does not attempt a claim", async () => {
-    vi.stubEnv("NOTIFICATION_LINE_CHANNEL_SECRET", "");
+    mocks.resolve.mockResolvedValue(null);
     expect((await POST(request({ destination, events: [] }))).status).toBe(503); expect(mocks.complete).not.toHaveBeenCalled();
   });
   it("checks signature before parsing malformed JSON and rejects byte tampering", async () => {
@@ -40,7 +44,7 @@ describe("signed LINE webhook", () => {
   });
   it("enforces configured destination and accepts empty events without Origin", async () => {
     expect((await POST(request({ destination, events: [] }))).status).toBe(200);
-    vi.stubEnv("NOTIFICATION_LINE_DESTINATION", `U${"c".repeat(32)}`);
+    mocks.resolve.mockResolvedValue({ channelSecret: "test-secret", destination: `U${"c".repeat(32)}` });
     expect((await POST(request({ destination, events: [] }))).status).toBe(400);
     expect(mocks.complete).not.toHaveBeenCalled();
   });

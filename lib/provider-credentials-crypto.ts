@@ -18,6 +18,11 @@ function decodeKey(base64Key: string | undefined) {
   return key;
 }
 
+/** บังคับ key ที่ถูกต้องแม้ singleton ที่ล้างแล้วจะไม่มี ciphertext ให้ตรวจ */
+export function assertProviderConfigKey(key: string | undefined) {
+  decodeKey(key);
+}
+
 /** ผูก ciphertext กับ singleton และ field เพื่อกันสลับ credentials */
 function credentialAad(field: ProviderCredentialField) {
   return Buffer.from(`line_provider_settings:1:${field}:${VERSION}`);

@@ -19,6 +19,12 @@ function expectFixedError(action: () => unknown, message: string) {
 }
 
 describe("provider credential encryption", () => {
+  it("ตรวจ key ได้แม้ไม่มี ciphertext เหลือหลัง clear", async () => {
+    const crypto = await import("@/lib/provider-credentials-crypto");
+    expect(crypto.assertProviderConfigKey).toBeTypeOf("function");
+    expect(crypto.assertProviderConfigKey(KEY)).toBeUndefined();
+    expectFixedError(() => crypto.assertProviderConfigKey(undefined), "PROVIDER_CONFIG_KEY_INVALID");
+  });
   it("ถอด v1 envelope ที่ผูก AAD กับ field ของ singleton ได้", () => {
     expect(decryptProviderCredential(FIXTURE, FIELD, KEY)).toBe("fixture-secret");
   });

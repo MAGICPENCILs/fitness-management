@@ -1,6 +1,6 @@
 import { getTableColumns, getTableName, sql, SQL, type AnyColumn, type Table } from "drizzle-orm";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
-import { auditLogs, consentEvents, memberLineLinks, members, notifications, notificationSettings } from "@/db/schema";
+import { auditLogs, consentEvents, lineProviderSettings, memberLineLinks, members, notifications, notificationSettings } from "@/db/schema";
 
 type Row = Record<string, unknown>;
 type Condition = Parameters<MySqlDialect["sqlToQuery"]>[0];
@@ -10,7 +10,7 @@ const dialect = new MySqlDialect();
 export function matches(condition: Condition | undefined, row: Row, table: Table, member: Row) {
   if (!condition) return true;
   const query = dialect.sqlToQuery(condition);
-  const tokens = query.sql.match(/`[^`]+`\.`[^`]+`|\?|<=|<>|=|<|\(|\)|,|\b(?:and|or|in|is|not|null)\b/gi) ?? [];
+  const tokens = query.sql.match(/`[^`]+`\.`[^`]+`|\?|<=|<>|=|<|>|\(|\)|,|\b(?:and|or|in|is|not|null)\b/gi) ?? [];
   let index = 0; let parameter = 0;
   const operand = (): unknown => {
     const token = tokens[index++];
@@ -37,6 +37,7 @@ export function matches(condition: Condition | undefined, row: Row, table: Table
     if (operator === "=") return a === b;
     if (operator === "<>") return a !== b;
     if (operator === "<") return a < b;
+    if (operator === ">") return a > b;
     if (operator === "<=") return a <= b;
     throw new Error(`UNSUPPORTED_OPERATOR ${operator}`);
   };
@@ -57,7 +58,7 @@ export function notificationTestDb() {
       { id: 1, memberId: 7, consentType: "SERVICE_PRIVACY", action: "GRANTED", createdAt: now },
       { id: 2, memberId: 7, consentType: "MARKETING", action: "GRANTED", createdAt: now },
     ] as Row[],
-    rows: [] as Row[], audits: [] as Row[], locks: [] as string[],
+    rows: [] as Row[], audits: [] as Row[], providers: [] as Row[], locks: [] as string[],
     active: false, failAudit: false,
     afterCommit: undefined as (() => Promise<void> | void) | undefined,
     beforeLock: undefined as ((table: Table) => void) | undefined,
@@ -69,6 +70,7 @@ export function notificationTestDb() {
     if (table === memberLineLinks) return state.links;
     if (table === consentEvents) return state.events;
     if (table === notifications) return state.rows;
+    if (table === lineProviderSettings) return state.providers;
     if (table === notificationSettings) return [{ id: 1, isActive: true, enableLine: true }];
     throw new Error(`UNEXPECTED_TABLE ${getTableName(table)}`);
   };
@@ -111,6 +113,10 @@ export function notificationTestDb() {
   const insert = (table: Table) => ({ values: async (row: Row) => {
     if (table === auditLogs) { if (state.failAudit) throw new Error("AUDIT_FAILED"); state.audits.push(row); }
     else if (table === memberLineLinks) state.links.push(row);
+    else if (table === lineProviderSettings) {
+      if (state.providers.length) throw Object.assign(new Error("duplicate"), { code: "ER_DUP_ENTRY" });
+      state.providers.push({ createdAt: new Date(), updatedAt: new Date(), ...row });
+    }
     else throw new Error("UNEXPECTED_INSERT");
     return [{ affectedRows: 1 }];
   } });
@@ -122,7 +128,7 @@ export function notificationTestDb() {
   let tail = Promise.resolve();
   const transaction = async <T>(callback: (tx: unknown) => Promise<T>) => {
     const prior = tail; let release!: () => void; tail = new Promise<void>(resolve => { release = resolve; }); await prior;
-    const snapshot = structuredClone({ member: state.member, links: state.links, events: state.events, rows: state.rows, audits: state.audits });
+    const snapshot = structuredClone({ member: state.member, links: state.links, events: state.events, rows: state.rows, audits: state.audits, providers: state.providers });
     state.active = true; state.locks = [];
     let result: T;
     try { result = await callback({ select, update, insert, delete: remove }); }
