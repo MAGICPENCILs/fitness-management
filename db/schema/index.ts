@@ -12,6 +12,7 @@ export * from "./workforce";
 export * from "./promotions";
 export * from "./coupon-codes";
 export * from "./notifications";
+export * from "./line-provider-settings";
 export * from "./accounting";
 export * from "./lockers";
 export * from "./equipment";

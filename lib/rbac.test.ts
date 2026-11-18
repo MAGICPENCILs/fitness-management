@@ -78,6 +78,18 @@ describe("RBAC", () => {
     });
   });
 
+  it.each([
+    ["OWNER", true],
+    ["MANAGER", false],
+    ["COUNTER", false],
+    ["TRAINER", false],
+  ] as const)("ตรวจสิทธิ์จัดการ LINE credentials สำหรับ %s", (role, allowed) => {
+    const permission = "provider.credentials.manage";
+
+    expect(hasPermission(actor(role), permission)).toBe(allowed);
+    expect(getPermissionSnapshot(actor(role))[permission]).toBe(allowed);
+  });
+
   it("ไม่ให้ Manager สร้างหรือแก้ Owner", () => {
     expect(
       canManageStaff(actor("MANAGER", 2), {

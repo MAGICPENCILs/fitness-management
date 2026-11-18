@@ -134,6 +134,13 @@
       "when": 1794100347689,
       "tag": "0018_member_line_links",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1794967169729,
+      "tag": "0019_line_provider_settings",
+      "breakpoints": true
     }
   ]
 }
