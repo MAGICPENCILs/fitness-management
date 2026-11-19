@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, desc, eq, gt, gte, isNull, lt } from "drizzle-orm";
+import { db } from "@/db";
 import { accessLogs, accessSettings, cardPool, memberAccessTokens, memberPackages, members, packages } from "@/db/schema";
 import { evaluateAccessPolicy, storedDateKey, thaiDateKey, thaiDayUtcRange } from "@/lib/access-policy";
 import type { DbTransaction } from "@/lib/audit-service";
@@ -23,6 +24,15 @@ export type AccessScanResult =
       };
       warning: string | null;
     };
+
+export const defaultAccessSettings = { id: 1, graceDays: 3 } as const;
+
+/** โหลด singleton setting และ fallback อย่างปลอดภัยเมื่อยังไม่มีแถวตั้งค่า */
+export async function getAccessSettings(executor: Pick<typeof db, "select"> = db) {
+  const [settings] = await executor.select({ id: accessSettings.id, graceDays: accessSettings.graceDays })
+    .from(accessSettings).where(eq(accessSettings.id, 1)).limit(1);
+  return settings ?? defaultAccessSettings;
+}
 
 /** บันทึกผลปฏิเสธทุกกรณีใน transaction เดียวกับการตรวจสิทธิ์ */
 async function rejectAccess(

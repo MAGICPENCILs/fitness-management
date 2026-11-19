@@ -59,9 +59,9 @@ const settings = [
     tone: "bg-info-surface text-info",
   },
   {
-    title: "จุดสแกนและประตู",
-    description: "ตรวจสอบการสแกนบัตรและสถานะการเข้าใช้บริการ",
-    href: "/access",
+    title: "นโยบายเข้าใช้",
+    description: "กำหนด Grace Period และกฎสิทธิ์รายวันที่จุดสแกนใช้ร่วมกัน",
+    href: "/settings/access",
     icon: DoorOpen,
     status: "พร้อมใช้งาน",
     tone: "bg-success-surface text-success",

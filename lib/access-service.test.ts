@@ -4,7 +4,7 @@ import { accessLogs, accessSettings, cardPool, memberAccessTokens, memberPackage
 import type { DbTransaction } from "@/lib/audit-service";
 
 vi.mock("@/db", () => ({ db: {} }));
-import { processCardScan } from "./access-service";
+import { getAccessSettings, processCardScan } from "./access-service";
 
 const now = new Date("2026-11-03T01:00:00Z");
 
@@ -20,7 +20,7 @@ function scanTestDb() {
     freezeDaysUsed: 0, status: "ACTIVE", paidAmount: 1000, packageType: "MONTHLY", createdAt: now, updatedAt: now,
   };
   const state = {
-    member, memberPackage, memberPackages: [memberPackage], graceDays: 3, events: [] as string[],
+    member, memberPackage, memberPackages: [memberPackage], graceDays: 3, settingsPresent: true, events: [] as string[],
     logs: [] as Record<string, unknown>[], warnings: [] as Record<string, unknown>[],
     warningError: null as Error | null,
   };
@@ -34,7 +34,7 @@ function scanTestDb() {
       if (table === members) return [state.member];
       if (table === memberPackages) return state.memberPackages;
       if (table === packages) return [];
-      if (table === accessSettings) return [{ graceDays: state.graceDays }];
+      if (table === accessSettings) return state.settingsPresent ? [{ id: 1, graceDays: state.graceDays }] : [];
       if (table === accessLogs) return state.logs;
       if (table === notifications) return state.warnings;
       throw new Error(`UNEXPECTED_SELECT ${getTableName(table)}`);
@@ -68,6 +68,11 @@ let fixture: ReturnType<typeof scanTestDb>;
 beforeEach(() => { fixture = scanTestDb(); });
 
 describe("scan transaction safety", () => {
+  it("ใช้ grace 3 วันเมื่อยังไม่มีแถว access settings", async () => {
+    fixture.state.settingsPresent = false;
+    expect(await getAccessSettings(fixture.tx as never)).toEqual({ id: 1, graceDays: 3 });
+  });
+
   it.each(["CARD-007", "FQR.test-token"])("locks the member before package evaluation and access-log insertion for %s", async serial => {
     expect(await processCardScan(fixture.tx, 10, serial, now)).toMatchObject({ result: "APPROVED", warning: "เหลืออีก 6 วัน" });
     expect(fixture.state.events.slice(0, 5)).toEqual([
