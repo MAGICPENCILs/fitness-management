@@ -286,6 +286,20 @@ describe("atomic equipment maintenance", () => {
     });
   });
 
+  it.each(["SCHEDULED", "IN_PROGRESS"] as const)("ปฏิเสธวันบำรุงครั้งถัดไปเมื่อสถานะเป็น %s ก่อนเขียนข้อมูล", async status => {
+    await expect(
+      service.recordMaintenance(
+        7,
+        10,
+        input({ status, completedDate: undefined, nextMaintenanceDate: "2026-10-21" }),
+        database.directExecutor() as unknown as DbTransaction,
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+
+    expect(database.maintenanceInsertAttempts).toEqual([]);
+    expect(database.updates).toEqual([]);
+  });
+
   it.each([
     [undefined, null],
     ["2026-10-21", "2026-10-21"],

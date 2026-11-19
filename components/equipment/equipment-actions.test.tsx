@@ -300,6 +300,18 @@ describe("operation, maintenance and retirement", () => {
     expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toMatchObject({ status: "COMPLETED", scheduledDate: "2026-08-21", completedDate: "2026-08-21", usageHoursAtService: 100, expectedVersion: 4 });
   });
 
+  it("แสดงกำหนดบำรุงครั้งถัดไปเฉพาะเมื่อปิดงาน COMPLETED", async () => {
+    const user = userEvent.setup();
+    render(<EquipmentMaintenanceDialog item={item} today="2026-08-21" onSuccess={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "บันทึกงานบำรุง BIKE-007" }));
+
+    expect(screen.getByLabelText("กำหนดบำรุงครั้งถัดไป")).toBeVisible();
+    await user.selectOptions(screen.getByLabelText("สถานะงาน"), "SCHEDULED");
+    expect(screen.queryByLabelText("กำหนดบำรุงครั้งถัดไป")).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("สถานะงาน"), "IN_PROGRESS");
+    expect(screen.queryByLabelText("กำหนดบำรุงครั้งถัดไป")).not.toBeInTheDocument();
+  });
+
   it("ผูกวันที่เสร็จก่อนวันนัดหมายกับ field error และไม่ส่ง maintenance", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.spyOn(globalThis, "fetch");

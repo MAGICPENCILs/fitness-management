@@ -587,6 +587,8 @@ export function createEquipmentMutationService(
         );
       if (input.status === "COMPLETED" && !input.completedDate)
         throw new EquipmentOperationError("งานที่เสร็จแล้วต้องระบุวันที่เสร็จ");
+      if (input.status !== "COMPLETED" && input.nextMaintenanceDate)
+        throw new EquipmentOperationError("กำหนดบำรุงครั้งถัดไปได้เมื่อปิดงานแล้วเท่านั้น");
 
       const maintenanceId = await repository.insertMaintenance(
         {
