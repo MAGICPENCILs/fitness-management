@@ -12,6 +12,7 @@ type AccessPolicyInput = {
   packageStatus: PackageStatus | null;
   startDate: string | Date | null;
   expireDate: string | Date | null;
+  graceDays?: number;
   now?: Date;
 };
 
@@ -20,7 +21,7 @@ export type AccessPolicyResult =
   | { approved: true; daysLeft: number; warning: string | null };
 
 /** แปลงวันที่เป็น YYYY-MM-DD ตามเวลาประเทศไทยเพื่อไม่ให้สิทธิ์คลาดหนึ่งวันเมื่อ server ใช้ UTC */
-function thaiDateKey(value: Date) {
+export function thaiDateKey(value: Date) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Bangkok",
     year: "numeric",
@@ -30,7 +31,7 @@ function thaiDateKey(value: Date) {
 }
 
 /** แปลง Date จากฐานข้อมูลเป็น date key โดย date-only string จะไม่ผ่าน timezone conversion ซ้ำ */
-function storedDateKey(value: string | Date) {
+export function storedDateKey(value: string | Date) {
   return typeof value === "string" ? value.slice(0, 10) : thaiDateKey(value);
 }
 
@@ -57,16 +58,35 @@ export function evaluateAccessPolicy(input: AccessPolicyInput): AccessPolicyResu
   const expireDate = storedDateKey(input.expireDate);
   if (today < startDate)
     return { approved: false, reason: "แพ็กเกจยังไม่เริ่มใช้งาน" };
-  if (today > expireDate)
-    return { approved: false, reason: "แพ็กเกจหมดอายุ" };
-
   const daysLeft = Math.round(
     (Date.parse(`${expireDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) /
       86_400_000,
   );
+  const graceDays = input.graceDays ?? 0;
+  if (daysLeft < -graceDays)
+    return {
+      approved: false,
+      reason: graceDays > 0 ? "แพ็กเกจหมดอายุเกินช่วงผ่อนผัน" : "แพ็กเกจหมดอายุ",
+    };
+  if (daysLeft < 0) {
+    const remainingGraceDays = graceDays + daysLeft;
+    return {
+      approved: true,
+      daysLeft,
+      warning: remainingGraceDays === 0
+        ? "วันสุดท้ายของช่วงผ่อนผัน"
+        : `อยู่ในช่วงผ่อนผันอีก ${remainingGraceDays} วัน`,
+    };
+  }
   return {
     approved: true,
     daysLeft,
     warning: daysLeft <= 7 ? `เหลืออีก ${daysLeft} วัน` : null,
   };
+}
+
+/** คืนขอบเขตวันไทยในรูป UTC เพื่อค้นหา scan ซ้ำโดยไม่ขึ้นกับ timezone ของฐานข้อมูล */
+export function thaiDayUtcRange(now: Date) {
+  const start = new Date(`${thaiDateKey(now)}T00:00:00+07:00`);
+  return { start, end: new Date(start.getTime() + 86_400_000) };
 }

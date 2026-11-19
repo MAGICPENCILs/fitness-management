@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getTableName, type Table } from "drizzle-orm";
-import { accessLogs, cardPool, memberAccessTokens, memberPackages, members, notifications } from "@/db/schema";
+import { accessLogs, accessSettings, cardPool, memberAccessTokens, memberPackages, members, notifications, packages } from "@/db/schema";
 import type { DbTransaction } from "@/lib/audit-service";
 
 vi.mock("@/db", () => ({ db: {} }));
@@ -17,10 +17,10 @@ function scanTestDb() {
   };
   const memberPackage = {
     id: 9, memberId: 7, packageId: 1, startDate: "2026-11-01", expireDate: "2026-11-09",
-    freezeDaysUsed: 0, status: "ACTIVE", paidAmount: 1000, createdAt: now, updatedAt: now,
+    freezeDaysUsed: 0, status: "ACTIVE", paidAmount: 1000, packageType: "MONTHLY", createdAt: now, updatedAt: now,
   };
   const state = {
-    member, memberPackage, events: [] as string[],
+    member, memberPackage, memberPackages: [memberPackage], graceDays: 3, events: [] as string[],
     logs: [] as Record<string, unknown>[], warnings: [] as Record<string, unknown>[],
     warningError: null as Error | null,
   };
@@ -32,12 +32,15 @@ function scanTestDb() {
       if (table === cardPool) return [{ memberId: 7, status: "IN_USE" }];
       if (table === memberAccessTokens) return [{ memberId: 7 }];
       if (table === members) return [state.member];
-      if (table === memberPackages) return [state.memberPackage];
+      if (table === memberPackages) return state.memberPackages;
+      if (table === packages) return [];
+      if (table === accessSettings) return [{ graceDays: state.graceDays }];
+      if (table === accessLogs) return state.logs;
       if (table === notifications) return state.warnings;
       throw new Error(`UNEXPECTED_SELECT ${getTableName(table)}`);
     };
     const query = {
-      from(value: Table) { table = value; return query; },
+      from(value: Table) { table = value; return query; }, innerJoin() { return query; },
       where() { return query; }, limit() { return query; }, orderBy() { return query; },
       for(value: string) { lock = value; return query; },
       then(resolve: (value: Record<string, unknown>[]) => unknown, reject: (error: unknown) => unknown) { return rows().then(resolve, reject); },
@@ -67,9 +70,9 @@ beforeEach(() => { fixture = scanTestDb(); });
 describe("scan transaction safety", () => {
   it.each(["CARD-007", "FQR.test-token"])("locks the member before package evaluation and access-log insertion for %s", async serial => {
     expect(await processCardScan(fixture.tx, 10, serial, now)).toMatchObject({ result: "APPROVED", warning: "เหลืออีก 6 วัน" });
-    expect(fixture.state.events.slice(0, 4)).toEqual([
+    expect(fixture.state.events.slice(0, 5)).toEqual([
       serial.startsWith("FQR.") ? "read:member_access_tokens" : "read:card_pool",
-      "lock:update:members", "read:member_packages", "insert:access_logs",
+      "lock:update:members", "read:member_packages", "read:access_settings", "insert:access_logs",
     ]);
     expect(fixture.state.logs).toMatchObject([{ memberId: 7, result: "APPROVED" }]);
     expect(fixture.state.warnings).toMatchObject([{ memberId: 7, type: "SCAN_WARNING" }]);
@@ -93,5 +96,39 @@ describe("scan transaction safety", () => {
     expect(await processCardScan(fixture.tx, 10, "CARD-007", now)).toEqual({ result: "REJECTED", reason: "สมาชิกถูกระงับ" });
     expect(fixture.state.logs).toMatchObject([{ memberId: 7, result: "REJECTED", reason: "สมาชิกถูกระงับ" }]);
     expect(fixture.state.warnings).toEqual([]);
+  });
+
+  it("เลือกแพ็กเกจปัจจุบันแทนแพ็กเกจต่ออายุที่ยังไม่เริ่ม", async () => {
+    fixture.state.memberPackages = [
+      { ...fixture.state.memberPackage, id: 10, startDate: "2026-12-01", expireDate: "2026-12-31" },
+      { ...fixture.state.memberPackage, id: 9, startDate: "2026-11-01", expireDate: "2026-11-09" },
+    ];
+
+    expect(await processCardScan(fixture.tx, 10, "CARD-007", now)).toMatchObject({
+      result: "APPROVED",
+      member: { expireDate: "2026-11-09" },
+    });
+  });
+
+  it("ปฏิเสธแพ็กเกจ DAILY เมื่อมี approved scan ในวันไทยเดียวกัน", async () => {
+    fixture.state.memberPackage.packageType = "DAILY";
+    fixture.state.logs.push({ memberId: 7, result: "APPROVED", scannedAt: new Date("2026-11-03T00:30:00Z") });
+
+    expect(await processCardScan(fixture.tx, 10, "CARD-007", now)).toEqual({
+      result: "REJECTED",
+      reason: "สิทธิ์รายวันถูกใช้แล้ววันนี้",
+    });
+    expect(fixture.state.logs.at(-1)).toMatchObject({ result: "REJECTED", reason: "สิทธิ์รายวันถูกใช้แล้ววันนี้" });
+  });
+
+  it("อนุมัติใน grace และบันทึก warning โดยไม่แสดงจำนวนวันคงเหลือติดลบ", async () => {
+    fixture.state.memberPackage.expireDate = "2026-11-02";
+
+    expect(await processCardScan(fixture.tx, 10, "CARD-007", now)).toMatchObject({
+      result: "APPROVED",
+      warning: "อยู่ในช่วงผ่อนผันอีก 2 วัน",
+      member: { daysLeft: -1 },
+    });
+    expect(fixture.state.warnings).toMatchObject([{ title: "แจ้งเตือน ณ จุดสแกน: อยู่ในช่วงผ่อนผัน" }]);
   });
 });

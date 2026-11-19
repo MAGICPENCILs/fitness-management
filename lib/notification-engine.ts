@@ -569,7 +569,7 @@ export async function recordScanWarning({
     type: "SCAN_WARNING",
     channel: "IN_APP",
     status: "SENT",
-    title: `แจ้งเตือน ณ จุดสแกน: เหลือ ${daysLeft} วัน`,
+    title: daysLeft < 0 ? "แจ้งเตือน ณ จุดสแกน: อยู่ในช่วงผ่อนผัน" : `แจ้งเตือน ณ จุดสแกน: เหลือ ${daysLeft} วัน`,
     message: `${memberName} ได้รับแจ้งเตือนให้ต่ออายุแพ็กเกจ ณ จุดสแกน`,
     scheduledFor: startOfLocalDay(now),
     dedupeKey: `SCAN:${memberPackageId}:${dateKey}`,

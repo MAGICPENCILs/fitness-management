@@ -64,4 +64,29 @@ describe("access policy", () => {
       }),
     ).toEqual({ approved: false, reason: "แพ็กเกจหมดอายุ" });
   });
+
+  it.each([
+    ["2026-11-02", -1, "อยู่ในช่วงผ่อนผันอีก 2 วัน"],
+    ["2026-10-31", -3, "วันสุดท้ายของช่วงผ่อนผัน"],
+  ] as const)("อนุมัติหลังหมดอายุภายใน grace 3 วันสำหรับวันหมดอายุ %s", (expireDate, daysLeft, warning) => {
+    expect(evaluateAccessPolicy({
+      memberStatus: "ACTIVE",
+      packageStatus: "ACTIVE",
+      startDate: "2026-10-01",
+      expireDate,
+      graceDays: 3,
+      now,
+    })).toEqual({ approved: true, daysLeft, warning });
+  });
+
+  it("ปฏิเสธเมื่อเลย grace period", () => {
+    expect(evaluateAccessPolicy({
+      memberStatus: "ACTIVE",
+      packageStatus: "ACTIVE",
+      startDate: "2026-10-01",
+      expireDate: "2026-10-30",
+      graceDays: 3,
+      now,
+    })).toEqual({ approved: false, reason: "แพ็กเกจหมดอายุเกินช่วงผ่อนผัน" });
+  });
 });

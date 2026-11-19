@@ -1,8 +1,8 @@
 import "server-only";
 
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
-import { accessLogs, cardPool, memberAccessTokens, memberPackages, members } from "@/db/schema";
-import { evaluateAccessPolicy } from "@/lib/access-policy";
+import { and, desc, eq, gt, gte, isNull, lt } from "drizzle-orm";
+import { accessLogs, accessSettings, cardPool, memberAccessTokens, memberPackages, members, packages } from "@/db/schema";
+import { evaluateAccessPolicy, storedDateKey, thaiDateKey, thaiDayUtcRange } from "@/lib/access-policy";
 import type { DbTransaction } from "@/lib/audit-service";
 import { recordScanWarning } from "@/lib/notification-engine";
 import { hashMemberAccessToken } from "@/lib/member-token";
@@ -89,22 +89,35 @@ export async function processCardScan(
   if (!member)
     return rejectAccess(tx, branchId, auditSerial, "ไม่พบสมาชิกในสาขานี้");
 
-  const [memberPackage] = await tx
-    .select()
+  const packageCandidates = await tx
+    .select({
+      id: memberPackages.id,
+      status: memberPackages.status,
+      startDate: memberPackages.startDate,
+      expireDate: memberPackages.expireDate,
+      packageType: packages.type,
+    })
     .from(memberPackages)
+    .innerJoin(packages, eq(memberPackages.packageId, packages.id))
     .where(
       and(
         eq(memberPackages.memberId, member.id),
         eq(memberPackages.status, "ACTIVE"),
       ),
     )
-    .orderBy(desc(memberPackages.expireDate))
-    .limit(1);
+    .orderBy(desc(memberPackages.expireDate));
+  const today = thaiDateKey(now);
+  // ตัดแพ็กเกจต่ออายุในอนาคตก่อนเลือกวันหมดอายุไกลสุด เพื่อไม่ให้บังสิทธิ์ที่กำลังใช้งาน
+  const memberPackage = packageCandidates.find(candidate => storedDateKey(candidate.startDate) <= today)
+    ?? packageCandidates[0];
+  const [settings] = await tx.select({ graceDays: accessSettings.graceDays })
+    .from(accessSettings).where(eq(accessSettings.id, 1)).limit(1);
   const decision = evaluateAccessPolicy({
     memberStatus: member.status,
     packageStatus: memberPackage?.status ?? null,
     startDate: memberPackage?.startDate ?? null,
     expireDate: memberPackage?.expireDate ?? null,
+    graceDays: settings?.graceDays ?? 3,
     now,
   });
   if (!decision.approved)
@@ -115,6 +128,19 @@ export async function processCardScan(
       decision.reason,
       member.id,
     );
+
+  if (memberPackage?.packageType === "DAILY") {
+    const day = thaiDayUtcRange(now);
+    // สิทธิ์รายวันใช้ได้ครั้งเดียวทั้งบริษัท เพื่อไม่ให้ย้ายจุดสแกนแล้วใช้ซ้ำในวันเดียวกัน
+    const [priorUse] = await tx.select({ id: accessLogs.id }).from(accessLogs).where(and(
+      eq(accessLogs.memberId, member.id),
+      eq(accessLogs.result, "APPROVED"),
+      gte(accessLogs.scannedAt, day.start),
+      lt(accessLogs.scannedAt, day.end),
+    )).limit(1);
+    if (priorUse)
+      return rejectAccess(tx, branchId, auditSerial, "สิทธิ์รายวันถูกใช้แล้ววันนี้", member.id);
+  }
 
   await tx.insert(accessLogs).values({
     branchId,
