@@ -42,7 +42,7 @@ export function AddMemberDialog() {
         birthDate: "",
         packageId: "",
         startDate: new Date().toISOString().split("T")[0],
-        paidAmount: "",
+        paymentMethod: "CASH",
         address: "",
         note: "",
         servicePrivacy: false,
@@ -70,17 +70,12 @@ export function AddMemberDialog() {
         }
     };
 
-    /** เติมราคาอัตโนมัติจากแพ็กเกจที่เลือก โดยยังเปิดให้พนักงานแก้ราคาชำระได้ */
+    /** เลือกแพ็กเกจโดยให้ระบบชำระเงินเป็นผู้คำนวณราคาที่เชื่อถือได้ */
     const handlePackageChange = (packageId: string) => {
-        const pkg = packages.find((p) => String(p.id) === packageId);
-        setForm((prev) => ({
-            ...prev,
-            packageId,
-            paidAmount: pkg ? String(pkg.price) : "",
-        }));
+        setForm((prev) => ({ ...prev, packageId }));
     };
 
-    /** สร้างสมาชิกก่อนผูกแพ็กเกจ และไม่ refresh หากขั้นใดขั้นหนึ่งล้มเหลว */
+    /** สร้างสมาชิกก่อนขายแพ็กเกจผ่านระบบชำระเงิน และไม่ refresh หากขั้นใดขั้นหนึ่งล้มเหลว */
     const handleSubmit = async () => {
         setError("");
         if (!form.memberCode || !form.firstName || !form.lastName) {
@@ -121,19 +116,20 @@ export function AddMemberDialog() {
             const memberData = await memberRes.json();
             if (!memberRes.ok) throw new Error(memberData.error ?? "สร้างสมาชิกไม่สำเร็จ");
 
-            // 2. ผูก package (ถ้าเลือก)
+            // 2. ขายแพ็กเกจผ่าน flow กลางเพื่อให้ payment, receipt และสิทธิ์สำเร็จหรือ rollback พร้อมกัน
             if (form.packageId) {
-                const pkgRes = await fetch("/api/member-packages", {
+                const pkgRes = await fetch("/api/payments", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         memberId: memberData.id,
                         packageId: Number(form.packageId),
+                        method: form.paymentMethod,
                         startDate: form.startDate,
-                        paidAmount: Number(form.paidAmount),
                     }),
                 });
-                if (!pkgRes.ok) throw new Error("ผูกแพ็กเกจไม่สำเร็จ");
+                const pkgData = await pkgRes.json();
+                if (!pkgRes.ok) throw new Error(pkgData.error ?? "บันทึกการชำระเงินไม่สำเร็จ");
             }
 
             setOpen(false);
@@ -270,7 +266,7 @@ export function AddMemberDialog() {
                         </label>
                     </fieldset>
 
-                    {/* วันเริ่ม + ราคา */}
+                    {/* วันเริ่ม + ช่องทางชำระ */}
                     {form.packageId && (
                         <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-1.5">
@@ -279,9 +275,16 @@ export function AddMemberDialog() {
                                     onChange={(e) => handleChange("startDate", e.target.value)} />
                             </div>
                             <div className="space-y-1.5">
-                                <Label htmlFor="new-member-paid-amount">ราคาที่ชำระ (บาท)</Label>
-                                <Input id="new-member-paid-amount" type="number" value={form.paidAmount}
-                                    onChange={(e) => handleChange("paidAmount", e.target.value)} />
+                                <Label htmlFor="new-member-payment-method">ช่องทางชำระเงิน</Label>
+                                <Select value={form.paymentMethod} onValueChange={(value) => handleChange("paymentMethod", value)}>
+                                    <SelectTrigger id="new-member-payment-method" aria-label="ช่องทางชำระเงิน"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="CASH">เงินสด</SelectItem>
+                                        <SelectItem value="QR_PROMPTPAY">QR PromptPay</SelectItem>
+                                        <SelectItem value="TRANSFER">โอนเงิน</SelectItem>
+                                        <SelectItem value="CREDIT_CARD">บัตรเครดิต/เดบิต</SelectItem>
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
                     )}
