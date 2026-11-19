@@ -1,4 +1,4 @@
-import { mysqlTable, int, varchar, mysqlEnum, timestamp } from "drizzle-orm/mysql-core";
+import { date, int, mysqlEnum, mysqlTable, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 import { members } from "./members";
 import { branches } from "./branches";
 
@@ -10,7 +10,10 @@ export const accessLogs = mysqlTable("access_logs", {
   result:    mysqlEnum("result", ["APPROVED", "REJECTED"]).notNull(),
   reason:    varchar("reason", { length: 255 }),
   scannedAt: timestamp("scanned_at").defaultNow(),
-});
+  dailyUseDate: date("daily_use_date", { mode: "string" }),
+}, table => [
+  uniqueIndex("access_logs_member_daily_use_unique").on(table.memberId, table.dailyUseDate),
+]);
 
 export type AccessLog = typeof accessLogs.$inferSelect;
 export type NewAccessLog = typeof accessLogs.$inferInsert;

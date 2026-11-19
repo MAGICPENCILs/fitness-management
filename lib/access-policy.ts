@@ -84,9 +84,3 @@ export function evaluateAccessPolicy(input: AccessPolicyInput): AccessPolicyResu
     warning: daysLeft <= 7 ? `เหลืออีก ${daysLeft} วัน` : null,
   };
 }
-
-/** คืนขอบเขตวันไทยในรูป UTC เพื่อค้นหา scan ซ้ำโดยไม่ขึ้นกับ timezone ของฐานข้อมูล */
-export function thaiDayUtcRange(now: Date) {
-  const start = new Date(`${thaiDateKey(now)}T00:00:00+07:00`);
-  return { start, end: new Date(start.getTime() + 86_400_000) };
-}

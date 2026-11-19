@@ -1,9 +1,9 @@
 import "server-only";
 
-import { and, desc, eq, gt, gte, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { accessLogs, accessSettings, cardPool, memberAccessTokens, memberPackages, members, packages } from "@/db/schema";
-import { evaluateAccessPolicy, storedDateKey, thaiDateKey, thaiDayUtcRange } from "@/lib/access-policy";
+import { evaluateAccessPolicy, storedDateKey, thaiDateKey } from "@/lib/access-policy";
 import type { DbTransaction } from "@/lib/audit-service";
 import { recordScanWarning } from "@/lib/notification-engine";
 import { hashMemberAccessToken } from "@/lib/member-token";
@@ -40,6 +40,7 @@ async function rejectAccess(
   branchId: number,
   serial: string,
   reason: string,
+  now: Date,
   memberId?: number,
 ): Promise<AccessScanResult> {
   await tx.insert(accessLogs).values({
@@ -48,8 +49,16 @@ async function rejectAccess(
     serial,
     result: "REJECTED",
     reason,
+    scannedAt: now,
   });
   return { result: "REJECTED", reason };
+}
+
+/** ยอมรับเฉพาะ duplicate จาก MySQL เพื่อแปลงการแข่งขันใช้สิทธิ์ DAILY เป็นผลปฏิเสธปกติ */
+function isDuplicateEntryError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  if (("code" in error && error.code === "ER_DUP_ENTRY") || ("errno" in error && error.errno === 1062)) return true;
+  return "cause" in error && isDuplicateEntryError(error.cause);
 }
 
 /** ตรวจบัตร/แพ็กเกจในสาขาเดียว โดยล็อกสมาชิกก่อนเขียน audit/notification เพื่อไม่ให้ deadlock ถูกกลืนแล้วเปิดประตูโดยไม่มี log */
@@ -86,7 +95,7 @@ export async function processCardScan(
     memberId = card?.status === "IN_USE" ? card.memberId : null;
   }
   if (!memberId)
-    return rejectAccess(tx, branchId, auditSerial, "ไม่พบบัตรหรือ QR หมดอายุ");
+    return rejectAccess(tx, branchId, auditSerial, "ไม่พบบัตรหรือ QR หมดอายุ", now);
 
   const [member] = await tx
     .select()
@@ -97,7 +106,7 @@ export async function processCardScan(
     .limit(1)
     .for("update");
   if (!member)
-    return rejectAccess(tx, branchId, auditSerial, "ไม่พบสมาชิกในสาขานี้");
+    return rejectAccess(tx, branchId, auditSerial, "ไม่พบสมาชิกในสาขานี้", now);
 
   const packageCandidates = await tx
     .select({
@@ -136,29 +145,36 @@ export async function processCardScan(
       branchId,
       auditSerial,
       decision.reason,
+      now,
       member.id,
     );
 
   if (memberPackage?.packageType === "DAILY") {
-    const day = thaiDayUtcRange(now);
-    // สิทธิ์รายวันใช้ได้ครั้งเดียวทั้งบริษัท เพื่อไม่ให้ย้ายจุดสแกนแล้วใช้ซ้ำในวันเดียวกัน
-    const [priorUse] = await tx.select({ id: accessLogs.id }).from(accessLogs).where(and(
-      eq(accessLogs.memberId, member.id),
-      eq(accessLogs.result, "APPROVED"),
-      gte(accessLogs.scannedAt, day.start),
-      lt(accessLogs.scannedAt, day.end),
-    )).limit(1);
-    if (priorUse)
-      return rejectAccess(tx, branchId, auditSerial, "สิทธิ์รายวันถูกใช้แล้ววันนี้", member.id);
+    try {
+      // unique key ระดับฐานข้อมูลปิดการแข่งขันจากหลายจุดสแกน โดยยึดวันที่ประเทศไทยไม่ขึ้นกับ timezone ของ MySQL
+      await tx.insert(accessLogs).values({
+        branchId,
+        memberId: member.id,
+        serial: auditSerial,
+        result: "APPROVED",
+        reason: null,
+        scannedAt: now,
+        dailyUseDate: today,
+      });
+    } catch (error) {
+      if (!isDuplicateEntryError(error)) throw error;
+      return rejectAccess(tx, branchId, auditSerial, "สิทธิ์รายวันถูกใช้แล้ววันนี้", now, member.id);
+    }
+  } else {
+    await tx.insert(accessLogs).values({
+      branchId,
+      memberId: member.id,
+      serial: auditSerial,
+      result: "APPROVED",
+      reason: null,
+      scannedAt: now,
+    });
   }
-
-  await tx.insert(accessLogs).values({
-    branchId,
-    memberId: member.id,
-    serial: auditSerial,
-    result: "APPROVED",
-    reason: null,
-  });
   if (decision.warning && memberPackage) {
     await recordScanWarning({
       memberId: member.id,

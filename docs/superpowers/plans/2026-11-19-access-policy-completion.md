@@ -4,7 +4,7 @@
 
 **Goal:** ทำให้การสแกนเลือกสิทธิ์ที่เริ่มใช้งานแล้ว รองรับ Grace Period 3–7 วัน และจำกัดแพ็กเกจรายวันหนึ่งครั้งต่อวัน
 
-**Architecture:** คง `processCardScan` เป็น transaction boundary และใช้ member row lock เดิมเพื่อ serialize การสแกนสมาชิกคนเดียวกัน เพิ่ม singleton `access_settings` สำหรับ grace days และให้ policy function คำนวณผลแบบ pure ก่อนเขียน access log
+**Architecture:** คง `processCardScan` เป็น transaction boundary และใช้ member row lock เดิม เพิ่ม unique daily-use guard ใน `access_logs` เพื่อปิด concurrent scan ระดับฐานข้อมูล เพิ่ม singleton `access_settings` สำหรับ grace days และให้ policy function คำนวณผลแบบ pure ก่อนเขียน access log
 
 **Tech Stack:** Next.js 16.4.6, TypeScript, Drizzle ORM/MySQL, React, Vitest
 
@@ -58,7 +58,7 @@
 
 - [x] เพิ่ม failing tests สำหรับ future renewal, grace boundaries และ DAILY scan ซ้ำ
 - [x] เพิ่ม pure date helpers/policy ที่ใช้ Asia/Bangkok และเลือกแพ็กเกจ date-eligible
-- [x] join package type, โหลด grace setting และเช็ค approved access log ของ DAILY ภายใต้ member lock
+- [x] join package type, โหลด grace setting และบังคับ DAILY ผ่าน unique key `(member, Thai date)` ระดับฐานข้อมูล
 - [x] รัน access tests ให้ GREEN
 
 ### Task 3: Owner/manager access settings UI and API
@@ -84,7 +84,7 @@
 **Files:**
 - Modify: `Fitness Plan.md` เฉพาะสถานะที่พิสูจน์ได้
 
-- [ ] รัน `pnpm test -- --maxWorkers=4`
-- [ ] รัน `pnpm exec tsc --noEmit`, `pnpm lint`, `pnpm drizzle-kit check`
+- [x] รัน `pnpm test -- --maxWorkers=4`
+- [x] รัน `pnpm exec tsc --noEmit`, `pnpm lint`, `pnpm drizzle-kit check`
 - [ ] รัน production build บน main checkout
 - [ ] commit, fast-forward main, push และตรวจ GitHub Actions

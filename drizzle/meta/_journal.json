@@ -148,6 +148,13 @@
       "when": 1795073703241,
       "tag": "0020_access_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1795074965161,
+      "tag": "0021_daily_access_guard",
+      "breakpoints": true
     }
   ]
 }

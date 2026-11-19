@@ -53,7 +53,15 @@ function scanTestDb() {
       async values(value: Record<string, unknown> | Record<string, unknown>[]) {
         state.events.push(`insert:${getTableName(table)}`);
         if (table === notifications && state.warningError) throw state.warningError;
-        if (table === accessLogs) state.logs.push(...[value].flat());
+        if (table === accessLogs) {
+          const values = [value].flat();
+          for (const item of values) {
+            if (item.dailyUseDate && state.logs.some(log =>
+              log.memberId === item.memberId && log.dailyUseDate === item.dailyUseDate,
+            )) throw Object.assign(new Error("duplicate daily use"), { code: "ER_DUP_ENTRY" });
+          }
+          state.logs.push(...values);
+        }
         else if (table === notifications) state.warnings.push(...[value].flat());
         else throw new Error(`UNEXPECTED_INSERT ${getTableName(table)}`);
         return [{ affectedRows: 1 }];
@@ -115,15 +123,35 @@ describe("scan transaction safety", () => {
     });
   });
 
-  it("ปฏิเสธแพ็กเกจ DAILY เมื่อมี approved scan ในวันไทยเดียวกัน", async () => {
+  it("ปฏิเสธแพ็กเกจ DAILY เมื่อสแกนซ้ำในวันไทยเดียวกัน", async () => {
     fixture.state.memberPackage.packageType = "DAILY";
-    fixture.state.logs.push({ memberId: 7, result: "APPROVED", scannedAt: new Date("2026-11-03T00:30:00Z") });
+
+    await expect(processCardScan(fixture.tx, 10, "CARD-007", now)).resolves.toMatchObject({ result: "APPROVED" });
+    expect(fixture.state.logs.at(-1)).toMatchObject({
+      memberId: 7,
+      result: "APPROVED",
+      dailyUseDate: "2026-11-03",
+      scannedAt: now,
+    });
 
     expect(await processCardScan(fixture.tx, 10, "CARD-007", now)).toEqual({
       result: "REJECTED",
       reason: "สิทธิ์รายวันถูกใช้แล้ววันนี้",
     });
     expect(fixture.state.logs.at(-1)).toMatchObject({ result: "REJECTED", reason: "สิทธิ์รายวันถูกใช้แล้ววันนี้" });
+  });
+
+  it("อนุมัติ DAILY อีกครั้งหลังข้ามเที่ยงคืนตามเวลาไทย", async () => {
+    fixture.state.memberPackage.packageType = "DAILY";
+    const beforeMidnight = new Date("2026-11-03T16:59:59Z");
+    const afterMidnight = new Date("2026-11-03T17:00:00Z");
+
+    await expect(processCardScan(fixture.tx, 10, "CARD-007", beforeMidnight)).resolves.toMatchObject({ result: "APPROVED" });
+    await expect(processCardScan(fixture.tx, 10, "CARD-007", afterMidnight)).resolves.toMatchObject({ result: "APPROVED" });
+    expect(fixture.state.logs.filter(log => log.result === "APPROVED")).toMatchObject([
+      { dailyUseDate: "2026-11-03", scannedAt: beforeMidnight },
+      { dailyUseDate: "2026-11-04", scannedAt: afterMidnight },
+    ]);
   });
 
   it("อนุมัติใน grace และบันทึก warning โดยไม่แสดงจำนวนวันคงเหลือติดลบ", async () => {
