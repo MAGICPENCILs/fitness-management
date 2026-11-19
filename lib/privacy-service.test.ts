@@ -32,7 +32,7 @@ const actor = { staffId: 3, role: "OWNER" as const, homeBranchId: 10 };
 const root = path.join(process.cwd(), "public", "uploads", "members");
 const privateRoot = path.join(process.cwd(), "storage", "member-photos");
 const files = new Map<string, Buffer>();
-let member: { id: number; homeBranchId: number; photoUrl: string | null; status: string };
+let member: { id: number; homeBranchId: number; photoUrl: string | null; status: string; phone: string | null; email: string | null };
 let requestRow: Record<string, unknown>;
 let cleanup: Record<string, unknown> | undefined;
 let events: { id: number; consentType: string; action: string; createdAt: Date }[];
@@ -65,7 +65,7 @@ let afterRead: ((table: unknown) => Promise<void>) | undefined;
 beforeEach(async () => {
   vi.resetAllMocks(); files.clear();
   mocks.claim.mockImplementation((await vi.importActual<typeof import("@/lib/notifications/line-delivery-policy")>("@/lib/notifications/line-delivery-policy")).claimLineNotification);
-  member = { id: 7, homeBranchId: 10, photoUrl: "/uploads/members/old.jpg", status: "ACTIVE" };
+  member = { id: 7, homeBranchId: 10, photoUrl: "/uploads/members/old.jpg", status: "ACTIVE", phone: "0800000000", email: "old@example.test" };
   requestRow = { memberId: 7, branchId: 10, status: "APPROVED", requestedByStaffId: 1, reviewedByStaffId: 2 };
   cleanup = undefined; sharedReferences = []; audits = [];
   links = []; failSuccessAudit = false; failLinkDelete = false;
@@ -465,18 +465,21 @@ describe("notification/privacy cancellation", () => {
     events.push({ id: 2, consentType: "SERVICE_PRIVACY", action: "GRANTED", createdAt: new Date("2026-11-02") });
   });
 
-  it.each(["SERVICE_PRIVACY", "MARKETING"] as const)("%s withdrawal permanently cancels only its LINE scope and never revives on grant", async consentType => {
+  it.each(["SERVICE_PRIVACY", "MARKETING"] as const)("%s withdrawal permanently cancels its notification scope and never revives on grant", async consentType => {
     await issueLineLinkChallenge(actor, 7);
     const previousLinks = structuredClone(links);
     notificationRows = [
       ...["QUEUED", "PROCESSING", "FAILED", "SKIPPED"].flatMap(status => ["INACTIVITY", "EXPIRY_REMINDER"].map(type => queuedNotification({ id: 0, status, type, failureKind: status === "SKIPPED" ? "CONFIG" : null }))),
       queuedNotification({ status: "SENT", sentAt: new Date(0) }),
-      queuedNotification({ channel: "SMS" }), queuedNotification({ channel: "EMAIL" }), queuedNotification({ memberId: 8 }),
+      queuedNotification({ channel: "SMS" }), queuedNotification({ channel: "EMAIL" }),
+      queuedNotification({ channel: "SMS", type: "EXPIRY_REMINDER" }), queuedNotification({ channel: "EMAIL", type: "EXPIRY_REMINDER" }),
+      queuedNotification({ memberId: 8 }),
     ].map((row, index) => ({ ...row, id: index + 1 }));
     const before = structuredClone(notificationRows);
     await appendConsentEvent({ memberId: 7, consentType, action: "WITHDRAWN", policyVersion: "2026-11" }, actor);
     for (const [index, row] of notificationRows.entries()) {
-      if (index < 8 && (consentType === "SERVICE_PRIVACY" || row.type === "INACTIVITY"))
+      if ((index < 8 && (consentType === "SERVICE_PRIVACY" || row.type === "INACTIVITY"))
+        || (index >= 9 && index <= 12 && (consentType === "SERVICE_PRIVACY" || row.type === "INACTIVITY")))
         expect(row).toMatchObject({ status: "SKIPPED", failureKind: "PERMANENT", recipient: null, sentAt: null });
       else expect(row).toEqual(before[index]);
     }
@@ -550,6 +553,32 @@ describe("notification/privacy cancellation", () => {
     expect(mocks.deliver).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["SMS", "0811111111", "phone"],
+    ["EMAIL", "current@example.test", "email"],
+  ] as const)("%s dispatch uses the current member contact instead of queued PII", async (channel, currentRecipient, field) => {
+    notificationRows = [queuedNotification({ channel, type: "EXPIRY_REMINDER", recipient: channel === "SMS" ? "0899999999" : "stale@example.test" })];
+    member[field] = currentRecipient;
+
+    await processNotificationDelivery(1, 10);
+
+    expect(mocks.deliver).toHaveBeenCalledWith(
+      expect.objectContaining({ recipient: currentRecipient }),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(notificationRows[0].recipient).toBe(currentRecipient);
+  });
+
+  it.each(["SMS", "EMAIL"])("blocks stale %s marketing queues when current consent is withdrawn", async channel => {
+    notificationRows = [queuedNotification({ channel, type: "INACTIVITY" })];
+    events.push({ id: events.length + 1, consentType: "MARKETING", action: "WITHDRAWN", createdAt: new Date("2026-11-10") });
+
+    expect(await processNotificationDelivery(1, 10)).toMatchObject({ status: "SKIPPED", failureKind: "PERMANENT" });
+    expect(mocks.deliver).not.toHaveBeenCalled();
+    expect(notificationRows[0]).toMatchObject({ status: "SKIPPED", failureKind: "PERMANENT", recipient: null });
+  });
+
   it.each(["SERVICE_PRIVACY", "MARKETING"] as const)("%s withdrawal after LINE claim blocks only calls not yet authorized and fences late acknowledgement", async consentType => {
     const realClaim = (await vi.importActual<typeof import("@/lib/notifications/line-delivery-policy")>("@/lib/notifications/line-delivery-policy")).claimLineNotification;
     // จำลองเฉพาะ gate input เพื่อทดสอบ in-flight path โดยไม่เปิด outbound จริงและใช้ provider fake เท่านั้น
@@ -601,7 +630,7 @@ describe("notification/privacy cancellation", () => {
   });
 
   it.each(["SMS", "EMAIL"])("late %s acknowledgement cannot revive anonymized notification", async channel => {
-    notificationRows = [queuedNotification({ channel })];
+    notificationRows = [queuedNotification({ channel, type: "EXPIRY_REMINDER" })];
     mocks.deliver.mockImplementation(async () => {
       expect(activeTransaction).toBe(false);
       await anonymizeApprovedRequest(1, actor);

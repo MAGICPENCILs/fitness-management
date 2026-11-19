@@ -89,6 +89,26 @@ export type PrivacyRequestFilters = {
   pageSize: number;
 };
 
+/** ยกเลิกคิวภายนอกที่ยังไม่ส่งเมื่อ consent เปลี่ยน โดยคง operational reminder ไว้เมื่อถอนเฉพาะการตลาด */
+async function cancelUnsentExternalNotifications(
+  tx: DbTransaction,
+  memberId: number,
+  scope: "ALL" | "INACTIVITY",
+) {
+  await tx.update(notifications).set({
+    status: "SKIPPED",
+    failureKind: "PERMANENT",
+    recipient: null,
+    sentAt: null,
+    errorMessage: "ยกเลิกตามสถานะความยินยอมปัจจุบัน",
+  }).where(and(
+    eq(notifications.memberId, memberId),
+    inArray(notifications.channel, ["SMS", "EMAIL"]),
+    inArray(notifications.status, ["QUEUED", "PROCESSING", "FAILED", "SKIPPED"]),
+    scope === "INACTIVITY" ? eq(notifications.type, "INACTIVITY") : undefined,
+  ));
+}
+
 /** เลือก source เดียวภายใต้ member lock; source I/O เก็บชนิด error ไว้ให้ anonymization ติดตาม retry โดยไม่แก้ consent/member */
 async function resolveMemberPhotoPath(photoUrl: string, memberId: number, tx: DbTransaction) {
   const candidates = resolveMemberPhotoPaths(photoUrl);
@@ -269,6 +289,7 @@ export async function appendConsentEvent(
           // ใช้ member lock เดียวกับ completion เพื่อไม่ให้สร้าง LINE กลับหลังถอน consent สำเร็จ
           await tx.delete(memberLineLinks).where(eq(memberLineLinks.memberId, input.memberId));
           await cancelUnsentLineNotifications(tx, input.memberId, "ALL", "SERVICE_PRIVACY_WITHDRAWN");
+          await cancelUnsentExternalNotifications(tx, input.memberId, "ALL");
           await tx
             .update(members)
             .set({ status: "SUSPENDED" })
@@ -284,6 +305,7 @@ export async function appendConsentEvent(
           await tx.select({ memberId: memberLineLinks.memberId }).from(memberLineLinks)
             .where(eq(memberLineLinks.memberId, input.memberId)).limit(1).for("update");
           await cancelUnsentLineNotifications(tx, input.memberId, "INACTIVITY", "MARKETING_WITHDRAWN");
+          await cancelUnsentExternalNotifications(tx, input.memberId, "INACTIVITY");
         }
         if (
           input.consentType === "SERVICE_PRIVACY" &&

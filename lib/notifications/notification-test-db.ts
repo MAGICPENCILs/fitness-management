@@ -52,7 +52,7 @@ export function matches(condition: Condition | undefined, row: Row, table: Table
 export function notificationTestDb() {
   const now = new Date("2026-11-09T00:00:00Z");
   const state = {
-    member: { id: 7, homeBranchId: 10, status: "ACTIVE" } as Row,
+    member: { id: 7, homeBranchId: 10, status: "ACTIVE", phone: "0800000000", email: "member@example.test" } as Row,
     links: [{ memberId: 7, branchId: 10, lineUserId: `U${"a".repeat(32)}`, linkedAt: now, challengeHash: null, challengeExpiresAt: null }] as Row[],
     events: [
       { id: 1, memberId: 7, consentType: "SERVICE_PRIVACY", action: "GRANTED", createdAt: now },

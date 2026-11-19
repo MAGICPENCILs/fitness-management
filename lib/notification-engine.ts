@@ -349,6 +349,7 @@ export async function processNotificationDelivery(
     .select({
       id: notifications.id,
       memberId: notifications.memberId,
+      type: notifications.type,
       channel: notifications.channel,
       recipient: notifications.recipient,
       title: notifications.title,
@@ -435,8 +436,44 @@ export async function processNotificationDelivery(
   const [current] = await db.select({ id: notifications.id }).from(notifications).where(claimFence).limit(1);
   if (!current) throw new NotificationDeliveryError("lease ของรายการหมดอายุแล้ว");
 
+  let deliveryRecord = lineClaim ?? record;
+  if (!lineClaim && (record.channel === "SMS" || record.channel === "EMAIL")) {
+    const [member] = await db.select({ phone: members.phone, email: members.email }).from(members)
+      .where(and(eq(members.id, record.memberId), eq(members.homeBranchId, branchId))).limit(1);
+    const currentRecipient = record.channel === "SMS" ? member?.phone : member?.email;
+    const requiredConsents = record.type === "INACTIVITY"
+      ? ["SERVICE_PRIVACY", "MARKETING"] as const
+      : ["SERVICE_PRIVACY"] as const;
+    let consentGranted = true;
+    for (const consentType of requiredConsents) {
+      const [latest] = await db.select({ action: consentEvents.action }).from(consentEvents)
+        .where(and(eq(consentEvents.memberId, record.memberId), eq(consentEvents.consentType, consentType)))
+        .orderBy(desc(consentEvents.createdAt), desc(consentEvents.id)).limit(1);
+      if (latest?.action !== "GRANTED") consentGranted = false;
+    }
+
+    if (!consentGranted || !currentRecipient) {
+      // ปิดคิวถาวรเมื่อสิทธิ์หรือข้อมูลผู้รับปัจจุบันไม่พร้อม เพื่อไม่ส่ง PII จาก snapshot เก่า
+      const skipped = await db.update(notifications).set({
+        status: "SKIPPED",
+        failureKind: "PERMANENT",
+        recipient: null,
+        errorMessage: consentGranted ? "สมาชิกไม่มีข้อมูลติดต่อปัจจุบัน" : "ยกเลิกตามสถานะความยินยอมปัจจุบัน",
+        sentAt: null,
+      }).where(claimFence);
+      if (skipped[0].affectedRows !== 1)
+        throw new NotificationDeliveryError("lease ของรายการหมดอายุแล้ว");
+      return { id: record.id, status: "SKIPPED" as const, failureKind: "PERMANENT" as const, attemptCount: claimedAttemptCount };
+    }
+
+    const refreshed = await db.update(notifications).set({ recipient: currentRecipient }).where(claimFence);
+    if (refreshed[0].affectedRows !== 1)
+      throw new NotificationDeliveryError("lease ของรายการหมดอายุแล้ว");
+    deliveryRecord = { ...record, recipient: currentRecipient };
+  }
+
   const environment = loadDeliveryEnvironment();
-  const result = await deliverNotification(lineClaim ?? record, environment, {
+  const result = await deliverNotification(deliveryRecord, environment, {
     sendSmtp: sendSmtpNotification,
   });
   const update = deliveryUpdate(result);
