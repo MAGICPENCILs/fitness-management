@@ -272,7 +272,7 @@ branches             — สาขา
 - **พร้อมทดสอบแล้ว:** สมาชิกและแพ็กเกจ, static card pool, สแกนเข้าใช้, ชำระเงิน, โปรโมชั่น/คูปอง, บัญชี, Dashboard, ล็อกเกอร์, อุปกรณ์/ซ่อมบำรุง, คลาส/PT, CRM/loyalty, หลายสาขา, PDPA anonymization, พนักงาน/RBAC, Login/Session/Rate limit, Audit log และ Backup/Restore สำหรับผู้ดูแลระบบ
 - **พัฒนา Integrated MVP แล้ว (ยังไม่ใช่การรับรองเปิดใช้งานจริง):** ใบเสร็จ/ใบกำกับภาษีและหน้าพิมพ์, notification/hardware adapters แบบ config-gated, Freeze, Dynamic QR, สมัครออนไลน์/member portal แบบ responsive, Staff TOTP 2FA/เวลาเข้างาน/ค่าตอบแทนแบบอนุมัติ manual และรายงานขั้นสูงพร้อม CSV/หน้าพิมพ์
 - **อุปกรณ์:** ทะเบียน/สถานะ/มิเตอร์, filter และ pagination ฝั่ง server, detail/ประวัติซ่อม, maintenance ตามวัน/ชั่วโมง, เลิกใช้งานถาวร, RBAC/ขอบเขตสาขา และ optimistic version conflict พัฒนาแล้ว; migration `0017` ใช้จริงแล้ว วันที่ 6 พฤศจิกายน 2569 และ smoke แบบไม่ Login ผ่าน health/login/redirect/API rejection บนพอร์ต 3005; ยังไม่ผ่าน authenticated browser/หลายบทบาท/ภาพหน้าจอ/การทำงานพร้อมกันกับ MySQL จริง
-- **Access policy พัฒนาแล้ว:** เลือกแพ็กเกจที่เริ่มใช้งานแล้วก่อนแพ็กเกจต่ออายุในอนาคต, Grace Period ปรับได้ 3–7 วัน (ค่าเริ่มต้น 3), แพ็กเกจ DAILY ใช้ได้ครั้งเดียวต่อวันทั้งบริษัท และบันทึกผลทุกครั้งภายใต้ member lock; migration `0020` ต้องใช้กับฐานข้อมูลเป้าหมายก่อนทดสอบ
+- **Access policy พัฒนาแล้ว:** เลือกแพ็กเกจที่เริ่มใช้งานแล้วก่อนแพ็กเกจต่ออายุในอนาคต, Grace Period ปรับได้ 3–7 วัน (ค่าเริ่มต้น 3), แพ็กเกจ DAILY ใช้ได้ครั้งเดียวต่อวันไทยทั้งบริษัทด้วย unique key และบันทึกผลทุกครั้งภายใต้ member lock; migration `0020`–`0021` ต้องใช้กับฐานข้อมูลเป้าหมายก่อนทดสอบ
 - **LINE OA lifecycle พัฒนาแล้ว:** ผูกบัญชีด้วยคำสั่งใช้ครั้งเดียว/signed webhook, ยกเลิกและล้าง link/challenge เมื่อถอน SERVICE_PRIVACY/ทำข้อมูลนิรนาม; หน้าสมาชิกแสดงเฉพาะสถานะ/เวลา ไม่แสดง LINE User ID แต่ยังไม่ใช่การรับรอง provider หรือ MySQL จริง
 - **Notification delivery-time privacy พัฒนาแล้ว:** dispatcher ตรวจ current link/member/consent และข้อมูลติดต่อปัจจุบันก่อนส่ง LINE/SMS/อีเมล; SERVICE_PRIVACY ปิด external queue ทั้งหมด ส่วน MARKETING ปิดเฉพาะ INACTIVITY และเก็บ operational EXPIRY_REMINDER/link; การให้ consent/เชื่อมใหม่ไม่คืนคิวเก่า และ anonymization ปิด unsent ทุก channel พร้อมล้าง PII แต่คง SENT history
 - **ยังเป็นข้อจำกัด/เกณฑ์รับรองที่ค้าง:** SMS/SMTP sandbox acceptance; LINE ยังปิด generation (`enableLine=false`), channel/recipient, settings/UI และ health (`UNAVAILABLE`) ต้องผ่าน sandbox/HTTPS webhook/signature/redelivery/block/live-push acceptance และ real-MySQL isolation/deadlock/uniqueness/locking concurrency ภายนอกก่อนเปิด production webhook แม้ outbound ยังปิด; HTTP ที่เริ่มส่งแล้วเรียกคืนไม่ได้ และยังไม่พิสูจน์ exactly-once เพราะ lost acknowledgement/lease retry อาจส่งซ้ำ; ประตู/เครื่องอ่านบัตรจริงและ calibration, พื้นที่ backup นอกเครื่องและ disposable-server recovery drill; ไม่มี native mobile app และ payroll ไม่รวมภาษี/ประกันสังคม/การสั่งจ่ายเงิน
@@ -282,7 +282,9 @@ branches             — สาขา
 - [x] ระบบสมาชิก (สมัคร / แก้ไข / ดูข้อมูล)
 - [ ] อ่านบัตรประชาชน
 - [x] ระบบบัตร QR ทั้ง 2 แบบ (ซอฟต์แวร์ static pool / Dynamic QR; ฮาร์ดแวร์จริงยังไม่รับรอง)
-- [x] ระบบสแกนเข้า-ออก + ตัดวัน
+- [x] ระบบสแกนเข้า + ตัดวันตามเวลาไทย (ระบบซอฟต์แวร์)
+- [ ] แยกจุดสแกนตามสาขาและบันทึกจุดในประวัติ; ยังไม่มีการสแกนออกแยกจากสแกนเข้า
+- [ ] Occupancy จากการเข้า–ออกที่บันทึกจริง; ยังไม่ใช้ประวัติอนุมัติการเข้าแทนจำนวนคนในฟิตเนส
 - [x] ระบบชำระเงิน + ใบเสร็จ/ใบกำกับภาษีและหน้าพิมพ์ (ไม่ใช่การรับรองอุปกรณ์/provider จริง)
 
 ### Phase 2 — Business Operations
