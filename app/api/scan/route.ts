@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import {
   processCardScan,
+  ScanPointNotFoundError,
   type AccessScanResult,
 } from "@/lib/access-service";
 import { runAuditedMutation, writeAudit } from "@/lib/audit-service";
@@ -14,8 +15,10 @@ import {
 } from "@/lib/hardware/adapter";
 import { AuthorizationError, requirePermission } from "@/lib/staff-service";
 
-const scanSchema = z.object({
-  serial: z.string().trim().min(1).max(64),
+const scanSchema = z.strictObject({
+  // Serial บัตรเก็บตรงใน log ส่วน Dynamic QR เก็บเพียง hash แบบย่อ
+  serial: z.string().trim().min(1).max(64).refine(value => value.length <= 20 || value.startsWith("FQR.")),
+  scanPointId: z.number().int().min(1).max(0x7fffffff).optional(),
 });
 
 /** ตรวจสิทธิ์และ commit access log ก่อนขอเปิดประตู เพื่อไม่ให้ hardware failure ย้อนทำข้อมูลธุรกิจเสีย */
@@ -27,7 +30,7 @@ export async function POST(request: Request) {
       action: "ACCESS_SCAN_PROCESSED",
       entityType: "ACCESS_SCAN",
     });
-    const { serial } = scanSchema.parse(await request.json());
+    const { serial, scanPointId } = scanSchema.parse(await request.json().catch(() => null));
     const method = serial.startsWith("FQR.") ? "DYNAMIC_QR" : "CARD";
     const result = await runAuditedMutation<AccessScanResult>(
       {
@@ -40,9 +43,11 @@ export async function POST(request: Request) {
           metadata: { method, status: value.result },
         }),
       },
-      (tx) => processCardScan(tx, branchId, serial),
+      (tx) => processCardScan(tx, branchId, serial, undefined, scanPointId),
     );
     if (result.result === "REJECTED") return NextResponse.json(result);
+    // Controller เดิมไม่มีพารามิเตอร์จุด จึงห้ามเรียกแทนจนกว่าจะผูก hardware แยกตามจุด
+    if (scanPointId !== undefined) return NextResponse.json({ ...result, door: { opened: false, status: "DISABLED" } });
 
     const door = await requestDoorOpen(loadHardwareEnvironment());
     await writeAudit(db, {
@@ -62,6 +67,8 @@ export async function POST(request: Request) {
       );
     if (error instanceof z.ZodError)
       return NextResponse.json({ error: "ข้อมูลบัตรไม่ถูกต้อง" }, { status: 400 });
+    if (error instanceof ScanPointNotFoundError)
+      return NextResponse.json({ error: error.message }, { status: 404 });
     if (error instanceof AuthorizationError)
       return NextResponse.json({ error: error.message }, { status: error.status });
     console.error("access scan failed");

@@ -152,6 +152,7 @@ npm run start
 - ใช้ migration `0020_access_settings` และ `0021_daily_access_guard` ตามขั้นตอน Deploy ข้างต้นก่อนเปิดให้สแกนจริง ตรวจว่ามี `access_settings` และ unique key `access_logs_member_daily_use_unique` บน `(member_id, daily_use_date)` รวมถึง `/api/health` ตอบ 200
 - เริ่ม cutover ก่อนเปิดให้สแกนของวันไทยถัดไป: migration ไม่ย้อนหลังวันใช้สิทธิ์ใน log เดิม หากสลับกลางวัน สมาชิก DAILY ที่สแกนไปก่อนสลับอาจได้รับสิทธิ์อีกครั้ง
 - ใช้สมาชิกทดสอบบนฐาน MySQL ที่แยกจาก production: ส่งสองการสแกน DAILY พร้อมกันและตรวจว่าได้ `APPROVED` หนึ่งรายการ และ `REJECTED` หนึ่งรายการในวันไทยเดียวกัน ก่อนทดสอบกับเครื่องอ่านจริง
+- เมื่อ release รวม `0022_access_scan_points` ให้ตรวจว่าประวัติเก่ายังมีจุดเป็น `NULL` และสแกนที่ระบุจุดบันทึก ID ทั้งเมื่ออนุมัติและปฏิเสธ จุดของอีกสาขาต้องได้ 404 โดยไม่ประมวลผลบัตร จุดที่ระบุ **ไม่เรียก controller เดิม**; คำขอ legacy ที่ไม่ระบุจุดคงพฤติกรรมเดิม
 
 ## LINE provider settings
 

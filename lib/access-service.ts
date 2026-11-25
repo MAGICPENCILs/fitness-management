@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { accessLogs, accessSettings, cardPool, memberAccessTokens, memberPackages, members, packages } from "@/db/schema";
+import { accessLogs, accessScanPoints, accessSettings, cardPool, memberAccessTokens, memberPackages, members, packages } from "@/db/schema";
 import { evaluateAccessPolicy, storedDateKey, thaiDateKey } from "@/lib/access-policy";
 import type { DbTransaction } from "@/lib/audit-service";
 import { recordScanWarning } from "@/lib/notification-engine";
@@ -27,6 +27,14 @@ export type AccessScanResult =
 
 export const defaultAccessSettings = { id: 1, graceDays: 3 } as const;
 
+export class ScanPointNotFoundError extends Error {
+  /** ใช้ข้อความเดียวกันสำหรับจุดที่ไม่มีและจุดของสาขาอื่น */
+  constructor() {
+    super("ไม่พบจุดสแกนในสาขานี้");
+    this.name = "ScanPointNotFoundError";
+  }
+}
+
 /** โหลด singleton setting และ fallback อย่างปลอดภัยเมื่อยังไม่มีแถวตั้งค่า */
 export async function getAccessSettings(executor: Pick<typeof db, "select"> = db) {
   const [settings] = await executor.select({ id: accessSettings.id, graceDays: accessSettings.graceDays })
@@ -42,6 +50,7 @@ async function rejectAccess(
   reason: string,
   now: Date,
   memberId?: number,
+  scanPointId?: number,
 ): Promise<AccessScanResult> {
   await tx.insert(accessLogs).values({
     branchId,
@@ -50,6 +59,7 @@ async function rejectAccess(
     result: "REJECTED",
     reason,
     scannedAt: now,
+    scanPointId,
   });
   return { result: "REJECTED", reason };
 }
@@ -67,7 +77,14 @@ export async function processCardScan(
   branchId: number,
   serial: string,
   now = new Date(),
+  scanPointId?: number,
 ): Promise<AccessScanResult> {
+  if (scanPointId !== undefined) {
+    // ยึดสาขาจาก session ก่อนอ่าน credential; ID ของจุดจาก client ไม่ให้สิทธิ์ข้ามสาขา
+    const [point] = await tx.select({ id: accessScanPoints.id }).from(accessScanPoints)
+      .where(and(eq(accessScanPoints.id, scanPointId), eq(accessScanPoints.branchId, branchId))).limit(1);
+    if (!point) throw new ScanPointNotFoundError();
+  }
   let memberId: number | null = null;
   let auditSerial = serial;
   if (serial.startsWith("FQR.")) {
@@ -95,7 +112,7 @@ export async function processCardScan(
     memberId = card?.status === "IN_USE" ? card.memberId : null;
   }
   if (!memberId)
-    return rejectAccess(tx, branchId, auditSerial, "ไม่พบบัตรหรือ QR หมดอายุ", now);
+    return rejectAccess(tx, branchId, auditSerial, "ไม่พบบัตรหรือ QR หมดอายุ", now, undefined, scanPointId);
 
   const [member] = await tx
     .select()
@@ -106,7 +123,7 @@ export async function processCardScan(
     .limit(1)
     .for("update");
   if (!member)
-    return rejectAccess(tx, branchId, auditSerial, "ไม่พบสมาชิกในสาขานี้", now);
+    return rejectAccess(tx, branchId, auditSerial, "ไม่พบสมาชิกในสาขานี้", now, undefined, scanPointId);
 
   const packageCandidates = await tx
     .select({
@@ -147,6 +164,7 @@ export async function processCardScan(
       decision.reason,
       now,
       member.id,
+      scanPointId,
     );
 
   if (memberPackage?.packageType === "DAILY") {
@@ -160,10 +178,11 @@ export async function processCardScan(
         reason: null,
         scannedAt: now,
         dailyUseDate: today,
+        scanPointId,
       });
     } catch (error) {
       if (!isDuplicateEntryError(error)) throw error;
-      return rejectAccess(tx, branchId, auditSerial, "สิทธิ์รายวันถูกใช้แล้ววันนี้", now, member.id);
+      return rejectAccess(tx, branchId, auditSerial, "สิทธิ์รายวันถูกใช้แล้ววันนี้", now, member.id, scanPointId);
     }
   } else {
     await tx.insert(accessLogs).values({
@@ -173,6 +192,7 @@ export async function processCardScan(
       result: "APPROVED",
       reason: null,
       scannedAt: now,
+      scanPointId,
     });
   }
   if (decision.warning && memberPackage) {

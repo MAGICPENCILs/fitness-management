@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getTableName, type Table } from "drizzle-orm";
 import { accessLogs, accessSettings, cardPool, memberAccessTokens, memberPackages, members, notifications, packages } from "@/db/schema";
 import type { DbTransaction } from "@/lib/audit-service";
+import { matches } from "@/lib/notifications/notification-test-db";
 
 vi.mock("@/db", () => ({ db: {} }));
 import { getAccessSettings, processCardScan } from "./access-service";
@@ -23,12 +24,15 @@ function scanTestDb() {
     member, memberPackage, memberPackages: [memberPackage], graceDays: 3, settingsPresent: true, events: [] as string[],
     logs: [] as Record<string, unknown>[], warnings: [] as Record<string, unknown>[],
     warningError: null as Error | null,
+    points: [{ id: 31, branchId: 10, name: "ประตูหน้า" }, { id: 32, branchId: 20, name: "อีกสาขา" }, { id: 33, branchId: 10, name: "ประตูข้าง" }],
   };
   const select = () => {
     let table: Table;
     let lock: string | undefined;
+    let condition: Parameters<typeof matches>[0];
     const rows = async () => {
       state.events.push(`${lock ? `lock:${lock}` : "read"}:${getTableName(table)}`);
+      if (getTableName(table) === "access_scan_points") return state.points.filter(point => matches(condition, point, table, member));
       if (table === cardPool) return [{ memberId: 7, status: "IN_USE" }];
       if (table === memberAccessTokens) return [{ memberId: 7 }];
       if (table === members) return [state.member];
@@ -41,7 +45,7 @@ function scanTestDb() {
     };
     const query = {
       from(value: Table) { table = value; return query; }, innerJoin() { return query; },
-      where() { return query; }, limit() { return query; }, orderBy() { return query; },
+      where(value: Parameters<typeof matches>[0]) { condition = value; return query; }, limit() { return query; }, orderBy() { return query; },
       for(value: string) { lock = value; return query; },
       then(resolve: (value: Record<string, unknown>[]) => unknown, reject: (error: unknown) => unknown) { return rows().then(resolve, reject); },
     };
@@ -76,6 +80,30 @@ let fixture: ReturnType<typeof scanTestDb>;
 beforeEach(() => { fixture = scanTestDb(); });
 
 describe("scan transaction safety", () => {
+  it.each(["ACTIVE", "SUSPENDED"])("บันทึกจุดของสาขาไม่ว่าผลสแกนจะอนุมัติหรือปฏิเสธ (%s)", async status => {
+    fixture.state.member.status = status;
+    const outcome = await processCardScan(fixture.tx, 10, "CARD-007", now, 31);
+    expect(fixture.state.logs).toMatchObject([{ branchId: 10, scanPointId: 31, scannedAt: now,
+      result: status === "ACTIVE" ? "APPROVED" : "REJECTED" }]);
+    expect(outcome.result).toBe(status === "ACTIVE" ? "APPROVED" : "REJECTED");
+  });
+
+  it.each([32, 99])("ไม่ประมวลผล credential เมื่อจุดสแกนไม่อยู่ในสาขา: %s", async pointId => {
+    await expect(processCardScan(fixture.tx, 10, "CARD-007", now, pointId)).rejects.toMatchObject({ name: "ScanPointNotFoundError" });
+    expect(fixture.state.events).toEqual(["read:access_scan_points"]);
+    expect(fixture.state.logs).toEqual([]);
+  });
+
+  it("DAILY ไม่ได้สิทธิ์เพิ่มเมื่อเปลี่ยนจุดสแกนในวันไทยเดียวกัน", async () => {
+    fixture.state.memberPackage.packageType = "DAILY";
+    await expect(processCardScan(fixture.tx, 10, "CARD-007", now, 31)).resolves.toMatchObject({ result: "APPROVED" });
+    await expect(processCardScan(fixture.tx, 10, "CARD-007", now, 33)).resolves.toMatchObject({ result: "REJECTED" });
+    expect(fixture.state.logs).toMatchObject([
+      { scanPointId: 31, result: "APPROVED", dailyUseDate: "2026-11-03" },
+      { scanPointId: 33, result: "REJECTED" },
+    ]);
+    expect(fixture.state.logs.at(-1)?.dailyUseDate).toBeUndefined();
+  });
   it("ใช้ grace 3 วันเมื่อยังไม่มีแถว access settings", async () => {
     fixture.state.settingsPresent = false;
     expect(await getAccessSettings(fixture.tx as never)).toEqual({ id: 1, graceDays: 3 });
