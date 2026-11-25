@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { lineProviderSettings } from "@/db/schema";
 import { notificationTestDb, queuedNotification } from "@/lib/notifications/notification-test-db";
+import { encryptProviderCredential } from "@/lib/provider-credentials-crypto";
 
 const mocks = vi.hoisted(() => ({ select: vi.fn(), update: vi.fn(), transaction: vi.fn(), deliver: vi.fn(), claim: vi.fn() }));
 vi.mock("@/db", () => ({ db: mocks }));
@@ -17,6 +19,7 @@ beforeEach(async () => {
   realClaim = (await vi.importActual<typeof import("@/lib/notifications/line-delivery-policy")>("@/lib/notifications/line-delivery-policy")).claimLineNotification;
   mocks.claim.mockImplementation(realClaim);
 });
+afterEach(() => vi.unstubAllEnvs());
 
 /** ทดสอบ path หลัง preflight ที่อนุญาตโดย mock เฉพาะ gate input; adapter ยังเป็น fake เสมอและไม่เปิด outbound จริง */
 function allowSyntheticPreflight() {
@@ -34,9 +37,39 @@ describe("notification dispatch fences", () => {
   });
 
   it("never calls the adapter for LINE even if persisted settings say enabled", async () => {
+    vi.stubEnv("NOTIFICATION_PROVIDER_MODE", "live");
+    const providerRead = vi.fn();
+    fixture.state.beforeRead = table => { if (table === lineProviderSettings) providerRead(); };
     expect(await processNotificationDelivery(1, 10)).toMatchObject({ status: "SKIPPED", failureKind: "PERMANENT", attemptCount: 0 });
     expect(mocks.deliver).not.toHaveBeenCalled();
+    expect(providerRead).not.toHaveBeenCalled();
     expect(fixture.state.rows[0]).toMatchObject({ recipient: null, status: "SKIPPED" });
+  });
+
+  it.each([
+    ["no row", "legacy-token"],
+    ["rotated", "stored-token"],
+    ["cleared", undefined],
+    ["invalid key", undefined],
+    ["unreadable", undefined],
+  ])("uses the correct token after synthetic LINE authorization: %s", async (scenario, expected) => {
+    allowSyntheticPreflight();
+    const key = Buffer.alloc(32, 7).toString("base64");
+    vi.stubEnv("NOTIFICATION_PROVIDER_MODE", "live");
+    vi.stubEnv("NOTIFICATION_LINE_ACCESS_TOKEN", "legacy-token");
+    vi.stubEnv("PROVIDER_CONFIG_ENCRYPTION_KEY", scenario === "invalid key" ? "" : key);
+    if (scenario === "unreadable") {
+      fixture.state.beforeRead = table => { if (table === lineProviderSettings) throw new Error("unavailable"); };
+    } else if (scenario !== "no row") {
+      fixture.state.providers = [{
+        id: 1, destination: `U${"a".repeat(32)}`, revision: 2, updatedByStaffId: 3, updatedAt: new Date(),
+        accessTokenEncrypted: scenario === "cleared" ? null : encryptProviderCredential("stored-token", "accessToken", key),
+        channelSecretEncrypted: null,
+      }];
+    }
+    await processNotificationDelivery(1, 10);
+    expect(mocks.deliver).toHaveBeenCalledOnce();
+    expect(mocks.deliver.mock.calls[0]?.[1].lineAccessToken).toBe(expected);
   });
 
   it("unlink-first permanently cancels LINE before preflight with zero provider calls", async () => {
@@ -47,7 +80,10 @@ describe("notification dispatch fences", () => {
 
   it("unlink after preflight but before the final read blocks the LINE provider", async () => {
     allowSyntheticPreflight();
-    fixture.state.afterCommit = () => removeLineLink({ staffId: 3, role: "OWNER", homeBranchId: 10 }, 7).then(() => undefined);
+    vi.stubEnv("NOTIFICATION_PROVIDER_MODE", "live");
+    fixture.state.beforeRead = async table => {
+      if (table === lineProviderSettings) await removeLineLink({ staffId: 3, role: "OWNER", homeBranchId: 10 }, 7);
+    };
     await expect(processNotificationDelivery(1, 10)).rejects.toMatchObject({ status: 409 });
     expect(mocks.deliver).not.toHaveBeenCalled();
     expect(fixture.state.rows[0]).toMatchObject({ status: "SKIPPED", failureKind: "PERMANENT", recipient: null, attemptCount: 1 });

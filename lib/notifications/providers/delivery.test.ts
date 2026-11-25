@@ -44,6 +44,17 @@ describe("notification delivery providers", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("ไม่เรียก LINE API เมื่อไม่มี token ที่ worker อนุญาตให้ใช้", async () => {
+    const request = vi.fn();
+    const environment = loadDeliveryEnvironment({
+      NOTIFICATION_PROVIDER_MODE: "live", NOTIFICATION_LINE_ACCESS_TOKEN: "legacy-token",
+    });
+    await expect(deliverNotification(
+      { ...notification, channel: "LINE", recipient: `U${"a".repeat(32)}` }, environment, { request },
+    )).resolves.toEqual({ outcome: "disabled", errorCode: "PROVIDER_NOT_CONFIGURED" });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("จัด 429 และ 5xx เป็น retryable โดยไม่สะท้อน response body", async () => {
     const request = vi.fn().mockResolvedValue(
       new Response("secret provider detail", { status: 429 }),

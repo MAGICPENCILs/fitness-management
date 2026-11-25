@@ -56,7 +56,7 @@ function readDatabaseCredentials(row: Row) {
   if ((accessToken !== null && !credential.safeParse(accessToken).success) || (channelSecret !== null && !credential.safeParse(channelSecret).success)) {
     throw new LineProviderSettingsError(503);
   }
-  return { channelSecret, destination: row.destination };
+  return { accessToken, channelSecret, destination: row.destination };
 }
 
 /** สร้าง URL จาก origin ที่ตั้งไว้เท่านั้น ไม่ใช้ Host หรือค่าใดจากคำขอ */
@@ -169,4 +169,15 @@ export async function resolveLineWebhookCredentials(): Promise<{ channelSecret: 
     if (!channelSecret || !credential.safeParse(channelSecret).success || (destination && !isLineUserId(destination))) return null;
     return destination ? { channelSecret, destination } : { channelSecret };
   } catch { return null; }
+}
+
+/** คืน token สำหรับ worker เท่านั้น; เมื่อมีแถวแล้ว การล้างค่าหรืออ่านไม่ได้ต้องไม่ย้อนกลับไปใช้ env */
+export async function resolveLinePushToken(): Promise<string | undefined> {
+  try {
+    const row = await readRow();
+    if (row) return readDatabaseCredentials(row).accessToken ?? undefined;
+    const token = credential.safeParse(process.env.NOTIFICATION_LINE_ACCESS_TOKEN);
+    const destination = process.env.NOTIFICATION_LINE_DESTINATION;
+    return token.success && (!destination || isLineUserId(destination)) ? token.data : undefined;
+  } catch { return undefined; }
 }

@@ -13,6 +13,7 @@ import {
 } from "@/db/schema";
 import type { DbTransaction } from "@/lib/audit-service";
 import { getLatestConsent } from "@/lib/consent-policy";
+import { resolveLinePushToken } from "@/lib/line-provider-settings-service";
 import {
   canClaimDelivery,
   deliverNotification,
@@ -432,6 +433,9 @@ export async function processNotificationDelivery(
     eq(notifications.lastAttemptAt, claimTime),
     eq(notifications.attemptCount, claimedAttemptCount),
   );
+  const environment = loadDeliveryEnvironment();
+  // อ่าน token หลังผ่าน LINE preflight แต่ก่อนตรวจ lease สุดท้าย เพื่อไม่ส่งเมื่อคิวถูกยกเลิกระหว่างอ่านค่า
+  if (lineClaim && environment.mode === "live") environment.lineAccessToken = await resolveLinePushToken();
   // การอ่านผ่านคือจุดอนุญาตส่ง หากถอนสิทธิ์หลังจากนี้ provider ยังอาจถูกเรียก เพราะไม่ถือ lock ระหว่างส่ง
   const [current] = await db.select({ id: notifications.id }).from(notifications).where(claimFence).limit(1);
   if (!current) throw new NotificationDeliveryError("lease ของรายการหมดอายุแล้ว");
@@ -472,7 +476,6 @@ export async function processNotificationDelivery(
     deliveryRecord = { ...record, recipient: currentRecipient };
   }
 
-  const environment = loadDeliveryEnvironment();
   const result = await deliverNotification(deliveryRecord, environment, {
     sendSmtp: sendSmtpNotification,
   });

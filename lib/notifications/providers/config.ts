@@ -25,7 +25,6 @@ export function loadDeliveryEnvironment(
     mode,
     smsWebhookUrl: secureUrl(source.NOTIFICATION_SMS_WEBHOOK_URL),
     smsWebhookToken: source.NOTIFICATION_SMS_WEBHOOK_TOKEN,
-    lineAccessToken: source.NOTIFICATION_LINE_ACCESS_TOKEN,
     emailFrom: source.NOTIFICATION_EMAIL_FROM,
     smtpHost: source.NOTIFICATION_SMTP_HOST,
     smtpPort: Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : undefined,
