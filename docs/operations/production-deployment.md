@@ -1,6 +1,6 @@
 # Production deployment runbook
 
-คู่มือสำหรับ operator: Next.js 16.4.4 แบบ single-instance Node.js หลัง trusted TLS reverse proxy ใช้พอร์ตภายใน `3005` เท่านั้น ยังไม่ได้เลือก vendor, process manager หรือ reverse proxy จึงไม่มีคำสั่งติดตั้ง infrastructure ในเอกสารนี้ และไม่ได้รับรองว่า production ผ่าน acceptance แล้ว
+คู่มือสำหรับ operator: Next.js 16 (เวอร์ชันตาม `package.json` ของ release) แบบ single-instance Node.js หลัง trusted TLS reverse proxy ใช้พอร์ตภายใน `3005` เท่านั้น ยังไม่ได้เลือก vendor, process manager หรือ reverse proxy จึงไม่มีคำสั่งติดตั้ง infrastructure ในเอกสารนี้ และไม่ได้รับรองว่า production ผ่าน acceptance แล้ว
 
 ## Pre-deploy — เงื่อนไขก่อนเริ่ม
 
@@ -146,6 +146,12 @@ npm run start
 4. การ recovery จริงต้องยืนยัน target และขอบเขตข้อมูลสูญหาย/RPO, หยุด writers และกู้ DB พร้อม `storage/` และ legacy uploads ทั้งสอง directory จาก recovery set เดียวกันผ่านแผนที่ซ้อมแล้ว ดู guard `BACKUP_RESTORE_ENABLED=true`, `--execute`, `--confirm "RESTORE <database>"` ใน [README](../../README.md) เปิด flag ชั่วคราวเฉพาะ restore process แล้วล้างทันที ไม่เปิดค้างใน server environment
 5. Restore drill ต้องใช้ **isolated disposable MySQL server ที่ใช้ชื่อ database เดียวกับ manifest** เพราะสคริปต์บังคับชื่อตรงกัน เปลี่ยน host ผ่าน secret manager ตรวจแยกจาก production และห้ามแก้ manifest เพื่อข้าม guard; dry-run อย่างเดียวไม่ทดแทน drill
 6. หลัง rollback/recovery ต้องผ่าน Verify อีกครั้งก่อนคืน traffic บันทึก revision ที่ให้บริการจริง, schema state และ recovery set โดยไม่เก็บ secret/ข้อมูลสมาชิกลง incident log
+
+## Access Policy cutover
+
+- ใช้ migration `0020_access_settings` และ `0021_daily_access_guard` ตามขั้นตอน Deploy ข้างต้นก่อนเปิดให้สแกนจริง ตรวจว่ามี `access_settings` และ unique key `access_logs_member_daily_use_unique` บน `(member_id, daily_use_date)` รวมถึง `/api/health` ตอบ 200
+- เริ่ม cutover ก่อนเปิดให้สแกนของวันไทยถัดไป: migration ไม่ย้อนหลังวันใช้สิทธิ์ใน log เดิม หากสลับกลางวัน สมาชิก DAILY ที่สแกนไปก่อนสลับอาจได้รับสิทธิ์อีกครั้ง
+- ใช้สมาชิกทดสอบบนฐาน MySQL ที่แยกจาก production: ส่งสองการสแกน DAILY พร้อมกันและตรวจว่าได้ `APPROVED` หนึ่งรายการ และ `REJECTED` หนึ่งรายการในวันไทยเดียวกัน ก่อนทดสอบกับเครื่องอ่านจริง
 
 ## LINE provider settings
 

@@ -4,7 +4,7 @@
 
 ## เทคโนโลยี
 
-- Next.js 16.4.4 (App Router + Turbopack), React 19 และ TypeScript
+- Next.js 16 (App Router + Turbopack; ดูเวอร์ชันที่ล็อกไว้ใน `package.json`), React 19 และ TypeScript
 - Tailwind CSS 4 และ Radix UI
 - MySQL, Drizzle ORM และ Argon2
 - Session cookie ที่ลงลายเซ็น, rate limit และ RBAC ฝั่ง server
