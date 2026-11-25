@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { ScanLine, Loader2, CheckCircle2, DoorOpen, Radio, TriangleAlert, XCircle } from "lucide-react";
 
 type ScanResult = {
@@ -28,10 +30,16 @@ type ScanResult = {
 /** แสดงรูปผ่าน gateway ที่ตรวจสิทธิ์ปัจจุบันโดยไม่ cache และสร้าง image ใหม่เมื่อ reference เปลี่ยนเพื่อไม่แสดงภาพระบุตัวตนเก่า */
 export function ScanPage({
   hardwareHealth,
+  scanPoints = [],
+  children,
 }: {
   hardwareHealth: { mode: "disabled" | "simulate" | "webhook"; ready: boolean };
+  scanPoints?: { id: number; name: string }[];
+  children?: ReactNode;
 }) {
+  const router = useRouter();
   const [serial, setSerial] = useState("");
+  const [pointId, setPointId] = useState("");
   const [loading, setLoading] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState("");
@@ -39,18 +47,19 @@ export function ScanPage({
 
   /** ส่งรหัสบัตรที่ตัดช่องว่างแล้วไปตรวจสิทธิ์ โดยคงผลตอบกลับของเซิร์ฟเวอร์เป็นแหล่งข้อมูลหลัก */
   const handleScan = async () => {
-    if (!serial.trim()) return;
+    if (!serial.trim() || loading || reading) return;
     setLoading(true);
     setError("");
     try {
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ serial: serial.trim() }),
+        body: JSON.stringify({ serial: serial.trim(), scanPointId: pointId ? Number(pointId) : undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "ไม่สามารถตรวจสิทธิ์ได้");
       setScanResult(data);
+      router.refresh();
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : "ไม่สามารถตรวจสิทธิ์ได้");
     } finally {
@@ -60,6 +69,7 @@ export function ScanPage({
 
   /** ขออ่าน credential จาก adapter ฝั่งเซิร์ฟเวอร์ แล้วให้ผู้ใช้กดสแกนเพื่อยืนยันการทำรายการ */
   const handleReadCredential = async () => {
+    if (pointId || reading || loading || !hardwareHealth.ready) return;
     setReading(true);
     setError("");
     try {
@@ -84,6 +94,7 @@ export function ScanPage({
   const handleReset = () => {
     setScanResult(null);
     setSerial("");
+    setError("");
   };
 
   return (
@@ -100,24 +111,30 @@ export function ScanPage({
         </div>
       </div>
 
-      {/* Input สแกน */}
-      <div className="flex gap-2 rounded-xl border border-info/20 bg-card p-4 shadow-sm">
-        <Input
-          placeholder="รหัสบัตร เช่น C001"
-          value={serial}
-          onChange={(e) => setSerial(e.target.value)}
-          onKeyDown={handleKeyDown}
-          autoFocus
-        />
-        <Button onClick={handleScan} disabled={loading} className="gap-2 shrink-0">
-          {loading
-            ? <Loader2 className="w-4 h-4 animate-spin" />
-            : <ScanLine className="w-4 h-4" />
-          }
-          สแกน
-        </Button>
+      {scanPoints.length > 0 ? (
+        <div className="space-y-2">
+          <Label htmlFor="scan-point">จุดสแกน</Label>
+          <select id="scan-point" value={pointId} disabled={loading || reading} aria-describedby="scan-point-help"
+            className="h-11 w-full rounded-lg border border-input bg-background px-3 text-base focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            onChange={event => { setPointId(event.target.value); handleReset(); }}>
+            <option value="">เครื่องเดิม (ไม่ระบุจุด)</option>
+            {scanPoints.map(point => <option key={point.id} value={point.id}>{point.name}</option>)}
+          </select>
+          <p id="scan-point-help" className="text-sm text-muted-foreground">จุดที่ระบุใช้ตรวจสิทธิ์และบันทึกประวัติเท่านั้น ไม่ใช้เครื่องอ่านหรือประตูเดิม</p>
+        </div>
+      ) : null}
+      <div className="space-y-2 rounded-xl border border-info/20 bg-card p-4 shadow-sm">
+        <Label htmlFor="scan-serial">รหัสบัตรหรือ QR</Label>
+        <div className="flex gap-2">
+          <Input id="scan-serial" placeholder="รหัสบัตร เช่น C001" value={serial}
+            onChange={e => setSerial(e.target.value)} onKeyDown={handleKeyDown} readOnly={loading || reading} autoFocus />
+          <Button onClick={handleScan} disabled={loading || reading} className="gap-2 shrink-0">
+            {loading ? <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" /> : <ScanLine className="size-4" aria-hidden="true" />}
+            สแกน
+          </Button>
+        </div>
       </div>
-      <Button type="button" variant="outline" className="w-full" onClick={handleReadCredential} disabled={reading || !hardwareHealth.ready}>
+      <Button type="button" variant="outline" className="w-full" onClick={handleReadCredential} disabled={reading || loading || !!pointId || !hardwareHealth.ready} aria-describedby={pointId ? "scan-point-help" : undefined}>
         {reading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Radio className="size-4" aria-hidden="true" />}
         อ่านจากเครื่อง
       </Button>
@@ -193,7 +210,7 @@ export function ScanPage({
           {scanResult.result === "APPROVED" && scanResult.door ? (
             <div className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium ${scanResult.door.opened ? "border-success/30 bg-success-surface text-success" : "border-warning/30 bg-warning-surface text-warning-foreground"}`} role="status">
               {scanResult.door.opened ? <DoorOpen className="size-4" aria-hidden="true" /> : <TriangleAlert className="size-4" aria-hidden="true" />}
-              <span>{scanResult.door.opened ? "ประตูเปิดแล้ว" : "ผ่านสิทธิ์แล้ว แต่ประตูยังไม่เปิด กรุณาตรวจ controller"}</span>
+              <span>{scanResult.door.opened ? "ประตูเปิดแล้ว" : pointId ? "จุดนี้ตรวจสิทธิ์เท่านั้น ไม่สั่งเปิดประตู" : "ผ่านสิทธิ์แล้ว แต่ประตูยังไม่เปิด กรุณาตรวจ controller"}</span>
             </div>
           ) : null}
 
@@ -203,6 +220,7 @@ export function ScanPage({
           </Button>
         </div>
       )}
+      {children}
     </div>
   );
 }

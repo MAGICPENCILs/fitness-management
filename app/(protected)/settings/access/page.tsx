@@ -1,5 +1,6 @@
 import { AccessSettingsForm } from "@/components/settings/access-settings-form";
-import { getAccessSettings } from "@/lib/access-service";
+import { AccessScanPointForm } from "@/components/settings/access-scan-point-form";
+import { getAccessSettings, listAccessScanPoints } from "@/lib/access-service";
 import { getCurrentBranchId } from "@/lib/branch-service";
 import { requirePermission } from "@/lib/staff-service";
 
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function AccessSettingsPage() {
   const branchId = await getCurrentBranchId();
   await requirePermission("settings.manage", branchId);
-  const settings = await getAccessSettings();
+  const [settings, points] = await Promise.all([getAccessSettings(), listAccessScanPoints(branchId)]);
   return (
     <div className="w-full max-w-3xl space-y-8 p-4 sm:p-6 lg:p-8">
       <header>
@@ -18,6 +19,7 @@ export default async function AccessSettingsPage() {
         <p className="mt-1 text-pretty text-sm text-muted-foreground">กำหนดช่วงผ่อนผันหลังแพ็กเกจหมดอายุ ส่วนแพ็กเกจรายวันใช้ได้หนึ่งครั้งต่อวันโดยอัตโนมัติ</p>
       </header>
       <AccessSettingsForm initialGraceDays={settings.graceDays} />
+      <AccessScanPointForm key={branchId} points={points} />
     </div>
   );
 }

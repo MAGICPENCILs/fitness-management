@@ -42,6 +42,19 @@ export async function getAccessSettings(executor: Pick<typeof db, "select"> = db
   return settings ?? defaultAccessSettings;
 }
 
+/** คืนเฉพาะรายการจุดที่สาขาปัจจุบันใช้ได้ โดยไม่ส่งข้อมูลตั้งค่าเครื่องอ่าน */
+export async function listAccessScanPoints(branchId: number) {
+  return db.select({ id: accessScanPoints.id, name: accessScanPoints.name }).from(accessScanPoints)
+    .where(eq(accessScanPoints.branchId, branchId)).orderBy(accessScanPoints.name, accessScanPoints.id);
+}
+
+/** แสดงเฉพาะเวลา จุด และผลของ 20 รายการล่าสุด โดยไม่เปิดเผยรหัสบัตรหรือข้อมูลสมาชิก */
+export async function listRecentAccessScans(branchId: number) {
+  return db.select({ id: accessLogs.id, scannedAt: accessLogs.scannedAt, result: accessLogs.result, point: accessScanPoints.name })
+    .from(accessLogs).leftJoin(accessScanPoints, and(eq(accessLogs.scanPointId, accessScanPoints.id), eq(accessScanPoints.branchId, branchId)))
+    .where(eq(accessLogs.branchId, branchId)).orderBy(desc(accessLogs.id)).limit(20);
+}
+
 /** บันทึกผลปฏิเสธทุกกรณีใน transaction เดียวกับการตรวจสิทธิ์ */
 async function rejectAccess(
   tx: DbTransaction,

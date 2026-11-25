@@ -4,7 +4,23 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, expect, it, vi } from "vitest";
 import { ScanPage } from "@/components/access/scan-page";
 
+const refresh = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+it("เลือกจุดแล้วส่ง ID ของจุด ไม่ใช้เครื่องอ่าน legacy และอัปเดตประวัติ", async () => {
+  const request = vi.fn(async () => ({ ok: true, json: async () => ({ result: "APPROVED", door: { opened: false, status: "DISABLED" } }) }));
+  vi.stubGlobal("fetch", request);
+  render(<ScanPage hardwareHealth={{ mode: "webhook", ready: true }} scanPoints={[{ id: 31, name: "ประตูข้าง" }]} />);
+  fireEvent.change(screen.getByRole("combobox", { name: "จุดสแกน" }), { target: { value: "31" } });
+  expect(screen.getByRole("button", { name: "อ่านจากเครื่อง" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("รหัสบัตรหรือ QR"), { target: { value: "C001" } });
+  fireEvent.click(screen.getByRole("button", { name: /^สแกน$/ }));
+  expect(await screen.findByText("จุดนี้ตรวจสิทธิ์เท่านั้น ไม่สั่งเปิดประตู")).toBeInTheDocument();
+  expect(request).toHaveBeenCalledExactlyOnceWith("/api/scan", expect.objectContaining({ body: JSON.stringify({ serial: "C001", scanPointId: 31 }) }));
+  expect(refresh).toHaveBeenCalled();
+});
 
 it("renders scanned member photos directly without an optimizer cache or srcset", async () => {
   const photoUrl = `/member-photos/${"b".repeat(64)}.png`;
